@@ -87,11 +87,35 @@ export function placePGY4Rotations(
 
   function tryOnce(): SolveRotationsResult {
     const byFellow: FellowSchedule = cloneByFellow(existingByFellow || {});
-    const used = new Set<string>();
-    // prime used set from existing assignments for these fellows
+    // Track capacity per rotation (one fellow per rotation per block). ELECTIVE has no capacity limit.
+    const usedByRot: Record<Rotation, Set<string>> = {
+      VAC: new Set<string>(),
+      LAC_CATH: new Set<string>(),
+      CCU: new Set<string>(),
+      LAC_CONSULT: new Set<string>(),
+      HF: new Set<string>(),
+      KECK_CONSULT: new Set<string>(),
+      ECHO1: new Set<string>(),
+      EP: new Set<string>(),
+      ELECTIVE: new Set<string>(), // not used for capacity but kept for completeness
+    };
+    const isBlocked = (k: string, rot: Rotation) => (rot === "ELECTIVE" ? false : usedByRot[rot].has(k));
+    const markUsed = (k: string, rot: Rotation) => {
+      if (rot === "ELECTIVE") return; // no capacity restriction for electives
+      usedByRot[rot].add(k);
+    };
+    const unmarkUsed = (k: string, rot: Rotation) => {
+      if (rot === "ELECTIVE") return;
+      usedByRot[rot].delete(k);
+    };
+    // Prime from existing assignments for these fellows (ignore ELECTIVE so others can share the block)
     for (const f of fellows) {
       const row = byFellow[f.id] || {};
-      for (const [k, v] of Object.entries(row)) if (v) used.add(k);
+      for (const [k, v] of Object.entries(row)) {
+        if (!v) continue;
+        if (v === "ELECTIVE") continue;
+        usedByRot[v as Rotation]?.add(k);
+      }
     }
 
     // Step A: Reseat vacations out of first five keys if present
@@ -105,23 +129,23 @@ export function placePGY4Rotations(
 
       // Helper: can place a vacation at candidate key?
       const otherVac = vacs.find((k) => !vacsInFirst.includes(k));
-      const canPlaceVacAt = (cand: string) => {
-        if (used.has(cand)) return false;
-        if (row[cand]) return false;
-        // spacing with the other vacation
-        if (otherVac) {
-          const ia = keyToIndex.get(otherVac) ?? -1;
-          const ib = keyToIndex.get(cand) ?? -1;
-          if (ia < 0 || ib < 0) return false;
-          if (Math.abs(ib - ia) < 6) return false;
-        }
-        return true;
-      };
+        const canPlaceVacAt = (cand: string) => {
+          if (isBlocked(cand, "VAC")) return false;
+          if (row[cand]) return false;
+          // spacing with the other vacation
+          if (otherVac) {
+            const ia = keyToIndex.get(otherVac) ?? -1;
+            const ib = keyToIndex.get(cand) ?? -1;
+            if (ia < 0 || ib < 0) return false;
+            if (Math.abs(ib - ia) < 6) return false;
+          }
+          return true;
+        };
 
       for (const k of vacsInFirst) {
         // remove temporarily
         delete row[k];
-        used.delete(k);
+        unmarkUsed(k, "VAC");
         // try preferred blocks first
         const preferred = Array.from(
           new Set((f.vacationPrefs || []).filter((x): x is string => !!x && !firstFive.includes(x as any)))
@@ -131,7 +155,7 @@ export function placePGY4Rotations(
         for (const cand of preferredCandidates) {
           if (canPlaceVacAt(cand)) {
             row[cand] = "VAC";
-            used.add(cand);
+            markUsed(cand, "VAC");
             placed = true;
             break;
           }
@@ -143,7 +167,7 @@ export function placePGY4Rotations(
           for (const cand of ordered) {
             if (canPlaceVacAt(cand)) {
               row[cand] = "VAC";
-              used.add(cand);
+              markUsed(cand, "VAC");
               placed = true;
               break;
             }
@@ -160,7 +184,7 @@ export function placePGY4Rotations(
     }
 
     // Step B: Early LAC_CATH mapping - one unique early block per fellow
-    const earlyAvail = firstFive.filter((k) => !used.has(k));
+    const earlyAvail = firstFive.filter((k) => !isBlocked(k, "LAC_CATH"));
     if (earlyAvail.length < fellows.length) {
       return {
         success: false,
@@ -178,16 +202,16 @@ export function placePGY4Rotations(
       const row = (byFellow[f.id] = byFellow[f.id] || {});
       const candidates = randomize ? shuffle([...earlyAvail]) : [...earlyAvail];
       for (const k of candidates) {
-        if (used.has(k)) continue;
+        if (isBlocked(k, "LAC_CATH")) continue;
         if (row[k]) continue;
         // assign
         row[k] = "LAC_CATH";
-        used.add(k);
+        markUsed(k, "LAC_CATH");
         assignment.set(f.id, k);
         if (backtrackEarly(i + 1)) return true;
         // undo
         delete row[k];
-        used.delete(k);
+        unmarkUsed(k, "LAC_CATH");
         assignment.delete(f.id);
       }
       return false;
@@ -219,10 +243,10 @@ export function placePGY4Rotations(
       return keys.some((k) => !!row[k]);
     };
 
-    const pairFree = (fid: string, mi: number) => {
+    const pairFree = (fid: string, mi: number, label: Rotation) => {
       const keys = monthToKeys.get(mi) || [];
       if (keys.length < 2) return false;
-      return keys.every((k) => !used.has(k) && !(byFellow[fid] && byFellow[fid][k]));
+      return keys.every((k) => !isBlocked(k, label) && !(byFellow[fid] && byFellow[fid][k]));
     };
 
     const placePair = (fid: string, mi: number, label: Rotation) => {
@@ -230,14 +254,14 @@ export function placePGY4Rotations(
       const keys = monthToKeys.get(mi) || [];
       for (const k of keys) {
         row[k] = label;
-        used.add(k);
+        markUsed(k, label);
       }
     };
 
     const placeSingle = (fid: string, k: string, label: Rotation) => {
       const row = (byFellow[fid] = byFellow[fid] || {});
       row[k] = label;
-      used.add(k);
+      markUsed(k, label);
     };
 
     const firstLacCathMonths = new Map<string, number>();
@@ -258,7 +282,7 @@ export function placePGY4Rotations(
       if (needLC > 0) {
         // try a pair month first
         const candidateMonths = [...monthToKeys.keys()].filter((mi) => {
-          if (!pairFree(f.id, mi)) return false;
+          if (!pairFree(f.id, mi, "LAC_CATH")) return false;
           if (lacCathMonths.has(mi)) return false;
           // non-consecutive months rule
           for (const m of lacCathMonths) if (isAdjacentMonth(mi, m)) return false;
@@ -283,7 +307,7 @@ export function placePGY4Rotations(
             for (const m of lacCathMonths) if (isAdjacentMonth(mi, m)) ok = false;
             if (!ok) continue;
             for (const k of keys) {
-              if (!used.has(k) && !row[k]) singles.push({ k, mi });
+              if (!isBlocked(k, "LAC_CATH") && !row[k]) singles.push({ k, mi });
             }
           }
           const singlesOrdered = randomize ? shuffle(singles) : singles;
@@ -310,7 +334,7 @@ export function placePGY4Rotations(
       let needCCU = 4 - [...ccuMonths].reduce((acc, mi) => acc + (monthToKeys.get(mi)?.length || 0), 0);
       if (needCCU > 0) {
         const candidateMonths = [...monthToKeys.keys()].filter((mi) => {
-          if (!pairFree(f.id, mi)) return false;
+          if (!pairFree(f.id, mi, "CCU")) return false;
           for (const m of ccuMonths) if (isAdjacentMonth(mi, m)) return false;
           return true;
         });
@@ -334,7 +358,7 @@ export function placePGY4Rotations(
       let needLCON = 4 - [...lacConsMonths].reduce((acc, mi) => acc + (monthToKeys.get(mi)?.length || 0), 0);
       if (needLCON > 0) {
         const candidateMonths = [...monthToKeys.keys()].filter((mi) => {
-          if (!pairFree(f.id, mi)) return false;
+          if (!pairFree(f.id, mi, "LAC_CONSULT")) return false;
           for (const m of lacConsMonths) if (isAdjacentMonth(mi, m)) return false;
           return true;
         });
@@ -363,9 +387,9 @@ export function placePGY4Rotations(
           for (const cm of ccuMonthList) if (isAdjacentMonth(mi, cm)) ok = false;
           if (!ok) continue;
           const keys = monthToKeys.get(mi) || [];
-          for (const k of keys) {
-            if (!used.has(k) && !row[k]) candidates.push({ mi, k });
-          }
+            for (const k of keys) {
+              if (!isBlocked(k, "HF") && !row[k]) candidates.push({ mi, k });
+            }
         }
         const ordered = randomize ? shuffle(candidates) : candidates;
         for (const c of ordered) {
@@ -383,7 +407,7 @@ export function placePGY4Rotations(
       // KECK_CONSULT: 2 blocks -> 1 month pair
       let needKECK = 2 - (Object.values(row).filter((x) => x === "KECK_CONSULT").length || 0);
       if (needKECK > 0) {
-        const candidateMonths = [...monthToKeys.keys()].filter((mi) => pairFree(f.id, mi));
+        const candidateMonths = [...monthToKeys.keys()].filter((mi) => pairFree(f.id, mi, "KECK_CONSULT"));
         const ordered = randomize ? shuffle(candidateMonths) : candidateMonths;
         let placed = false;
         for (const mi of ordered) {
@@ -404,7 +428,7 @@ export function placePGY4Rotations(
         const singles: { k: string; mi: number }[] = [];
         for (const [mi, keys] of monthToKeys) {
           if ([...echoMonths].some((m) => isAdjacentMonth(mi, m))) continue;
-          for (const k of keys) if (!used.has(k) && !row[k]) singles.push({ k, mi });
+          for (const k of keys) if (!isBlocked(k, "ECHO1") && !row[k]) singles.push({ k, mi });
         }
         const ordered = randomize ? shuffle(singles) : singles;
         for (const s of ordered) {
@@ -422,7 +446,7 @@ export function placePGY4Rotations(
       let needEP = 1 - (Object.values(row).filter((x) => x === "EP").length || 0);
       if (needEP > 0) {
         const singles: string[] = [];
-        for (const k of blockKeys) if (!used.has(k) && !row[k]) singles.push(k);
+        for (const k of blockKeys) if (!isBlocked(k, "EP") && !row[k]) singles.push(k);
         const ordered = randomize ? shuffle(singles) : singles;
         if (ordered[0]) {
           placeSingle(f.id, ordered[0], "EP");
@@ -435,21 +459,34 @@ export function placePGY4Rotations(
 
       // Fill remaining with ELECTIVE
       for (const k of blockKeys) {
-        if (!row[k] && !used.has(k)) {
+        if (!row[k]) {
           placeSingle(f.id, k, "ELECTIVE");
         }
       }
     }
 
-    // Global capacity check (one PGY-4 per block)
-    const cap = new Map<string, number>();
+    // Capacity check: at most one fellow per rotation per block (ELECTIVE ignored)
+    const cap: Map<string, Map<Rotation, string[]>> = new Map();
     for (const f of fellows) {
       const row = byFellow[f.id] || {};
       for (const [k, v] of Object.entries(row)) {
-        if (!v) continue;
-        cap.set(k, (cap.get(k) ?? 0) + 1);
-        if ((cap.get(k) ?? 0) > 1) {
-          return { success: false, byFellow: {}, conflicts: [`Capacity violation at ${k}`] };
+        if (!v || v === "ELECTIVE") continue;
+        let m = cap.get(k);
+        if (!m) {
+          m = new Map<Rotation, string[]>();
+          cap.set(k, m);
+        }
+        const arr = m.get(v as Rotation) ?? [];
+        arr.push(f.name || f.id);
+        m.set(v as Rotation, arr);
+        if (arr.length > 1) {
+          return {
+            success: false,
+            byFellow: {},
+            conflicts: [
+              `Capacity violation at ${k} for ${v}: ${arr.join(", ")}`,
+            ],
+          };
         }
       }
     }
