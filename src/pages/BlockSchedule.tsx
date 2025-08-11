@@ -727,64 +727,65 @@ const handlePlaceRotations = () => {
             </button>
             {panelOpen && <div className="h-48" />}
             <aside className={`fixed bottom-0 left-0 right-0 border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 transition-transform duration-300 z-40 ${panelOpen ? "translate-y-0" : "translate-y-full"}`}>
-              <div className="container mx-auto px-4 py-3 space-y-3">
+              <div className="container mx-auto px-4 py-3 space-y-3 max-h-[65vh] overflow-y-auto">
                 <div className="flex items-center justify-between">
                   <div className="font-display font-semibold">Validation</div>
                   <div className="text-xs text-muted-foreground">Per-block counts and per-fellow overview</div>
                 </div>
 
-                <div className="space-y-2">
-                  <div className="text-xs font-medium text-muted-foreground">Per-block counts by rotation</div>
-                  <div className="min-w-0">
-                    <div className="space-y-1">
-                      {sortedBlocks.map((b) => {
-                        const items = rotationsInUseCombined.filter((rot) => (blockRotationCounts[b.key]?.[rot] || 0) > 0);
-                        return (
-                          <div key={b.key} className="flex items-center gap-2">
-                            <div className="w-20 truncate text-xs text-muted-foreground">{b.key}</div>
-                            <div className="flex flex-wrap gap-1">
-                              {items.map((rot) => {
-                                const c = blockRotationCounts[b.key]?.[rot] || 0;
-                                const variant =
-                                  rot === "VAC"
-                                    ? "destructive"
-                                    : rot === "LAC_CATH"
-                                    ? "rot-lac-cath"
-                                    : rot === "CCU"
-                                    ? "rot-ccu"
-                                    : rot === "LAC_CONSULT"
-                                    ? "rot-lac-consult"
-                                    : rot === "HF"
-                                    ? "rot-hf"
-                                    : rot === "KECK_CONSULT"
-                                    ? "rot-keck-consult"
-                                    : rot === "ECHO1"
-                                    ? "rot-echo1"
-                                    : rot === "ECHO2"
-                                    ? "rot-echo2"
-                                    : rot === "EP"
-                                    ? "rot-ep"
-                                    : rot === "NUCLEAR"
-                                    ? "rot-nuclear"
-                                    : rot === "NONINVASIVE"
-                                    ? "rot-noninvasive"
-                                    : "rot-elective";
-                                const baseLabel = rot === "VAC" ? "VACATION" : rot === "ELECTIVE" ? "ELECTIVE" : rot;
-                                const plural = c === 1 ? "" : baseLabel.endsWith("S") ? "" : "S";
-                                return (
-                                  <Badge key={rot} variant={variant as any} className="text-[10px] px-2 py-0.5">
+                  <div className="overflow-x-auto">
+                    <div
+                      className="grid gap-y-1"
+                      style={{ gridTemplateColumns: `64px repeat(${rotationsInUseCombined.length}, minmax(88px,auto))` }}
+                    >
+                      {sortedBlocks.map((b) => (
+                        <div key={b.key} className="contents">
+                          <div className="w-16 truncate text-xs text-muted-foreground">{b.key}</div>
+                          {rotationsInUseCombined.map((rot) => {
+                            const c = blockRotationCounts[b.key]?.[rot] || 0;
+                            const variant =
+                              rot === "VAC"
+                                ? "destructive"
+                                : rot === "LAC_CATH"
+                                ? "rot-lac-cath"
+                                : rot === "CCU"
+                                ? "rot-ccu"
+                                : rot === "LAC_CONSULT"
+                                ? "rot-lac-consult"
+                                : rot === "HF"
+                                ? "rot-hf"
+                                : rot === "KECK_CONSULT"
+                                ? "rot-keck-consult"
+                                : rot === "ECHO1"
+                                ? "rot-echo1"
+                                : rot === "ECHO2"
+                                ? "rot-echo2"
+                                : rot === "EP"
+                                ? "rot-ep"
+                                : rot === "NUCLEAR"
+                                ? "rot-nuclear"
+                                : rot === "NONINVASIVE"
+                                ? "rot-noninvasive"
+                                : "rot-elective";
+                            const baseLabel = rot === "VAC" ? "VACATION" : rot === "ELECTIVE" ? "ELECTIVE" : rot;
+                            const plural = c === 1 ? "" : baseLabel.endsWith("S") ? "" : "S";
+                            return (
+                              <div key={rot} className="flex items-center justify-center">
+                                {c > 0 ? (
+                                  <Badge variant={variant as any} className="text-[10px] px-2 py-0.5">
                                     {c} {baseLabel}
                                     {plural}
                                   </Badge>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        );
-                      })}
+                                ) : (
+                                  <span className="invisible text-[10px] px-2 py-0.5">0</span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
                     </div>
                   </div>
-                </div>
 
                 <div className="space-y-2">
                   <div className="text-xs font-medium text-muted-foreground">Per-fellow status</div>
