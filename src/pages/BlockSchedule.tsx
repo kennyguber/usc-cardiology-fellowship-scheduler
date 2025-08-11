@@ -9,7 +9,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSEO } from "@/lib/seo";
 import { generateAcademicYearBlocks, type BlockInfo, hasMinSpacing } from "@/lib/block-utils";
 import {
-  buildVacationOnlySchedule,
+  buildVacationScheduleForPGY,
   countByBlock,
   loadSchedule,
   loadSetup,
@@ -61,17 +61,25 @@ export default function BlockSchedule() {
       return { id: f.id, name: f.name, count: vacKeys.length, spacingOk: hasMinSpacing(sortedBlocks, vacKeys, 6) };
     });
   }, [schedule, fellows, sortedBlocks]);
-  const handleBuildVacations = () => {
-    if (!setup) {
-      toast({ variant: "destructive", title: "No setup found", description: "Please configure fellows first." });
-      return;
-    }
-    const byFellow = buildVacationOnlySchedule(fellows, blocks);
-    const next: StoredSchedule = { version: 1, pgy: activePGY, byFellow };
-    saveSchedule(activePGY, next);
-    setSchedule(next);
-    toast({ title: "Vacations placed", description: `Draft schedule built for ${activePGY}.` });
-  };
+const handleBuildVacations = () => {
+  if (!setup) {
+    toast({ variant: "destructive", title: "No setup found", description: "Please configure fellows first." });
+    return;
+  }
+  const result = buildVacationScheduleForPGY(fellows, blocks);
+  if (!result.success) {
+    toast({
+      variant: "destructive",
+      title: "Unable to place vacations",
+      description: (result.conflicts && result.conflicts[0]) || "No assignment satisfies all constraints.",
+    });
+    return;
+  }
+  const next: StoredSchedule = { version: 1, pgy: activePGY, byFellow: result.byFellow };
+  saveSchedule(activePGY, next);
+  setSchedule(next);
+  toast({ title: "Vacations placed", description: `Draft schedule built for ${activePGY}.` });
+};
 
   const exportCSV = () => {
     if (!schedule) return;
