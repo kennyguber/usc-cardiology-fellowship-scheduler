@@ -191,7 +191,7 @@ const exportCSV = () => {
         </Card>
 
         <div className="grid gap-6 md:grid-cols-3">
-          <div className="md:col-span-2 rounded-md border overflow-x-auto">
+          <div className={`rounded-md border overflow-x-auto ${activePGY === "TOTAL" ? "md:col-span-3" : "md:col-span-2"}`}>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -245,7 +245,7 @@ const exportCSV = () => {
             </Table>
           </div>
 
-          <div className="space-y-4">
+          {activePGY !== "TOTAL" && (<div className="space-y-4">
             <Card>
               <CardHeader>
                 <CardTitle className="font-display">Validation</CardTitle>
@@ -287,17 +287,7 @@ const exportCSV = () => {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="font-display">Next steps</CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm text-muted-foreground space-y-2">
-                <p>1. Encode rotation catalog and capacities.</p>
-                <p>2. Add eligibility rules per PGY.</p>
-                <p>3. Fill rotations with backtracking solver.</p>
-              </CardContent>
-            </Card>
-          </div>
+          </div>)}
         </div>
       </section>
     </main>
