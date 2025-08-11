@@ -263,7 +263,7 @@ export default function VacationPreferences() {
             </Card>
             <Card>
               <CardHeader>
-                <CardTitle>Fellows and Vacation Preferences</CardTitle>
+                <CardTitle className="font-display">Fellows and Vacation Preferences</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex justify-between mb-4">
@@ -314,7 +314,7 @@ export default function VacationPreferences() {
           <TabsContent value="holidays" className="mt-6 animate-fade-in">
             <Card>
               <CardHeader>
-                <CardTitle>Holidays</CardTitle>
+                <CardTitle className="font-display">Holidays</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex justify-between items-center mb-4">
