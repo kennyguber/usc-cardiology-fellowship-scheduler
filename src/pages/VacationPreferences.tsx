@@ -64,10 +64,13 @@ function FellowRow({
   onRemove: () => void;
 }) {
   const spacingOk = hasMinSpacing(blocks, fellow.vacationPrefs, 6);
+  const firstHalf = blocks.filter((b) => b.monthIndex < 6);
+  const secondHalf = blocks.filter((b) => b.monthIndex >= 6);
   return (
     <TableRow className="animate-fade-in">
-      <TableCell>
+      <TableCell className="min-w-[260px]">
         <Input
+          className="h-10"
           value={fellow.name}
           placeholder="Name"
           onChange={(e) => onChange({ ...fellow, name: e.target.value })}
@@ -102,7 +105,7 @@ function FellowRow({
               <SelectValue placeholder={`Pref ${i + 1}`} />
             </SelectTrigger>
             <SelectContent>
-              {blocks.map((b) => (
+              {(i < 2 ? firstHalf : secondHalf).map((b) => (
                 <SelectItem key={b.key} value={b.key}>
                   {b.key} – {b.label}
                 </SelectItem>
@@ -276,12 +279,12 @@ export default function VacationPreferences() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Name</TableHead>
+                        <TableHead className="w-[260px]">Name</TableHead>
                         <TableHead>PGY</TableHead>
-                        <TableHead>Pref 1</TableHead>
-                        <TableHead>Pref 2</TableHead>
-                        <TableHead>Pref 3</TableHead>
-                        <TableHead>Pref 4</TableHead>
+                        <TableHead>Pref 1 (Jul–Dec)</TableHead>
+                        <TableHead>Pref 2 (Jul–Dec)</TableHead>
+                        <TableHead>Pref 3 (Jan–Jun)</TableHead>
+                        <TableHead>Pref 4 (Jan–Jun)</TableHead>
                         <TableHead className="text-right">Status</TableHead>
                       </TableRow>
                     </TableHeader>
