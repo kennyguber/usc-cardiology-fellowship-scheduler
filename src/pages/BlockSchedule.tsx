@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSEO } from "@/lib/seo";
-import { generateAcademicYearBlocks, type BlockInfo } from "@/lib/block-utils";
+import { generateAcademicYearBlocks, type BlockInfo, hasMinSpacing } from "@/lib/block-utils";
 import {
   buildVacationOnlySchedule,
   countByBlock,
@@ -31,7 +31,7 @@ export default function BlockSchedule() {
   const setup = loadSetup();
   const [activePGY, setActivePGY] = useState<PGY>("PGY-4");
   const [blocks, setBlocks] = useState<BlockInfo[]>(() =>
-    generateAcademicYearBlocks(setup?.yearStart ?? new Date().toISOString().slice(0, 10))
+    generateAcademicYearBlocks(toAcademicYearJuly1(setup?.yearStart ?? new Date().toISOString().slice(0, 10)))
   );
   const fellows: Fellow[] = useMemo(
     () => (setup ? setup.fellows.filter((f) => f.pgy === activePGY) : []),
@@ -41,21 +41,32 @@ export default function BlockSchedule() {
   const [schedule, setSchedule] = useState<StoredSchedule | null>(() => loadSchedule(activePGY));
 
   useEffect(() => {
-    setBlocks(generateAcademicYearBlocks(setup?.yearStart ?? new Date().toISOString().slice(0, 10)));
+    setBlocks(
+      generateAcademicYearBlocks(toAcademicYearJuly1(setup?.yearStart ?? new Date().toISOString().slice(0, 10)))
+    );
   }, [setup?.yearStart]);
 
   useEffect(() => {
     setSchedule(loadSchedule(activePGY));
   }, [activePGY]);
 
+  const sortedBlocks = useMemo(() => sortJulToJun(blocks), [blocks]);
   const counts = useMemo(() => (schedule ? countByBlock(schedule.byFellow) : {}), [schedule]);
-
+  const fellowValidations = useMemo(() => {
+    return fellows.map((f) => {
+      const entries = schedule?.byFellow[f.id] ?? {};
+      const vacKeys = Object.entries(entries)
+        .filter(([, v]) => v === "VAC")
+        .map(([k]) => k);
+      return { id: f.id, name: f.name, count: vacKeys.length, spacingOk: hasMinSpacing(sortedBlocks, vacKeys, 6) };
+    });
+  }, [schedule, fellows, sortedBlocks]);
   const handleBuildVacations = () => {
     if (!setup) {
       toast({ variant: "destructive", title: "No setup found", description: "Please configure fellows first." });
       return;
     }
-    const byFellow = buildVacationOnlySchedule(fellows);
+    const byFellow = buildVacationOnlySchedule(fellows, blocks);
     const next: StoredSchedule = { version: 1, pgy: activePGY, byFellow };
     saveSchedule(activePGY, next);
     setSchedule(next);
@@ -64,9 +75,9 @@ export default function BlockSchedule() {
 
   const exportCSV = () => {
     if (!schedule) return;
-    const header = ["Fellow", ...blocks.map((b) => b.key)].join(",");
+    const header = ["Fellow", ...sortedBlocks.map((b) => b.key)].join(",");
     const rows = fellows.map((f) => {
-      const row = blocks.map((b) => schedule.byFellow[f.id]?.[b.key] ?? "");
+      const row = sortedBlocks.map((b) => schedule.byFellow[f.id]?.[b.key] ?? "");
       return [quote(f.name || f.id), ...row.map(quote)].join(",");
     });
     const csv = [header, ...rows].join("\n");
@@ -147,7 +158,7 @@ export default function BlockSchedule() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="min-w-[220px] sticky left-0 bg-background z-10">Fellow</TableHead>
-                  {blocks.map((b) => (
+                  {sortedBlocks.map((b) => (
                     <TableHead key={b.key} className="text-center min-w-[90px]">
                       <div className="font-mono text-xs">{b.key}</div>
                       <div className="text-[10px] text-muted-foreground">{b.label}</div>
@@ -158,7 +169,7 @@ export default function BlockSchedule() {
               <TableBody>
                 {fellows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={1 + blocks.length} className="text-center text-muted-foreground">
+                    <TableCell colSpan={1 + sortedBlocks.length} className="text-center text-muted-foreground">
                       No fellows for {activePGY}.
                     </TableCell>
                   </TableRow>
@@ -168,7 +179,7 @@ export default function BlockSchedule() {
                       <TableCell className="min-w-[220px] sticky left-0 bg-background z-10 font-medium">
                         {f.name || <span className="text-muted-foreground">Unnamed fellow</span>}
                       </TableCell>
-                      {blocks.map((b) => (
+                      {sortedBlocks.map((b) => (
                         <TableCell key={b.key} className="text-center">
                           {schedule?.byFellow[f.id]?.[b.key] === "VAC" ? (
                             <Badge variant="destructive">Vacation</Badge>
@@ -189,16 +200,36 @@ export default function BlockSchedule() {
               <CardHeader>
                 <CardTitle className="font-display">Validation</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2">
+              <CardContent className="space-y-3">
                 <div className="text-sm text-muted-foreground">
-                  Vacations per block (this PGY):
+                  Rule: exactly 2 vacations per fellow, at least 3 months apart.
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {blocks.map((b) => (
-                    <Badge key={b.key} variant={counts[b.key] && counts[b.key] > 1 ? "destructive" : "secondary"}>
-                      {b.key}: {counts[b.key] ?? 0}
-                    </Badge>
-                  ))}
+                <div>
+                  <div className="text-sm mb-1">Per-block vacation counts:</div>
+                  <div className="flex flex-wrap gap-2">
+                    {sortedBlocks.map((b) => (
+                      <Badge key={b.key} variant={counts[b.key] && counts[b.key] > 1 ? "destructive" : "secondary"}>
+                        {b.key}: {counts[b.key] ?? 0}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm mb-1">Per-fellow status:</div>
+                  <div className="flex flex-col gap-1">
+                    {fellows.map((f) => {
+                      const v = fellowValidations.find((x) => x.id === f.id);
+                      const ok = v && v.count === 2 && v.spacingOk;
+                      return (
+                        <div key={f.id} className="flex items-center justify-between text-sm">
+                          <span className="truncate">{f.name || "Unnamed fellow"}</span>
+                          <Badge variant={ok ? "secondary" : "destructive"}>
+                            {v ? `${v.count} vacations${!v.spacingOk ? ", spacing < 3 mo" : ""}` : "0 vacations"}
+                          </Badge>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
                 {!schedule && (
                   <div className="text-xs text-muted-foreground">Run "Place Vacations" to generate a draft.</div>
@@ -228,4 +259,39 @@ function quote(s: string) {
     return '"' + s.replace(/"/g, '""') + '"';
   }
   return s;
+}
+
+function toAcademicYearJuly1(startIso: string): string {
+  const d = new Date(startIso);
+  if (isNaN(d.getTime())) {
+    const y = new Date().getFullYear();
+    return `${y}-07-01`;
+  }
+  const y = d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1;
+  return `${y}-07-01`;
+}
+
+const MONTH_ORDER = [
+  "JUL",
+  "AUG",
+  "SEP",
+  "OCT",
+  "NOV",
+  "DEC",
+  "JAN",
+  "FEB",
+  "MAR",
+  "APR",
+  "MAY",
+  "JUN",
+] as const;
+
+function sortJulToJun(blocks: BlockInfo[]): BlockInfo[] {
+  const order = new Map<string, number>(MONTH_ORDER.map((m, i) => [m, i] as const));
+  return [...blocks].sort((a, b) => {
+    const oa = order.get(a.key.slice(0, 3)) ?? 0;
+    const ob = order.get(b.key.slice(0, 3)) ?? 0;
+    if (oa !== ob) return oa - ob;
+    return a.half - b.half;
+  });
 }

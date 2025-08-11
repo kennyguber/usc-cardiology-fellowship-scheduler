@@ -56,16 +56,31 @@ export function saveSchedule(pgy: PGY, schedule: StoredSchedule) {
   }
 }
 
-// Step 1 engine: place vacations only, respecting fellow preferences order (no conflict resolution yet)
-export function buildVacationOnlySchedule(fellows: Fellow[]): FellowSchedule {
+import { hasMinSpacing, type BlockInfo } from "@/lib/block-utils";
+
+export const MAX_VACATIONS_PER_YEAR = 2;
+export const VACATION_MIN_SPACING_BLOCKS = 6; // 3 months (2-week blocks)
+
+// Step 1 engine: place vacations only: at most 2 per fellow, >= 6 blocks apart, honoring preference order
+export function buildVacationOnlySchedule(fellows: Fellow[], blocks: BlockInfo[]): FellowSchedule {
   const byFellow: FellowSchedule = {};
   for (const f of fellows) {
     const row: Record<string, string | undefined> = {};
+    const seen = new Set<string>();
+    const selected: string[] = [];
+
     for (const pref of f.vacationPrefs) {
       if (!pref) continue;
-      // If the block already has a label (shouldn't for a single fellow), last write wins
-      row[pref] = "VAC";
+      if (seen.has(pref)) continue;
+      seen.add(pref);
+      const next = [...selected, pref];
+      if (hasMinSpacing(blocks, next, VACATION_MIN_SPACING_BLOCKS)) {
+        selected.push(pref);
+        if (selected.length >= MAX_VACATIONS_PER_YEAR) break;
+      }
     }
+
+    for (const key of selected) row[key] = "VAC";
     byFellow[f.id] = row;
   }
   return byFellow;
