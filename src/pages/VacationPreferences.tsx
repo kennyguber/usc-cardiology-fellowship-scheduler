@@ -83,8 +83,14 @@ function FellowRow({
     blocks.filter((b) => monthsJanJun.includes(b.key.slice(0, 3))),
     monthsJanJun
   );
+  const rowTone =
+    fellow.pgy === "PGY-4"
+      ? "bg-primary/5"
+      : fellow.pgy === "PGY-5"
+      ? "bg-accent/30"
+      : "bg-secondary/30";
   return (
-    <TableRow className="animate-fade-in">
+    <TableRow className={`animate-fade-in ${rowTone}`}>
       <TableCell className="min-w-[260px]">
         <Input
           className="h-10"
