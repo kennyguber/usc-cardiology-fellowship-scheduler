@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useSEO } from "@/lib/seo";
 import { BlockInfo, generateAcademicYearBlocks, hasMinSpacing } from "@/lib/block-utils";
+import { HeartPulse } from "lucide-react";
 
 export type PGY = "PGY-4" | "PGY-5" | "PGY-6";
 export type Fellow = { id: string; name: string; pgy: PGY; vacationPrefs: (string | undefined)[] };
@@ -207,8 +208,14 @@ export default function VacationPreferences() {
   return (
     <main className="min-h-screen bg-background">
       <section className="container mx-auto px-4 py-10">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-semibold">Vacation Preferences</h1>
+        <div className="flex items-end justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-semibold font-display flex items-center gap-2">
+              <HeartPulse className="h-6 w-6 text-primary" aria-hidden="true" />
+              Vacation Preferences
+            </h1>
+            <div className="ecg-divider mt-2" aria-hidden="true" />
+          </div>
           <div className="flex gap-2">
             <Input
               type="file"
