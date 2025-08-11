@@ -876,3 +876,380 @@ export function placePGY5Rotations(
   return { success: false, byFellow: {}, conflicts: ["Unable to build PGY-5 rotations within max attempts."] };
 }
 
+// PGY-6 solver implementing specified rules
+export function placePGY6Rotations(
+  fellows: Fellow[],
+  blocks: BlockInfo[],
+  existingByFellow: FellowSchedule | undefined,
+  opts?: { randomize?: boolean; maxTries?: number }
+): SolveRotationsResult {
+  const randomize = !!opts?.randomize;
+  const maxTries = opts?.maxTries ?? 60;
+  if (!fellows || fellows.length === 0) {
+    return { success: false, byFellow: {}, conflicts: ["No PGY-6 fellows found"], tried: 0 };
+  }
+  if (fellows.length !== 5) {
+    return { success: false, byFellow: {}, conflicts: [
+      `Expected 5 PGY-6 fellows; found ${fellows.length}. Adjust cohort or rule.`,
+    ], tried: 0 };
+  }
+
+  const { keyToIndex, keyToMonth, monthToKeys } = buildKeyMaps(blocks);
+  const blockKeys = blocks.map((b) => b.key);
+
+  // Cross-PGY counts (PGY-4 + PGY-5) to guide coverage and enforce caps
+  const p4 = loadSchedule("PGY-4");
+  const p5 = loadSchedule("PGY-5");
+  const crossCounts: Record<Rotation, Map<string, number>> = {
+    VAC: new Map(),
+    LAC_CATH: new Map(),
+    CCU: new Map(),
+    LAC_CONSULT: new Map(),
+    HF: new Map(),
+    KECK_CONSULT: new Map(),
+    ECHO1: new Map(),
+    ECHO2: new Map(),
+    EP: new Map(),
+    NUCLEAR: new Map(),
+    NONINVASIVE: new Map(),
+    ELECTIVE: new Map(),
+  };
+  const addCross = (byF?: FellowSchedule) => {
+    if (!byF) return;
+    for (const row of Object.values(byF)) {
+      for (const [k, v] of Object.entries(row)) {
+        if (!v) continue;
+        const m = crossCounts[v as Rotation];
+        m.set(k, (m.get(k) || 0) + 1);
+      }
+    }
+  };
+  addCross(p4?.byFellow);
+  addCross(p5?.byFellow);
+
+  function tryOnce(): SolveRotationsResult {
+    const byFellow: FellowSchedule = cloneByFellow(existingByFellow || {});
+
+    // Capacity within PGY-6: one fellow per rotation per block (ELECTIVE ignored)
+    const usedByRot: Record<Rotation, Set<string>> = {
+      VAC: new Set<string>(),
+      LAC_CATH: new Set<string>(),
+      CCU: new Set<string>(),
+      LAC_CONSULT: new Set<string>(),
+      HF: new Set<string>(),
+      KECK_CONSULT: new Set<string>(),
+      ECHO1: new Set<string>(),
+      ECHO2: new Set<string>(),
+      EP: new Set<string>(),
+      NUCLEAR: new Set<string>(),
+      NONINVASIVE: new Set<string>(),
+      ELECTIVE: new Set<string>(),
+    };
+    const markUsed = (k: string, rot: Rotation) => {
+      if (rot === "ELECTIVE") return;
+      usedByRot[rot].add(k);
+    };
+    const isUsed = (k: string, rot: Rotation) => rot !== "ELECTIVE" && usedByRot[rot].has(k);
+
+    // Prime usedByRot from existing (ignore ELECTIVE)
+    for (const f of fellows) {
+      const row = byFellow[f.id] || {};
+      for (const [k, v] of Object.entries(row)) {
+        if (!v || v === "ELECTIVE") continue;
+        usedByRot[v as Rotation]?.add(k);
+      }
+    }
+
+    const fellowOrder = randomize ? shuffle([...fellows]) : [...fellows];
+
+    // Distributions
+    const ids = fellowOrder.map((f) => f.id);
+    const pickSome = (arr: string[], n: number) => (randomize ? shuffle(arr) : arr).slice(0, n);
+
+    const hfFellows = new Set<string>(pickSome(ids, 4));
+    const noHF = ids.find((id) => !hfFellows.has(id))!;
+
+    const keckFellows = new Set<string>(pickSome(ids, 4));
+
+    const echoLow = pickSome(ids, 1)[0]; // gets 1 ECHO2; others 2
+
+    const nuclearLow = pickSome(ids, 1)[0]; // gets 2 NUCLEAR; others 3
+    let noninvLow = pickSome(ids.filter((id) => id !== nuclearLow), 1)[0]; // gets 2 NONINVASIVE
+    if (!noninvLow) noninvLow = ids.find((id) => id !== nuclearLow)!;
+
+    // LAC_CATH counts: noHF=2; two others=2; remaining two=1
+    const lacCathCounts = new Map<string, number>();
+    for (const id of ids) lacCathCounts.set(id, 1);
+    lacCathCounts.set(noHF, 2);
+    const remainingForTwo = pickSome(ids.filter((id) => id !== noHF), 2);
+    for (const id of remainingForTwo) lacCathCounts.set(id, 2);
+
+    // Helpers
+    const placeSingle = (fid: string, k: string, label: Rotation) => {
+      const row = (byFellow[fid] = byFellow[fid] || {});
+      row[k] = label;
+      markUsed(k, label);
+    };
+    const nonConsecutiveOk = (fid: string, k: string, label: Rotation) => {
+      const row = byFellow[fid] || {};
+      const idx = keyToIndex.get(k) ?? -1;
+      for (const [kk, vv] of Object.entries(row)) {
+        if (vv !== label) continue;
+        const j = keyToIndex.get(kk) ?? -1;
+        if (j >= 0 && Math.abs(j - idx) <= 1) return false;
+      }
+      return true;
+    };
+
+    const canPlaceLacCathAt = (fid: string, k: string) => {
+      if (isUsed(k, "LAC_CATH")) return false;
+      const row = byFellow[fid] || {};
+      if (row[k]) return false;
+      const total = (crossCounts.LAC_CATH.get(k) || 0) + (usedByRot.LAC_CATH.has(k) ? 1 : 0);
+      if (total >= 2) return false; // global cap 2 across PGYs
+      // non-consecutive for this fellow
+      const idx = keyToIndex.get(k) ?? -1;
+      for (const [kk, vv] of Object.entries(row)) {
+        if (vv !== "LAC_CATH") continue;
+        const j = keyToIndex.get(kk) ?? -1;
+        if (j >= 0 && Math.abs(j - idx) <= 1) return false;
+      }
+      return true;
+    };
+
+    const placeNWithPrefs = (
+      fid: string,
+      label: Rotation,
+      n: number,
+      opts?: { preferUncovered?: boolean; crossAvoid?: boolean }
+    ): boolean => {
+      const row = (byFellow[fid] = byFellow[fid] || {});
+      let need = n - Object.values(row).filter((x) => x === label).length;
+      if (need <= 0) return true;
+      const tryOnce = (preferUncovered: boolean) => {
+        const cands = blockKeys.filter((k) => !row[k] && !isUsed(k, label));
+        // Sort by uncovered first if requested
+        const scored = cands.map((k) => ({ k, covered: (crossCounts[label].get(k) || 0) > 0 ? 1 : 0 }));
+        const ordered = (preferUncovered
+          ? scored.sort((a, b) => a.covered - b.covered)
+          : scored
+        ).map((x) => x.k);
+        for (const k of randomize ? shuffle(ordered) : ordered) {
+          if (label === "LAC_CATH") {
+            // use dedicated flow for LAC_CATH elsewhere
+            continue;
+          }
+          if (opts?.crossAvoid && (crossCounts[label].get(k) || 0) > 0 && preferUncovered) continue;
+          if (["EP", "NUCLEAR"].includes(label)) {
+            // no cross-year avoidance for these by spec
+            if (!nonConsecutiveOk(fid, k, label)) continue;
+            placeSingle(fid, k, label);
+            need--;
+          } else {
+            // essential singles: try to avoid overlap first, fallback later
+            if (!nonConsecutiveOk(fid, k, label)) continue;
+            placeSingle(fid, k, label);
+            need--;
+          }
+          if (need <= 0) return true;
+        }
+        return need <= 0;
+      };
+      // First pass with prefer uncovered if requested
+      if (opts?.preferUncovered) {
+        if (tryOnce(true)) return true;
+      }
+      // Fallback
+      return tryOnce(false);
+    };
+
+    // 1) HF: 1 block for 4 fellows (no adjacency rule with CCU for PGY-6)
+    for (const f of fellowOrder) {
+      if (!hfFellows.has(f.id)) continue;
+      const row = (byFellow[f.id] = byFellow[f.id] || {});
+      const has = Object.values(row).filter((x) => x === "HF").length;
+      if (has >= 1) continue;
+      // try uncovered first
+      const cands0 = blockKeys.filter((k) => !row[k] && !isUsed(k, "HF") && (crossCounts.HF.get(k) || 0) === 0);
+      const cands1 = blockKeys.filter((k) => !row[k] && !isUsed(k, "HF") && (crossCounts.HF.get(k) || 0) >= 1);
+      const ordered0 = randomize ? shuffle(cands0) : cands0;
+      const ordered1 = randomize ? shuffle(cands1) : cands1;
+      const pick = ordered0[0] || ordered1[0];
+      if (!pick) return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place HF.`] };
+      placeSingle(f.id, pick, "HF");
+    }
+
+    // 2) LAC_CATH distribution with global cap=2 and non-consecutive
+    for (const f of fellowOrder) {
+      let need = lacCathCounts.get(f.id) || 0;
+      if (need <= 0) continue;
+      const row = (byFellow[f.id] = byFellow[f.id] || {});
+      while (need > 0) {
+        // prioritize blocks with lowest current total to reach 2
+        const scored: { k: string; total: number }[] = [];
+        for (const k of blockKeys) {
+          if (row[k]) continue;
+          const total = (crossCounts.LAC_CATH.get(k) || 0) + (usedByRot.LAC_CATH.has(k) ? 1 : 0);
+          if (total >= 2) continue;
+          scored.push({ k, total });
+        }
+        scored.sort((a, b) => a.total - b.total);
+        let placed = false;
+        for (const s of randomize ? shuffle(scored) : scored) {
+          if (!canPlaceLacCathAt(f.id, s.k)) continue;
+          placeSingle(f.id, s.k, "LAC_CATH");
+          need--;
+          placed = true;
+          if (need <= 0) break;
+        }
+        if (!placed) return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place LAC_CATH.`] };
+      }
+    }
+
+    // 3) KECK_CONSULT: 1 block for 4 fellows, prefer uncovered
+    for (const f of fellowOrder) {
+      if (!keckFellows.has(f.id)) continue;
+      if (!placeNWithPrefs(f.id, "KECK_CONSULT", 1, { preferUncovered: true, crossAvoid: true })) {
+        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place KECK_CONSULT.`] };
+      }
+    }
+
+    // 4) ECHO2: 2 for most, 1 for one fellow; non-consecutive, prefer uncovered
+    for (const f of fellowOrder) {
+      const target = f.id === echoLow ? 1 : 2;
+      if (!placeNWithPrefs(f.id, "ECHO2", target, { preferUncovered: true, crossAvoid: true })) {
+        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place ECHO2.`] };
+      }
+    }
+
+    // 5) EP: 2 each; non-consecutive; no cross-year avoidance
+    for (const f of fellowOrder) {
+      if (!placeNWithPrefs(f.id, "EP", 2)) {
+        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place EP.`] };
+      }
+    }
+
+    // 6) NUCLEAR: 3 except one with 2; non-consecutive
+    for (const f of fellowOrder) {
+      const target = f.id === nuclearLow ? 2 : 3;
+      if (!placeNWithPrefs(f.id, "NUCLEAR", target)) {
+        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place NUCLEAR.`] };
+      }
+    }
+
+    // 7) NONINVASIVE: 3 except one with 2 (not same as nuclearLow); prefer uncovered
+    for (const f of fellowOrder) {
+      const target = f.id === noninvLow ? 2 : 3;
+      if (!placeNWithPrefs(f.id, "NONINVASIVE", target, { preferUncovered: true, crossAvoid: true })) {
+        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place NONINVASIVE.`] };
+      }
+    }
+
+    // 8) Fill remaining with ELECTIVE
+    for (const f of fellowOrder) {
+      const row = (byFellow[f.id] = byFellow[f.id] || {});
+      for (const k of blockKeys) if (!row[k]) placeSingle(f.id, k, "ELECTIVE");
+    }
+
+    // Capacity check within PGY-6 (ELECTIVE ignored)
+    const cap: Map<string, Map<Rotation, string[]>> = new Map();
+    for (const f of fellows) {
+      const row = byFellow[f.id] || {};
+      for (const [k, v] of Object.entries(row)) {
+        if (!v || v === "ELECTIVE") continue;
+        let m = cap.get(k);
+        if (!m) { m = new Map<Rotation, string[]>(); cap.set(k, m); }
+        const arr = m.get(v as Rotation) ?? [];
+        arr.push(f.name || f.id);
+        m.set(v as Rotation, arr);
+        if (arr.length > 1 && v !== "LAC_CATH") {
+          return { success: false, byFellow: {}, conflicts: [`Capacity violation at ${k} for ${v}: ${arr.join(", ")}`] };
+        }
+      }
+    }
+
+    // Per-fellow validations
+    const conflicts: string[] = [];
+    // HF exactly 4 fellows with exactly 1 block
+    const hfCounts = fellows.map((f) => ({ f, c: Object.values(byFellow[f.id] || {}).filter((x) => x === "HF").length }));
+    const hfExactly = hfCounts.filter((x) => x.c === 1).length;
+    const hfZero = hfCounts.filter((x) => x.c === 0).length;
+    if (hfExactly !== 4 || hfZero !== 1) conflicts.push(`HF distribution must be 4 fellows with 1 block, 1 fellow with 0.`);
+
+    // KECK_CONSULT exactly 4 fellows with 1 block
+    const kcCounts = fellows.map((f) => ({ f, c: Object.values(byFellow[f.id] || {}).filter((x) => x === "KECK_CONSULT").length }));
+    if (kcCounts.filter((x) => x.c === 1).length !== 4 || kcCounts.filter((x) => x.c === 0).length !== 1) conflicts.push(`KECK_CONSULT distribution must be 4 fellows with 1 block, 1 with 0.`);
+
+    // ECHO2: one has 1; others 2
+    const echoCounts = fellows.map((f) => ({ f, c: Object.values(byFellow[f.id] || {}).filter((x) => x === "ECHO2").length }));
+    if (!(echoCounts.some((x) => x.c === 1) && echoCounts.filter((x) => x.c === 2).length === 4)) conflicts.push(`ECHO2 distribution must be [2,2,2,2,1].`);
+
+    // NUCLEAR: one has 2; others 3
+    const nucCounts = fellows.map((f) => ({ f, c: Object.values(byFellow[f.id] || {}).filter((x) => x === "NUCLEAR").length }));
+    const nuc2 = nucCounts.filter((x) => x.c === 2);
+    if (!(nuc2.length === 1 && nucCounts.filter((x) => x.c === 3).length === 4)) conflicts.push(`NUCLEAR distribution must be [3,3,3,3,2].`);
+
+    // NONINVASIVE: one has 2; others 3; and low fellow differs from nuclearLow
+    const noninvCounts = fellows.map((f) => ({ f, c: Object.values(byFellow[f.id] || {}).filter((x) => x === "NONINVASIVE").length }));
+    const non2 = noninvCounts.filter((x) => x.c === 2);
+    if (!(non2.length === 1 && noninvCounts.filter((x) => x.c === 3).length === 4)) conflicts.push(`NONINVASIVE distribution must be [3,3,3,3,2].`);
+    if (nuc2.length === 1 && non2.length === 1 && nuc2[0].f.id === non2[0].f.id) conflicts.push(`The 2-block NUCLEAR fellow cannot also be the 2-block NONINVASIVE fellow.`);
+
+    // LAC_CATH non-consecutive and distribution multiset [2,2,2,1,1] with noHF fellow having 2
+    const lacCounts = fellows.map((f) => ({ f, c: Object.values(byFellow[f.id] || {}).filter((x) => x === "LAC_CATH").length }));
+    const multiset = lacCounts.map((x) => x.c).sort((a, b) => a - b).join(",");
+    if (multiset !== "1,1,2,2,2") conflicts.push(`LAC_CATH distribution must be [2,2,2,1,1].`);
+    const noHFC = lacCounts.find((x) => x.f.id === noHF)?.c || 0;
+    if (noHFC !== 2) conflicts.push(`Fellow without HF must have 2 LAC_CATH blocks.`);
+
+    // Non-consecutive checks
+    const checkLabels: Rotation[] = ["LAC_CATH", "ECHO2", "EP", "NUCLEAR", "NONINVASIVE"];
+    for (const f of fellows) {
+      const row = byFellow[f.id] || {};
+      for (const lab of checkLabels) {
+        const idxs = Object.entries(row)
+          .filter(([, v]) => v === lab)
+          .map(([k]) => keyToIndex.get(k) ?? -999)
+          .sort((a, b) => a - b);
+        for (let t = 1; t < idxs.length; t++) if (idxs[t] - idxs[t - 1] === 1) conflicts.push(`${f.name || f.id}: ${lab} blocks must be non-consecutive.`);
+      }
+    }
+
+    // Essential coverage across all PGYs per block
+    const combined: Map<string, Map<Rotation, number>> = new Map();
+    const addComb = (byF?: FellowSchedule) => {
+      if (!byF) return;
+      for (const row of Object.values(byF)) {
+        for (const [k, v] of Object.entries(row)) {
+          if (!v) continue;
+          let m = combined.get(k);
+          if (!m) { m = new Map<Rotation, number>(); combined.set(k, m); }
+          m.set(v as Rotation, (m.get(v as Rotation) || 0) + 1);
+        }
+      }
+    };
+    addComb(p4?.byFellow);
+    addComb(p5?.byFellow);
+    addComb(byFellow);
+
+    for (const k of blockKeys) {
+      const m = combined.get(k) || new Map<Rotation, number>();
+      const needSingles: Rotation[] = ["CCU", "HF", "KECK_CONSULT", "LAC_CONSULT", "ECHO2", "NONINVASIVE"];
+      for (const rot of needSingles) {
+        if ((m.get(rot) || 0) < 1) conflicts.push(`${k}: essential coverage missing for ${rot}.`);
+      }
+      if ((m.get("LAC_CATH") || 0) < 2) conflicts.push(`${k}: essential coverage missing for LAC_CATH (need 2).`);
+    }
+
+    if (conflicts.length > 0) return { success: false, byFellow: {}, conflicts };
+
+    return { success: true, byFellow };
+  }
+
+  for (let t = 0; t < maxTries; t++) {
+    const res = tryOnce();
+    if (res.success) return res;
+  }
+  return { success: false, byFellow: {}, conflicts: ["Unable to build PGY-6 rotations within max attempts."] };
+}
+

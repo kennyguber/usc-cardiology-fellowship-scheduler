@@ -18,7 +18,7 @@ import {
   type PGY,
   type StoredSchedule,
 } from "@/lib/schedule-engine";
-import { placePGY4Rotations, placePGY5Rotations } from "@/lib/rotation-engine";
+import { placePGY4Rotations, placePGY5Rotations, placePGY6Rotations } from "@/lib/rotation-engine";
 import { useToast } from "@/hooks/use-toast";
 import type { Rotation } from "@/lib/rotation-engine";
 import BlockEditDialog from "@/components/BlockEditDialog";
@@ -85,6 +85,17 @@ const rotationOptions = useMemo<Rotation[]>(
             "NONINVASIVE",
             "ELECTIVE",
           ]
+        : activePGY === "PGY-6"
+        ? [
+            "LAC_CATH",
+            "HF",
+            "KECK_CONSULT",
+            "ECHO2",
+            "EP",
+            "NUCLEAR",
+            "NONINVASIVE",
+            "ELECTIVE",
+          ]
         : ["LAC_CATH", "CCU", "LAC_CONSULT", "HF", "KECK_CONSULT", "ECHO1", "EP", "ELECTIVE"],
     [activePGY]
   );
@@ -116,7 +127,7 @@ const rotationOptions = useMemo<Rotation[]>(
     const nextByFellow: Record<string, Record<string, string | undefined>> = { ...(schedule.byFellow || {}) };
     const row: Record<string, string | undefined> = { ...(nextByFellow[fid] || {}) };
 
-if (action.type === "clear") {
+    if (action.type === "clear") {
       if (row[k] === "HF" && activePGY === "PGY-4") {
         const keys = monthToKeys.get(mi) || [];
         for (const kk of keys) {
@@ -131,7 +142,7 @@ if (action.type === "clear") {
         delete row[k];
       }
     } else {
-if (action.rotation === "HF" && activePGY === "PGY-4") {
+      if (action.rotation === "HF" && activePGY === "PGY-4") {
         if (!withinJanToJun(mi)) {
           toast({ variant: "destructive", title: "Invalid HF placement", description: "HF must be a full month between Jan and Jun." });
           return;
@@ -295,7 +306,7 @@ if (action.rotation === "HF" && activePGY === "PGY-4") {
     );
   }, [setup?.yearStart]);
 
-useEffect(() => {
+  useEffect(() => {
     if (activePGY === "TOTAL") {
       setSchedule(null);
     } else {
@@ -303,7 +314,7 @@ useEffect(() => {
     }
   }, [activePGY]);
 
-const sortedBlocks = useMemo(() => sortJulToJun(blocks), [blocks]);
+  const sortedBlocks = useMemo(() => sortJulToJun(blocks), [blocks]);
   const displayByFellow = useMemo(() => {
     if (activePGY === "TOTAL") {
       const total: Record<string, Record<string, string | undefined>> = {};
@@ -368,8 +379,10 @@ const sortedBlocks = useMemo(() => sortJulToJun(blocks), [blocks]);
     };
     const p4 = loadSchedule("PGY-4");
     const p5 = loadSchedule("PGY-5");
+    const p6 = loadSchedule("PGY-6");
     add(p4?.byFellow);
     add(p5?.byFellow);
+    add(p6?.byFellow);
     const order = [
       "VAC",
       "LAC_CATH",
@@ -411,8 +424,10 @@ const sortedBlocks = useMemo(() => sortJulToJun(blocks), [blocks]);
     };
     const p4 = loadSchedule("PGY-4");
     const p5 = loadSchedule("PGY-5");
+    const p6 = loadSchedule("PGY-6");
     addFrom(p4?.byFellow);
     addFrom(p5?.byFellow);
+    addFrom(p6?.byFellow);
     return m;
   }, [sortedBlocks, schedule, activePGY]);
 
@@ -515,8 +530,36 @@ const handlePlaceRotations = () => {
     toast({ title: "Rotations placed", description: "PGY-5 rotations assigned." });
   };
 
+  const handlePlaceRotationsPGY6 = () => {
+    if (!setup) {
+      toast({ variant: "destructive", title: "No setup found", description: "Please configure fellows first." });
+      return;
+    }
+    if (activePGY !== "PGY-6") {
+      toast({ variant: "destructive", title: "PGY-6 only", description: "Switch to PGY-6 to place rotations." });
+      return;
+    }
+    const baseByFellow = schedule?.byFellow
+      ? Object.fromEntries(
+          Object.entries(schedule.byFellow).map(([fid, row]) => [
+            fid,
+            Object.fromEntries(Object.entries(row).filter(([, v]) => v === "VAC")),
+          ])
+        ) as Record<string, Record<string, string | undefined>>
+      : undefined;
+    const res = placePGY6Rotations(fellows, blocks, baseByFellow, { randomize: true });
+    if (!res.success) {
+      toast({ variant: "destructive", title: "Unable to place rotations", description: res.conflicts?.[0] || "No solution found." });
+      return;
+    }
+    const next: StoredSchedule = { version: 1, pgy: activePGY, byFellow: res.byFellow };
+    saveSchedule(activePGY, next);
+    setSchedule(next);
+    toast({ title: "Rotations placed", description: "PGY-6 rotations assigned." });
+  };
+
   const handleClearRotations = () => {
-    if (activePGY !== "PGY-4" && activePGY !== "PGY-5") return;
+    if (activePGY !== "PGY-4" && activePGY !== "PGY-5" && activePGY !== "PGY-6") return;
     if (!schedule) return;
     const cleaned: Record<string, Record<string, string | undefined>> = {};
     for (const [fid, row] of Object.entries(schedule.byFellow || {})) {
@@ -617,8 +660,15 @@ const handlePlaceRotations = () => {
                 </Button>
                 <Button
                   variant="outline"
+                  onClick={handlePlaceRotationsPGY6}
+                  disabled={activePGY !== "PGY-6" || fellows.length === 0}
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" /> Place Rotations (PGY-6)
+                </Button>
+                <Button
+                  variant="outline"
                   onClick={handleClearRotations}
-                  disabled={(activePGY !== "PGY-4" && activePGY !== "PGY-5") || !schedule}
+                  disabled={(activePGY !== "PGY-4" && activePGY !== "PGY-5" && activePGY !== "PGY-6") || !schedule}
                 >
                   <Eraser className="mr-2 h-4 w-4" /> Clear Rotations
                 </Button>
