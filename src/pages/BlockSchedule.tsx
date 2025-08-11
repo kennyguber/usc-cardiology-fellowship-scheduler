@@ -486,7 +486,16 @@ const handlePlaceRotations = () => {
       toast({ variant: "destructive", title: "PGY-5 only", description: "Switch to PGY-5 to place rotations." });
       return;
     }
-    const res = placePGY5Rotations(fellows, blocks, schedule?.byFellow, { randomize: true });
+    // Reshuffle from scratch: keep only vacation assignments as the base state
+    const baseByFellow = schedule?.byFellow
+      ? Object.fromEntries(
+          Object.entries(schedule.byFellow).map(([fid, row]) => [
+            fid,
+            Object.fromEntries(Object.entries(row).filter(([, v]) => v === "VAC")),
+          ])
+        ) as Record<string, Record<string, string | undefined>>
+      : undefined;
+    const res = placePGY5Rotations(fellows, blocks, baseByFellow, { randomize: true });
     if (!res.success) {
       toast({ variant: "destructive", title: "Unable to place rotations", description: res.conflicts?.[0] || "No solution found." });
       return;
@@ -498,7 +507,7 @@ const handlePlaceRotations = () => {
   };
 
   const handleClearRotations = () => {
-    if (activePGY !== "PGY-4") return;
+    if (activePGY !== "PGY-4" && activePGY !== "PGY-5") return;
     if (!schedule) return;
     const cleaned: Record<string, Record<string, string | undefined>> = {};
     for (const [fid, row] of Object.entries(schedule.byFellow || {})) {
@@ -600,7 +609,7 @@ const handlePlaceRotations = () => {
                 <Button
                   variant="outline"
                   onClick={handleClearRotations}
-                  disabled={activePGY !== "PGY-4" || !schedule}
+                  disabled={(activePGY !== "PGY-4" && activePGY !== "PGY-5") || !schedule}
                 >
                   <Eraser className="mr-2 h-4 w-4" /> Clear Rotations
                 </Button>
