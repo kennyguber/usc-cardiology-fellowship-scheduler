@@ -1129,11 +1129,30 @@ export function placePGY6Rotations(
       }
     }
 
-    // 6) NUCLEAR: 3 except one with 2; non-consecutive
+    // 6) NUCLEAR: 3 except one with 2; non-consecutive; ensure per-block coverage by PGY-5 or PGY-6
+    // Build quick lookup for PGY-5 NUCLEAR coverage per block
+    const p5NuclearBlocks = new Set<string>();
+    if (p5?.byFellow) {
+      for (const row of Object.values(p5.byFellow)) {
+        for (const [k, v] of Object.entries(row)) {
+          if (v === "NUCLEAR") p5NuclearBlocks.add(k);
+        }
+      }
+    }
     for (const f of fellowOrder) {
       const target = f.id === nuclearLow ? 2 : 3;
-      if (!placeNWithPrefs(f.id, "NUCLEAR", target)) {
-        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place NUCLEAR.`] };
+      let need = target - Object.values(byFellow[f.id] || {}).filter((x) => x === "NUCLEAR").length;
+      const row = (byFellow[f.id] = byFellow[f.id] || {});
+      while (need > 0) {
+        // Prefer blocks not yet covered by PGY-5 or current PGY-6 placements
+        const preferred = blockKeys.filter((k) => !row[k] && !isUsed(k, "NUCLEAR") && !p5NuclearBlocks.has(k) && nonConsecutiveOk(f.id, k, "NUCLEAR"));
+        const fallback = blockKeys.filter((k) => !row[k] && !isUsed(k, "NUCLEAR") && nonConsecutiveOk(f.id, k, "NUCLEAR"));
+        const pick = (randomize ? shuffle(preferred) : preferred)[0] || (randomize ? shuffle(fallback) : fallback)[0];
+        if (!pick) {
+          return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place NUCLEAR.`] };
+        }
+        placeSingle(f.id, pick, "NUCLEAR");
+        need--;
       }
     }
 
@@ -1232,6 +1251,18 @@ export function placePGY6Rotations(
     addComb(p5?.byFellow);
     addComb(byFellow);
 
+    // Compute PGY-5/PGY-6 NUCLEAR coverage map specifically
+    const p5NucByBlock = new Map<string, number>();
+    if (p5?.byFellow) {
+      for (const row of Object.values(p5.byFellow)) {
+        for (const [k, v] of Object.entries(row)) if (v === "NUCLEAR") p5NucByBlock.set(k, (p5NucByBlock.get(k) || 0) + 1);
+      }
+    }
+    const p6NucByBlock = new Map<string, number>();
+    for (const row of Object.values(byFellow)) {
+      for (const [k, v] of Object.entries(row)) if (v === "NUCLEAR") p6NucByBlock.set(k, (p6NucByBlock.get(k) || 0) + 1);
+    }
+
     for (const k of blockKeys) {
       const m = combined.get(k) || new Map<Rotation, number>();
       const needSingles: Rotation[] = ["CCU", "HF", "KECK_CONSULT", "LAC_CONSULT", "ECHO2", "NONINVASIVE"];
@@ -1239,6 +1270,9 @@ export function placePGY6Rotations(
         if ((m.get(rot) || 0) < 1) conflicts.push(`${k}: essential coverage missing for ${rot}.`);
       }
       if ((m.get("LAC_CATH") || 0) < 2) conflicts.push(`${k}: essential coverage missing for LAC_CATH (need 2).`);
+      // NUCLEAR must be covered by PGY-5 or PGY-6 specifically
+      const nuc56 = (p5NucByBlock.get(k) || 0) + (p6NucByBlock.get(k) || 0);
+      if (nuc56 < 1) conflicts.push(`${k}: essential coverage missing for NUCLEAR (PGY-5/6).`);
     }
 
     if (conflicts.length > 0) return { success: false, byFellow: {}, conflicts };
