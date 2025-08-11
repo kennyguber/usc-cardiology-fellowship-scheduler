@@ -374,34 +374,33 @@ export function placePGY4Rotations(
         }
       }
 
-      // HF: 2 half-blocks, Jan-Jun only, not adjacent month to any CCU month
-      const ccuMonthList = [...ccuMonths];
-      const hfMonthsPlaced = new Set<number>();
-      let needHF = 2 - (Object.values(row).filter((x) => x === "HF").length || 0);
-      if (needHF > 0) {
-        const candidates: { mi: number; k: string }[] = [];
-        for (const mi of [...monthToKeys.keys()]) {
-          if (!withinJanToJun(mi)) continue;
-          // Not adjacent to any CCU month
-          let ok = true;
-          for (const cm of ccuMonthList) if (isAdjacentMonth(mi, cm)) ok = false;
-          if (!ok) continue;
-          const keys = monthToKeys.get(mi) || [];
-            for (const k of keys) {
-              if (!isBlocked(k, "HF") && !row[k]) candidates.push({ mi, k });
-            }
+      // HF: full month (2 consecutive blocks) Jan–Jun only
+      // Clear any existing HF singles to enforce proper pairing
+      const existingHF = Object.entries(row)
+        .filter(([, v]) => v === "HF")
+        .map(([k]) => k);
+      if (existingHF.length) {
+        for (const k of existingHF) {
+          delete row[k];
+          unmarkUsed(k, "HF");
         }
-        const ordered = randomize ? shuffle(candidates) : candidates;
-        for (const c of ordered) {
-          if (hfMonthsPlaced.has(c.mi)) continue; // avoid two in same month
-          placeSingle(f.id, c.k, "HF");
-          hfMonthsPlaced.add(c.mi);
-          needHF -= 1;
-          if (needHF <= 0) break;
-        }
-        if (needHF > 0) {
-          return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place HF.`] };
-        }
+      }
+      let placedHF = false;
+      const hfCandidateMonths = [...monthToKeys.keys()].filter(
+        (mi) => withinJanToJun(mi) && pairFree(f.id, mi, "HF")
+      );
+      const hfOrdered = randomize ? shuffle(hfCandidateMonths) : hfCandidateMonths;
+      for (const mi of hfOrdered) {
+        placePair(f.id, mi, "HF");
+        placedHF = true;
+        break;
+      }
+      if (!placedHF) {
+        return {
+          success: false,
+          byFellow: {},
+          conflicts: [`${f.name || f.id}: unable to place HF as a full month in Jan–Jun.`],
+        };
       }
 
       // KECK_CONSULT: 2 blocks -> 1 month pair
@@ -489,6 +488,47 @@ export function placePGY4Rotations(
           };
         }
       }
+    }
+
+    // Post-placement validations for HF and CCU rules
+    const ruleConflicts: string[] = [];
+    for (const f of fellows) {
+      const rowF = byFellow[f.id] || {};
+      // HF must be exactly one full month (two blocks) Jan–Jun
+      const hfKeys = Object.entries(rowF)
+        .filter(([, v]) => v === "HF")
+        .map(([k]) => k);
+      const hfMonths = new Set<number>(hfKeys.map((k) => keyToMonth.get(k)!).filter((x): x is number => x != null));
+      if (hfKeys.length !== 2) {
+        ruleConflicts.push(`${f.name || f.id}: HF must be exactly 1 full month (2 blocks).`);
+      } else if (hfMonths.size !== 1) {
+        ruleConflicts.push(`${f.name || f.id}: HF blocks must be in the same month (full month).`);
+      } else {
+        const mi = [...hfMonths][0];
+        if (!withinJanToJun(mi)) {
+          ruleConflicts.push(`${f.name || f.id}: HF month must be between January and June.`);
+        }
+      }
+      // CCU months cannot be consecutive (including Dec→Jan)
+      const ccuMonthsF = new Set<number>();
+      for (const [k, v] of Object.entries(rowF)) {
+        if (v === "CCU") {
+          const mi = keyToMonth.get(k);
+          if (mi != null) ccuMonthsF.add(mi);
+        }
+      }
+      const ccuList = [...ccuMonthsF].sort((a, b) => a - b);
+      outer: for (let i = 0; i < ccuList.length; i++) {
+        for (let j = i + 1; j < ccuList.length; j++) {
+          if (isAdjacentMonth(ccuList[i], ccuList[j])) {
+            ruleConflicts.push(`${f.name || f.id}: CCU months cannot be consecutive.`);
+            break outer;
+          }
+        }
+      }
+    }
+    if (ruleConflicts.length > 0) {
+      return { success: false, byFellow: {}, conflicts: ruleConflicts };
     }
 
     return { success: true, byFellow };
