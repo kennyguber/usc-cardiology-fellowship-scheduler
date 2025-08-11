@@ -85,10 +85,10 @@ function FellowRow({
   );
   const rowTone =
     fellow.pgy === "PGY-4"
-      ? "bg-primary/5 border-l-4 border-primary/50"
+      ? "bg-primary/5 border-l-4 border-primary/60"
       : fellow.pgy === "PGY-5"
-      ? "bg-accent/20 border-l-4 border-accent/60"
-      : "bg-secondary/20 border-l-4 border-secondary/60";
+      ? "bg-accent/40 ring-1 ring-accent/40 border-l-4 border-accent/70"
+      : "bg-secondary/60 ring-1 ring-secondary/40 border-l-4 border-secondary/80";
   return (
     <TableRow className={`animate-fade-in ${rowTone}`}>
       <TableCell className="min-w-[260px]">
