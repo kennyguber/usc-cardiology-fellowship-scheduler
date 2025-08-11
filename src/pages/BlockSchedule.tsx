@@ -84,6 +84,46 @@ const sortedBlocks = useMemo(() => sortJulToJun(blocks), [blocks]);
       return { id: f.id, name: f.name, count: vacKeys.length, spacingOk: hasMinSpacing(sortedBlocks, vacKeys, 6) };
     });
   }, [fellows, sortedBlocks, displayByFellow]);
+
+  const rotationsInUse = useMemo(() => {
+    const set = new Set<string>();
+    for (const fid of Object.keys(displayByFellow)) {
+      const row = displayByFellow[fid] || {};
+      for (const v of Object.values(row)) if (v) set.add(v);
+    }
+    const order = [
+      "VAC",
+      "LAC_CATH",
+      "CCU",
+      "LAC_CONSULT",
+      "HF",
+      "KECK_CONSULT",
+      "ECHO1",
+      "EP",
+      "ELECTIVE",
+    ];
+    return Array.from(set).sort((a, b) => {
+      const ia = order.indexOf(a);
+      const ib = order.indexOf(b);
+      if (ia !== -1 && ib !== -1) return ia - ib;
+      if (ia !== -1) return -1;
+      if (ib !== -1) return 1;
+      return a.localeCompare(b);
+    });
+  }, [displayByFellow]);
+
+  const blockRotationCounts = useMemo(() => {
+    const m: Record<string, Record<string, number>> = {};
+    for (const b of sortedBlocks) {
+      m[b.key] = {};
+      for (const f of fellows) {
+        const label = displayByFellow[f.id]?.[b.key];
+        if (!label) continue;
+        m[b.key][label] = (m[b.key][label] || 0) + 1;
+      }
+    }
+    return m;
+  }, [sortedBlocks, fellows, displayByFellow]);
 const handleBuildVacations = () => {
     if (!setup) {
       toast({ variant: "destructive", title: "No setup found", description: "Please configure fellows first." });
@@ -241,7 +281,7 @@ const handlePlaceRotations = () => {
         </Card>
 
         <div className="grid gap-6 md:grid-cols-3">
-          <div className={`rounded-md border overflow-x-auto ${activePGY === "TOTAL" ? "md:col-span-3" : "md:col-span-2"}`}>
+          <div className={`rounded-md border overflow-x-auto md:col-span-3`}>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -356,6 +396,112 @@ const handlePlaceRotations = () => {
 
           </div>)}
         </div>
+
+        {activePGY !== "TOTAL" && (
+          <>
+            <div className="h-48" />
+            <aside className="fixed bottom-0 left-0 right-0 border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+              <div className="container mx-auto px-4 py-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="font-display font-semibold">Validation</div>
+                  <div className="text-xs text-muted-foreground">Per-block counts and per-fellow overview</div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-muted-foreground">Per-block counts by rotation</div>
+                  <div className="overflow-x-auto">
+                    <div className="flex min-w-max gap-3">
+                      {sortedBlocks.map((b) => (
+                        <div key={b.key} className="min-w-[140px]">
+                          <div className="text-[10px] text-muted-foreground">{b.key}</div>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {rotationsInUse.map((rot) => {
+                              const c = blockRotationCounts[b.key]?.[rot] || 0;
+                              if (c === 0) return null;
+                              const variant =
+                                rot === "VAC"
+                                  ? "destructive"
+                                  : rot === "LAC_CATH"
+                                  ? "rot-lac-cath"
+                                  : rot === "CCU"
+                                  ? "rot-ccu"
+                                  : rot === "LAC_CONSULT"
+                                  ? "rot-lac-consult"
+                                  : rot === "HF"
+                                  ? "rot-hf"
+                                  : rot === "KECK_CONSULT"
+                                  ? "rot-keck-consult"
+                                  : rot === "ECHO1"
+                                  ? "rot-echo1"
+                                  : rot === "EP"
+                                  ? "rot-ep"
+                                  : "rot-elective";
+                              return (
+                                <Badge key={rot} variant={variant as any} className="text-[10px] px-2 py-0.5">
+                                  {rot}: {c}
+                                </Badge>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-muted-foreground">Per-fellow status</div>
+                  <div className="overflow-x-auto">
+                    <div className="min-w-max space-y-1">
+                      {fellows.map((f) => (
+                        <div key={f.id} className="flex items-center gap-2">
+                          <div className="w-40 truncate text-xs text-muted-foreground">
+                            {f.name || "Unnamed fellow"}
+                          </div>
+                          <div className="flex gap-1">
+                            {sortedBlocks.map((b) => {
+                              const rot = displayByFellow[f.id]?.[b.key];
+                              if (!rot)
+                                return <span key={b.key} className="w-4 h-4 inline-block" />;
+                              const variant =
+                                rot === "VAC"
+                                  ? "destructive"
+                                  : rot === "LAC_CATH"
+                                  ? "rot-lac-cath"
+                                  : rot === "CCU"
+                                  ? "rot-ccu"
+                                  : rot === "LAC_CONSULT"
+                                  ? "rot-lac-consult"
+                                  : rot === "HF"
+                                  ? "rot-hf"
+                                  : rot === "KECK_CONSULT"
+                                  ? "rot-keck-consult"
+                                  : rot === "ECHO1"
+                                  ? "rot-echo1"
+                                  : rot === "EP"
+                                  ? "rot-ep"
+                                  : "rot-elective";
+                              return (
+                                <Badge key={b.key} variant={variant as any} className="text-[10px] px-2 py-0.5">
+                                  {rot}
+                                </Badge>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {Object.keys(displayByFellow).length === 0 && (
+                  <div className="text-xs text-muted-foreground">Run "Place Vacations" to generate a draft.</div>
+                )}
+              </div>
+            </aside>
+          </>
+        )}
+
       </section>
     </main>
   );
