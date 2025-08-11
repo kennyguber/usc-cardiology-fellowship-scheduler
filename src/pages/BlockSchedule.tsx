@@ -735,35 +735,54 @@ const handlePlaceRotations = () => {
 
                 <div className="space-y-2">
                   <div className="text-xs font-medium text-muted-foreground">Per-block counts by rotation</div>
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="min-w-[120px]">Block</TableHead>
-                          {rotationsInUseCombined.map((rot) => (
-                            <TableHead key={rot} className="text-center whitespace-nowrap">{rot}</TableHead>
-                          ))}
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {sortedBlocks.map((b) => (
-                          <TableRow key={b.key}>
-                            <TableCell className="whitespace-nowrap">
-                              <div className="font-mono text-[11px]">{b.key}</div>
-                              <div className="text-[10px] text-muted-foreground">{b.label}</div>
-                            </TableCell>
-                            {rotationsInUseCombined.map((rot) => {
-                              const c = blockRotationCounts[b.key]?.[rot] || 0;
-                              return (
-                                <TableCell key={rot} className="text-center">
-                                  <span className={c === 0 ? "text-muted-foreground" : undefined}>{c}</span>
-                                </TableCell>
-                              );
-                            })}
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                  <div className="min-w-0">
+                    <div className="space-y-1">
+                      {sortedBlocks.map((b) => {
+                        const items = rotationsInUseCombined.filter((rot) => (blockRotationCounts[b.key]?.[rot] || 0) > 0);
+                        return (
+                          <div key={b.key} className="flex items-center gap-2">
+                            <div className="w-20 truncate text-xs text-muted-foreground">{b.key}</div>
+                            <div className="flex flex-wrap gap-1">
+                              {items.map((rot) => {
+                                const c = blockRotationCounts[b.key]?.[rot] || 0;
+                                const variant =
+                                  rot === "VAC"
+                                    ? "destructive"
+                                    : rot === "LAC_CATH"
+                                    ? "rot-lac-cath"
+                                    : rot === "CCU"
+                                    ? "rot-ccu"
+                                    : rot === "LAC_CONSULT"
+                                    ? "rot-lac-consult"
+                                    : rot === "HF"
+                                    ? "rot-hf"
+                                    : rot === "KECK_CONSULT"
+                                    ? "rot-keck-consult"
+                                    : rot === "ECHO1"
+                                    ? "rot-echo1"
+                                    : rot === "ECHO2"
+                                    ? "rot-echo2"
+                                    : rot === "EP"
+                                    ? "rot-ep"
+                                    : rot === "NUCLEAR"
+                                    ? "rot-nuclear"
+                                    : rot === "NONINVASIVE"
+                                    ? "rot-noninvasive"
+                                    : "rot-elective";
+                                const baseLabel = rot === "VAC" ? "VACATION" : rot === "ELECTIVE" ? "ELECTIVE" : rot;
+                                const plural = c === 1 ? "" : baseLabel.endsWith("S") ? "" : "S";
+                                return (
+                                  <Badge key={rot} variant={variant as any} className="text-[10px] px-2 py-0.5">
+                                    {c} {baseLabel}
+                                    {plural}
+                                  </Badge>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
 
