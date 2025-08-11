@@ -29,16 +29,21 @@ export default function BlockSchedule() {
 
   const { toast } = useToast();
   const setup = loadSetup();
-  const [activePGY, setActivePGY] = useState<PGY>("PGY-4");
+  const [activePGY, setActivePGY] = useState<PGY | "TOTAL">("PGY-4");
   const [blocks, setBlocks] = useState<BlockInfo[]>(() =>
     generateAcademicYearBlocks(toAcademicYearJuly1(setup?.yearStart ?? new Date().toISOString().slice(0, 10)))
   );
-  const fellows: Fellow[] = useMemo(
-    () => (setup ? setup.fellows.filter((f) => f.pgy === activePGY) : []),
+const fellows: Fellow[] = useMemo(
+    () =>
+      setup
+        ? activePGY === "TOTAL"
+          ? setup.fellows
+          : setup.fellows.filter((f) => f.pgy === activePGY)
+        : [],
     [setup, activePGY]
   );
 
-  const [schedule, setSchedule] = useState<StoredSchedule | null>(() => loadSchedule(activePGY));
+  const [schedule, setSchedule] = useState<StoredSchedule | null>(() => (activePGY === "TOTAL" ? null : loadSchedule(activePGY as PGY)));
 
   useEffect(() => {
     setBlocks(
@@ -46,46 +51,70 @@ export default function BlockSchedule() {
     );
   }, [setup?.yearStart]);
 
-  useEffect(() => {
-    setSchedule(loadSchedule(activePGY));
+useEffect(() => {
+    if (activePGY === "TOTAL") {
+      setSchedule(null);
+    } else {
+      setSchedule(loadSchedule(activePGY as PGY));
+    }
   }, [activePGY]);
 
-  const sortedBlocks = useMemo(() => sortJulToJun(blocks), [blocks]);
-  const counts = useMemo(() => (schedule ? countByBlock(schedule.byFellow) : {}), [schedule]);
+const sortedBlocks = useMemo(() => sortJulToJun(blocks), [blocks]);
+  const displayByFellow = useMemo(() => {
+    if (activePGY === "TOTAL") {
+      const total: Record<string, Record<string, string | undefined>> = {};
+      (["PGY-4", "PGY-5", "PGY-6"] as PGY[]).forEach((p) => {
+        const s = loadSchedule(p);
+        if (s && s.byFellow) {
+          Object.assign(total, s.byFellow);
+        }
+      });
+      return total;
+    }
+    return schedule?.byFellow ?? {};
+  }, [activePGY, schedule]);
+  const counts = useMemo(() => countByBlock(displayByFellow), [displayByFellow]);
   const fellowValidations = useMemo(() => {
     return fellows.map((f) => {
-      const entries = schedule?.byFellow[f.id] ?? {};
+      const entries = displayByFellow[f.id] ?? {};
       const vacKeys = Object.entries(entries)
         .filter(([, v]) => v === "VAC")
         .map(([k]) => k);
       return { id: f.id, name: f.name, count: vacKeys.length, spacingOk: hasMinSpacing(sortedBlocks, vacKeys, 6) };
     });
-  }, [schedule, fellows, sortedBlocks]);
+  }, [fellows, sortedBlocks, displayByFellow]);
 const handleBuildVacations = () => {
-  if (!setup) {
-    toast({ variant: "destructive", title: "No setup found", description: "Please configure fellows first." });
-    return;
-  }
-  const result = buildVacationScheduleForPGY(fellows, blocks);
-  if (!result.success) {
-    toast({
-      variant: "destructive",
-      title: "Unable to place vacations",
-      description: (result.conflicts && result.conflicts[0]) || "No assignment satisfies all constraints.",
-    });
-    return;
-  }
-  const next: StoredSchedule = { version: 1, pgy: activePGY, byFellow: result.byFellow };
-  saveSchedule(activePGY, next);
-  setSchedule(next);
-  toast({ title: "Vacations placed", description: `Draft schedule built for ${activePGY}.` });
-};
+    if (!setup) {
+      toast({ variant: "destructive", title: "No setup found", description: "Please configure fellows first." });
+      return;
+    }
+    if (activePGY === "TOTAL") {
+      toast({
+        variant: "destructive",
+        title: "Select a PGY year",
+        description: "Choose PGY-4, PGY-5, or PGY-6 to place vacations.",
+      });
+      return;
+    }
+    const result = buildVacationScheduleForPGY(fellows, blocks);
+    if (!result.success) {
+      toast({
+        variant: "destructive",
+        title: "Unable to place vacations",
+        description: (result.conflicts && result.conflicts[0]) || "No assignment satisfies all constraints.",
+      });
+      return;
+    }
+    const next: StoredSchedule = { version: 1, pgy: activePGY, byFellow: result.byFellow };
+    saveSchedule(activePGY, next);
+    setSchedule(next);
+    toast({ title: "Vacations placed", description: `Draft schedule built for ${activePGY}.` });
+  };
 
-  const exportCSV = () => {
-    if (!schedule) return;
+const exportCSV = () => {
     const header = ["Fellow", ...sortedBlocks.map((b) => b.key)].join(",");
     const rows = fellows.map((f) => {
-      const row = sortedBlocks.map((b) => schedule.byFellow[f.id]?.[b.key] ?? "");
+      const row = sortedBlocks.map((b) => displayByFellow[f.id]?.[b.key] ?? "");
       return [quote(f.name || f.id), ...row.map(quote)].join(",");
     });
     const csv = [header, ...rows].join("\n");
@@ -142,17 +171,18 @@ const handleBuildVacations = () => {
                 Academic year start: <span className="font-medium text-foreground">{setup.yearStart}</span>
               </div>
               <div className="flex items-center gap-2">
-                <Tabs value={activePGY} onValueChange={(v) => setActivePGY(v as PGY)}>
+<Tabs value={activePGY} onValueChange={(v) => setActivePGY(v as PGY | "TOTAL")}>
                   <TabsList>
                     <TabsTrigger value="PGY-4">PGY-4</TabsTrigger>
                     <TabsTrigger value="PGY-5">PGY-5</TabsTrigger>
                     <TabsTrigger value="PGY-6">PGY-6</TabsTrigger>
+                    <TabsTrigger value="TOTAL">TOTAL</TabsTrigger>
                   </TabsList>
                 </Tabs>
-                <Button variant="outline" onClick={handleBuildVacations}>
+<Button variant="outline" onClick={handleBuildVacations} disabled={activePGY === "TOTAL"}>
                   <RefreshCw className="mr-2 h-4 w-4" /> Place Vacations
                 </Button>
-                <Button variant="outline" onClick={exportCSV} disabled={!schedule}>
+                <Button variant="outline" onClick={exportCSV} disabled={fellows.length === 0}>
                   <Download className="mr-2 h-4 w-4" /> Export CSV
                 </Button>
               </div>
@@ -187,9 +217,9 @@ const handleBuildVacations = () => {
                       <TableCell className="min-w-[220px] sticky left-0 bg-background z-10 font-medium">
                         {f.name || <span className="text-muted-foreground">Unnamed fellow</span>}
                       </TableCell>
-                      {sortedBlocks.map((b) => (
+{sortedBlocks.map((b) => (
                         <TableCell key={b.key} className="text-center">
-                          {schedule?.byFellow[f.id]?.[b.key] === "VAC" ? (
+                          {displayByFellow[f.id]?.[b.key] === "VAC" ? (
                             <Badge variant="destructive">Vacation</Badge>
                           ) : (
                             <span className="text-xs text-muted-foreground">&nbsp;</span>
@@ -239,9 +269,9 @@ const handleBuildVacations = () => {
                     })}
                   </div>
                 </div>
-                {!schedule && (
-                  <div className="text-xs text-muted-foreground">Run "Place Vacations" to generate a draft.</div>
-                )}
+{Object.keys(displayByFellow).length === 0 && (
+                    <div className="text-xs text-muted-foreground">Run "Place Vacations" to generate a draft.</div>
+                  )}
               </CardContent>
             </Card>
 
