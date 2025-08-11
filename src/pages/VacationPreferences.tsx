@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useSEO } from "@/lib/seo";
 import { BlockInfo, generateAcademicYearBlocks, hasMinSpacing } from "@/lib/block-utils";
 import { HeartPulse } from "lucide-react";
+import { computeAcademicYearHolidays } from "@/lib/holidays";
 
 export type PGY = "PGY-4" | "PGY-5" | "PGY-6";
 export type Fellow = { id: string; name: string; pgy: PGY; vacationPrefs: (string | undefined)[] };
@@ -138,6 +139,13 @@ export default function VacationPreferences() {
   const [setup, save] = useSetupState();
   const blocks = useMemo(() => generateAcademicYearBlocks(setup.yearStart), [setup.yearStart]);
 
+  // Auto-generate the 13 holidays whenever the start date changes
+  useEffect(() => {
+    const defaults = computeAcademicYearHolidays(setup.yearStart);
+    save({ ...setup, holidays: defaults });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setup.yearStart]);
+
   const addFellow = () => {
     const id = crypto.randomUUID();
     save({
@@ -160,11 +168,6 @@ export default function VacationPreferences() {
     save({ ...setup, fellows: setup.fellows.filter((f) => f.id !== id) });
   };
 
-  const addHoliday = () => {
-    const id = crypto.randomUUID();
-    const today = new Date().toISOString().slice(0, 10);
-    save({ ...setup, holidays: [...setup.holidays, { id, date: today, name: "Holiday" }] });
-  };
 
   const updateHoliday = (id: string, data: Partial<Holiday>) => {
     save({
@@ -173,9 +176,6 @@ export default function VacationPreferences() {
     });
   };
 
-  const removeHoliday = (id: string) => {
-    save({ ...setup, holidays: setup.holidays.filter((h) => h.id !== id) });
-  };
 
   const exportJSON = () => {
     const data = JSON.stringify(setup, null, 2);
@@ -319,51 +319,47 @@ export default function VacationPreferences() {
               <CardContent>
                 <div className="flex justify-between items-center mb-4">
                   <p className="text-sm text-muted-foreground">
-                    Add observed holidays. These will be used by the call and HF weekend schedulers later.
+                    These 13 holidays are auto-generated from the Fellowship start date. Edit dates as needed. Changing the start date will reset them.
                   </p>
-                  <Button onClick={addHoliday}>Add Holiday</Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => save({ ...setup, holidays: computeAcademicYearHolidays(setup.yearStart) })}
+                  >
+                    Reset to defaults
+                  </Button>
                 </div>
 
                 <div className="rounded-md border overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead>Holiday</TableHead>
                         <TableHead style={{ width: 180 }}>Date</TableHead>
-                        <TableHead>Name</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {setup.holidays.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={3} className="text-center text-muted-foreground">
-                            No holidays. Click "Add Holiday".
+                          <TableCell colSpan={2} className="text-center text-muted-foreground">
+                            Holidays will appear here based on the start date.
                           </TableCell>
                         </TableRow>
                       ) : (
-                        setup.holidays.map((h) => (
-                          <TableRow key={h.id}>
-                            <TableCell>
-                              <Input
-                                type="date"
-                                value={h.date}
-                                onChange={(e) => updateHoliday(h.id, { date: e.target.value })}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Input
-                                value={h.name}
-                                placeholder="Holiday name"
-                                onChange={(e) => updateHoliday(h.id, { name: e.target.value })}
-                              />
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <Button variant="ghost" onClick={() => removeHoliday(h.id)}>
-                                Remove
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))
+                        setup.holidays
+                          .slice()
+                          .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+                          .map((h) => (
+                            <TableRow key={h.id}>
+                              <TableCell className="font-medium">{h.name}</TableCell>
+                              <TableCell>
+                                <Input
+                                  type="date"
+                                  value={h.date}
+                                  onChange={(e) => updateHoliday(h.id, { date: e.target.value })}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))
                       )}
                     </TableBody>
                   </Table>
