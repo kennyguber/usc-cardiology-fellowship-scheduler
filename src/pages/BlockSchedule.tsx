@@ -173,6 +173,22 @@ const fellows: Fellow[] = useMemo(
       }
     }
 
+    // Validate LAC_CONSULT rule: months cannot be consecutive
+    const lacConsMonths = new Set<number>();
+    for (const [kk, vv] of Object.entries(row)) {
+      if (vv === "LAC_CONSULT") {
+        const mii = keyToMonth.get(kk);
+        if (mii != null) lacConsMonths.add(mii);
+      }
+    }
+    const lacConsList = Array.from(lacConsMonths).sort((a, b) => a - b);
+    for (let i = 1; i < lacConsList.length; i++) {
+      if (isAdjacentMonth(lacConsList[i], lacConsList[i - 1])) {
+        toast({ variant: "destructive", title: "LAC_CONSULT rule violation", description: "LAC_CONSULT months cannot be consecutive." });
+        return;
+      }
+    }
+
     nextByFellow[fid] = row;
     const next: StoredSchedule = { version: 1, pgy: activePGY as PGY, byFellow: nextByFellow };
     saveSchedule(activePGY as PGY, next);

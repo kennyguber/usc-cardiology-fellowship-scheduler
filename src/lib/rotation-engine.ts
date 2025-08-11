@@ -490,7 +490,7 @@ export function placePGY4Rotations(
       }
     }
 
-    // Post-placement validations for HF and CCU rules
+    // Post-placement validations for HF, CCU, and LAC_CONSULT rules
     const ruleConflicts: string[] = [];
     for (const f of fellows) {
       const rowF = byFellow[f.id] || {};
@@ -523,6 +523,23 @@ export function placePGY4Rotations(
           if (isAdjacentMonth(ccuList[i], ccuList[j])) {
             ruleConflicts.push(`${f.name || f.id}: CCU months cannot be consecutive.`);
             break outer;
+          }
+        }
+      }
+      // LAC_CONSULT months cannot be consecutive (including Dec→Jan)
+      const lacConsMonthsF = new Set<number>();
+      for (const [k, v] of Object.entries(rowF)) {
+        if (v === "LAC_CONSULT") {
+          const mi = keyToMonth.get(k);
+          if (mi != null) lacConsMonthsF.add(mi);
+        }
+      }
+      const lacConsList = [...lacConsMonthsF].sort((a, b) => a - b);
+      outer2: for (let i = 0; i < lacConsList.length; i++) {
+        for (let j = i + 1; j < lacConsList.length; j++) {
+          if (isAdjacentMonth(lacConsList[i], lacConsList[j])) {
+            ruleConflicts.push(`${f.name || f.id}: LAC_CONSULT months cannot be consecutive.`);
+            break outer2;
           }
         }
       }
