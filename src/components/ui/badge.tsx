@@ -15,6 +15,23 @@ const badgeVariants = cva(
         destructive:
           "border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80",
         outline: "text-foreground",
+        // Pastel rotation variants using design tokens
+        "rot-lac-cath":
+          "border-transparent bg-[hsl(var(--rot-lac-cath))] text-[hsl(var(--rot-lac-cath-foreground))] hover:bg-[hsl(var(--rot-lac-cath))]/90",
+        "rot-ccu":
+          "border-transparent bg-[hsl(var(--rot-ccu))] text-[hsl(var(--rot-ccu-foreground))] hover:bg-[hsl(var(--rot-ccu))]/90",
+        "rot-lac-consult":
+          "border-transparent bg-[hsl(var(--rot-lac-consult))] text-[hsl(var(--rot-lac-consult-foreground))] hover:bg-[hsl(var(--rot-lac-consult))]/90",
+        "rot-hf":
+          "border-transparent bg-[hsl(var(--rot-hf))] text-[hsl(var(--rot-hf-foreground))] hover:bg-[hsl(var(--rot-hf))]/90",
+        "rot-keck-consult":
+          "border-transparent bg-[hsl(var(--rot-keck-consult))] text-[hsl(var(--rot-keck-consult-foreground))] hover:bg-[hsl(var(--rot-keck-consult))]/90",
+        "rot-echo1":
+          "border-transparent bg-[hsl(var(--rot-echo1))] text-[hsl(var(--rot-echo1-foreground))] hover:bg-[hsl(var(--rot-echo1))]/90",
+        "rot-ep":
+          "border-transparent bg-[hsl(var(--rot-ep))] text-[hsl(var(--rot-ep-foreground))] hover:bg-[hsl(var(--rot-ep))]/90",
+        "rot-elective":
+          "border-transparent bg-[hsl(var(--rot-elective))] text-[hsl(var(--rot-elective-foreground))] hover:bg-[hsl(var(--rot-elective))]/90",
       },
     },
     defaultVariants: {

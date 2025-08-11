@@ -53,6 +53,31 @@ All colors MUST be HSL.
     --sidebar-border: 220 13% 91%;
 
     --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* Pastel rotation tokens */
+    --rot-lac-cath: 340 85% 92%;
+    --rot-lac-cath-foreground: 340 40% 30%;
+
+    --rot-ccu: 210 90% 92%;
+    --rot-ccu-foreground: 220 45% 30%;
+
+    --rot-lac-consult: 150 55% 90%;
+    --rot-lac-consult-foreground: 150 35% 25%;
+
+    --rot-hf: 270 60% 92%;
+    --rot-hf-foreground: 270 35% 28%;
+
+    --rot-keck-consult: 25 95% 90%;
+    --rot-keck-consult-foreground: 25 55% 28%;
+
+    --rot-echo1: 50 100% 88%;
+    --rot-echo1-foreground: 40 50% 25%;
+
+    --rot-ep: 180 50% 90%;
+    --rot-ep-foreground: 180 35% 25%;
+
+    --rot-elective: 220 20% 94%;
+    --rot-elective-foreground: 222.2 47.4% 11.2%;
   }
 
   .dark {
@@ -91,6 +116,31 @@ All colors MUST be HSL.
     --sidebar-accent-foreground: 240 4.8% 95.9%;
     --sidebar-border: 240 3.7% 15.9%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* Pastel rotation tokens (dark mode) */
+    --rot-lac-cath: 340 60% 30%;
+    --rot-lac-cath-foreground: 210 40% 98%;
+
+    --rot-ccu: 210 70% 28%;
+    --rot-ccu-foreground: 210 40% 98%;
+
+    --rot-lac-consult: 150 45% 28%;
+    --rot-lac-consult-foreground: 210 40% 98%;
+
+    --rot-hf: 270 45% 30%;
+    --rot-hf-foreground: 210 40% 98%;
+
+    --rot-keck-consult: 25 65% 30%;
+    --rot-keck-consult-foreground: 210 40% 98%;
+
+    --rot-echo1: 50 70% 32%;
+    --rot-echo1-foreground: 210 40% 98%;
+
+    --rot-ep: 180 50% 28%;
+    --rot-ep-foreground: 210 40% 98%;
+
+    --rot-elective: 220 15% 22%;
+    --rot-elective-foreground: 210 40% 98%;
   }
 }
 

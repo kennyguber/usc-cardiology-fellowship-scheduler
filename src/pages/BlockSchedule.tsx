@@ -285,12 +285,22 @@ const handlePlaceRotations = () => {
                           const label = displayByFellow[f.id]?.[b.key];
                           if (!label) return <span className="text-xs text-muted-foreground">&nbsp;</span>;
                           if (label === "VAC") return <Badge variant="destructive">Vacation</Badge>;
-                          const variant: "default" | "secondary" | "destructive" | "outline" =
+                          const variant =
                             label === "LAC_CATH"
-                              ? "default"
-                              : label === "CCU" || label === "LAC_CONSULT"
-                              ? "secondary"
-                              : "outline";
+                              ? "rot-lac-cath"
+                              : label === "CCU"
+                              ? "rot-ccu"
+                              : label === "LAC_CONSULT"
+                              ? "rot-lac-consult"
+                              : label === "HF"
+                              ? "rot-hf"
+                              : label === "KECK_CONSULT"
+                              ? "rot-keck-consult"
+                              : label === "ECHO1"
+                              ? "rot-echo1"
+                              : label === "EP"
+                              ? "rot-ep"
+                              : "rot-elective";
                           return <Badge variant={variant}>{label}</Badge>;
                         })()}
                         </TableCell>
