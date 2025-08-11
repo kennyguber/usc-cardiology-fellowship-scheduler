@@ -196,7 +196,7 @@ const exportCSV = () => {
               <TableHeader>
                 <TableRow>
                   <TableHead className="min-w-[220px] sticky left-0 bg-background z-10">Fellow</TableHead>
-                  <TableHead className="min-w-[200px]">Prefs</TableHead>
+                  <TableHead className="min-w-[200px]">Vacation Preferences</TableHead>
                   {sortedBlocks.map((b) => (
                     <TableHead key={b.key} className="text-center min-w-[90px]">
                       <div className="font-mono text-xs">{b.key}</div>
