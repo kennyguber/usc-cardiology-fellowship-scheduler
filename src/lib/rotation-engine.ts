@@ -392,14 +392,24 @@ export function placePGY4Rotations(
         }
       }
       let placedHF = false;
+      // Prefer HF months that are NOT adjacent to any CCU month; fallback if necessary
       const hfCandidateMonths = [...monthToKeys.keys()].filter(
         (mi) => withinJanToJun(mi) && pairFree(f.id, mi, "HF")
       );
-      const hfOrdered = randomize ? shuffle(hfCandidateMonths) : hfCandidateMonths;
-      for (const mi of hfOrdered) {
-        placePair(f.id, mi, "HF");
-        placedHF = true;
-        break;
+      const ccuMonthsArr = [...ccuMonths];
+      const preferredHF = hfCandidateMonths.filter((mi) => !ccuMonthsArr.some((m) => isAdjacentMonth(mi, m)));
+      const fallbackHF = hfCandidateMonths.filter((mi) => !preferredHF.includes(mi));
+      const tryPlaceHF = (arr: number[]) => {
+        const ordered = randomize ? shuffle(arr) : arr;
+        for (const mi of ordered) {
+          placePair(f.id, mi, "HF");
+          placedHF = true;
+          return true;
+        }
+        return false;
+      };
+      if (!tryPlaceHF(preferredHF)) {
+        tryPlaceHF(fallbackHF);
       }
       if (!placedHF) {
         return {
