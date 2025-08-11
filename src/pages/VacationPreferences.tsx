@@ -237,11 +237,30 @@ export default function VacationPreferences() {
         <Tabs defaultValue="fellows">
           <TabsList>
             <TabsTrigger value="fellows">Fellows</TabsTrigger>
-            <TabsTrigger value="year">Academic Year</TabsTrigger>
             <TabsTrigger value="holidays">Holidays</TabsTrigger>
           </TabsList>
 
           <TabsContent value="fellows" className="mt-6 animate-fade-in">
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle className="font-display">Fellowship Start Date</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div>
+                    <Label className="mb-1 block">Fellowship start date</Label>
+                    <Input
+                      type="date"
+                      value={setup.yearStart}
+                      onChange={(e) => save({ ...setup, yearStart: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Generates 24 two-week blocks (e.g., JUL1, JUL2) used throughout scheduling.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
             <Card>
               <CardHeader>
                 <CardTitle>Fellows and Vacation Preferences</CardTitle>
@@ -291,39 +310,6 @@ export default function VacationPreferences() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="year" className="mt-6 animate-fade-in">
-            <Card>
-              <CardHeader>
-                <CardTitle>Academic Year</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <div>
-                    <Label className="mb-1 block">Academic year start date</Label>
-                    <Input
-                      type="date"
-                      value={setup.yearStart}
-                      onChange={(e) => save({ ...setup, yearStart: e.target.value })}
-                    />
-                    <p className="text-xs text-muted-foreground mt-2">
-                      The app generates 24 two-week blocks from this date and auto-labels them (e.g., JUL1, JUL2...).
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-6">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
-                    {blocks.map((b) => (
-                      <div key={b.key} className="rounded-md border p-3 text-sm">
-                        <div className="font-medium">{b.key}</div>
-                        <div className="text-muted-foreground">{b.label}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
 
           <TabsContent value="holidays" className="mt-6 animate-fade-in">
             <Card>
