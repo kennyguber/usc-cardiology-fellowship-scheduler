@@ -18,6 +18,7 @@ import {
   type PGY,
   type StoredSchedule,
 } from "@/lib/schedule-engine";
+import { placePGY4Rotations } from "@/lib/rotation-engine";
 import { useToast } from "@/hooks/use-toast";
 
 export default function BlockSchedule() {
