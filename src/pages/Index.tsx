@@ -18,7 +18,7 @@ const Index = () => {
           Cardiology Fellowship Scheduler
         </h1>
         <div className="ecg-divider mx-auto mb-6 opacity-60" aria-hidden="true" />
-        <p className="text-xl text-muted-foreground mb-6">Start with Vacation Preferences, then build block and call schedules.</p>
+        <p className="text-xl text-muted-foreground mb-6">Use the sidebar to navigate: set Vacation Preferences, then build block and call schedules.</p>
         <Link to="/setup">
           <Button size="lg">Get Started</Button>
         </Link>
