@@ -20,6 +20,8 @@ import {
 } from "@/lib/schedule-engine";
 import { placePGY4Rotations } from "@/lib/rotation-engine";
 import { useToast } from "@/hooks/use-toast";
+import type { Rotation } from "@/lib/rotation-engine";
+import BlockEditDialog from "@/components/BlockEditDialog";
 
 export default function BlockSchedule() {
   useSEO({
@@ -46,6 +48,138 @@ const fellows: Fellow[] = useMemo(
 
   const [schedule, setSchedule] = useState<StoredSchedule | null>(() => (activePGY === "TOTAL" ? null : loadSchedule(activePGY as PGY)));
   const [panelOpen, setPanelOpen] = useState(false);
+
+  // Maps for block <-> month helpers
+  const keyToMonth = useMemo(() => {
+    const m = new Map<string, number>();
+    blocks.forEach((b) => m.set(b.key, b.monthIndex));
+    return m;
+  }, [blocks]);
+  const monthToKeys = useMemo(() => {
+    const m = new Map<number, string[]>();
+    blocks.forEach((b) => {
+      const arr = m.get(b.monthIndex) || [];
+      arr.push(b.key);
+      m.set(b.monthIndex, arr);
+    });
+    return m;
+  }, [blocks]);
+
+  const withinJanToJun = (mi: number) => mi >= 6 && mi <= 11;
+  const isAdjacentMonth = (a: number, b: number) => Math.abs(a - b) === 1;
+
+  // Edit dialog state
+  const [edit, setEdit] = useState<{ open: boolean; fid?: string; key?: string }>({ open: false });
+  const rotationOptions = useMemo<Rotation[]>(
+    () => ["LAC_CATH", "CCU", "LAC_CONSULT", "HF", "KECK_CONSULT", "ECHO1", "EP", "ELECTIVE"],
+    []
+  );
+  const openEdit = (fid: string, key: string) => {
+    if (activePGY === "TOTAL") return;
+    setEdit({ open: true, fid, key });
+  };
+
+  const selectedFellow = useMemo(() => fellows.find((ff) => ff.id === edit.fid), [fellows, edit.fid]);
+  const selectedBlock = useMemo(() => blocks.find((b) => b.key === edit.key), [blocks, edit.key]);
+  const currentLabelForEdit = useMemo(() => {
+    if (!schedule || !edit.fid || !edit.key) return undefined;
+    return schedule.byFellow?.[edit.fid]?.[edit.key];
+  }, [schedule, edit.fid, edit.key]);
+
+  const applyEdit = (action: { type: "set"; rotation: Rotation } | { type: "clear" }) => {
+    if (activePGY === "TOTAL" || !schedule || !edit.fid || !edit.key) {
+      setEdit({ open: false });
+      return;
+    }
+    const fid = edit.fid;
+    const k = edit.key;
+    const mi = keyToMonth.get(k);
+    if (mi == null) {
+      setEdit({ open: false });
+      return;
+    }
+
+    const nextByFellow: Record<string, Record<string, string | undefined>> = { ...(schedule.byFellow || {}) };
+    const row: Record<string, string | undefined> = { ...(nextByFellow[fid] || {}) };
+
+    if (action.type === "clear") {
+      if (row[k] === "HF") {
+        const keys = monthToKeys.get(mi) || [];
+        for (const kk of keys) {
+          if (row[kk] === "HF") delete row[kk];
+        }
+      } else {
+        delete row[k];
+      }
+    } else {
+      if (action.rotation === "HF") {
+        if (!withinJanToJun(mi)) {
+          toast({ variant: "destructive", title: "Invalid HF placement", description: "HF must be a full month between Jan and Jun." });
+          return;
+        }
+        const keys = monthToKeys.get(mi) || [];
+        if (keys.length < 2) {
+          toast({ variant: "destructive", title: "Invalid HF placement", description: "HF requires both blocks in the month." });
+          return;
+        }
+        for (const kk of keys) {
+          row[kk] = "HF";
+        }
+      } else {
+        row[k] = action.rotation;
+        // avoid orphaned single HF in the same month
+        const keys = monthToKeys.get(mi) || [];
+        const other = keys.find((kk) => kk !== k);
+        if (other && row[other] === "HF") {
+          delete row[other];
+        }
+      }
+    }
+
+    // Validate HF rule: any HF must be full-month in Jan–Jun
+    const hfKeys = Object.entries(row).filter(([, v]) => v === "HF").map(([kk]) => kk);
+    const hfByMonth = new Map<number, string[]>();
+    for (const kk of hfKeys) {
+      const mii = keyToMonth.get(kk);
+      if (mii == null) continue;
+      const arr = hfByMonth.get(mii) || [];
+      arr.push(kk);
+      hfByMonth.set(mii, arr);
+    }
+    for (const [mii, arr] of hfByMonth) {
+      if (!withinJanToJun(mii)) {
+        toast({ variant: "destructive", title: "HF rule violation", description: "HF month must be between January and June." });
+        return;
+      }
+      if (arr.length !== 2) {
+        toast({ variant: "destructive", title: "HF rule violation", description: "HF must be a full month (2 consecutive blocks)." });
+        return;
+      }
+    }
+
+    // Validate CCU rule: months cannot be consecutive
+    const ccuMonths = new Set<number>();
+    for (const [kk, vv] of Object.entries(row)) {
+      if (vv === "CCU") {
+        const mii = keyToMonth.get(kk);
+        if (mii != null) ccuMonths.add(mii);
+      }
+    }
+    const ccuList = Array.from(ccuMonths).sort((a, b) => a - b);
+    for (let i = 1; i < ccuList.length; i++) {
+      if (isAdjacentMonth(ccuList[i], ccuList[i - 1])) {
+        toast({ variant: "destructive", title: "CCU rule violation", description: "CCU months cannot be consecutive." });
+        return;
+      }
+    }
+
+    nextByFellow[fid] = row;
+    const next: StoredSchedule = { version: 1, pgy: activePGY as PGY, byFellow: nextByFellow };
+    saveSchedule(activePGY as PGY, next);
+    setSchedule(next);
+    setEdit({ open: false });
+    toast({ title: "Block updated", description: "Assignment updated successfully." });
+  };
 
   useEffect(() => {
     setBlocks(
@@ -335,29 +469,34 @@ const handlePlaceRotations = () => {
                         </div>
                       </TableCell>
                       {sortedBlocks.map((b) => (
-                        <TableCell key={b.key} className="text-center">
-{(() => {
-                          const label = displayByFellow[f.id]?.[b.key];
-                          if (!label) return <span className="text-xs text-muted-foreground">&nbsp;</span>;
-                          if (label === "VAC") return <Badge variant="destructive">Vacation</Badge>;
-                          const variant =
-                            label === "LAC_CATH"
-                              ? "rot-lac-cath"
-                              : label === "CCU"
-                              ? "rot-ccu"
-                              : label === "LAC_CONSULT"
-                              ? "rot-lac-consult"
-                              : label === "HF"
-                              ? "rot-hf"
-                              : label === "KECK_CONSULT"
-                              ? "rot-keck-consult"
-                              : label === "ECHO1"
-                              ? "rot-echo1"
-                              : label === "EP"
-                              ? "rot-ep"
-                              : "rot-elective";
-                          return <Badge variant={variant}>{label}</Badge>;
-                        })()}
+                        <TableCell
+                          key={b.key}
+                          className={`text-center ${activePGY !== "TOTAL" ? "cursor-pointer hover:bg-muted/30" : ""}`}
+                          onClick={activePGY !== "TOTAL" ? () => openEdit(f.id, b.key) : undefined}
+                          title={activePGY !== "TOTAL" ? "Click to edit" : undefined}
+                        >
+                          {(() => {
+                            const label = displayByFellow[f.id]?.[b.key];
+                            if (!label) return <span className="text-xs text-muted-foreground">&nbsp;</span>;
+                            if (label === "VAC") return <Badge variant="destructive">Vacation</Badge>;
+                            const variant =
+                              label === "LAC_CATH"
+                                ? "rot-lac-cath"
+                                : label === "CCU"
+                                ? "rot-ccu"
+                                : label === "LAC_CONSULT"
+                                ? "rot-lac-consult"
+                                : label === "HF"
+                                ? "rot-hf"
+                                : label === "KECK_CONSULT"
+                                ? "rot-keck-consult"
+                                : label === "ECHO1"
+                                ? "rot-echo1"
+                                : label === "EP"
+                                ? "rot-ep"
+                                : "rot-elective";
+                            return <Badge variant={variant}>{label}</Badge>;
+                          })()}
                         </TableCell>
                       ))}
                     </TableRow>
@@ -487,6 +626,16 @@ const handlePlaceRotations = () => {
           </>
         )}
 
+        <BlockEditDialog
+          open={edit.open}
+          onOpenChange={(v) => setEdit((e) => ({ ...e, open: v }))}
+          fellowName={selectedFellow?.name || selectedFellow?.id || ""}
+          blockKey={selectedBlock?.key || ""}
+          blockLabel={selectedBlock?.label || ""}
+          currentLabel={currentLabelForEdit}
+          options={rotationOptions}
+          onApply={(val) => applyEdit(val)}
+        />
       </section>
     </main>
   );
