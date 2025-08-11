@@ -342,7 +342,10 @@ const sortedBlocks = useMemo(() => sortJulToJun(blocks), [blocks]);
       "HF",
       "KECK_CONSULT",
       "ECHO1",
+      "ECHO2",
       "EP",
+      "NUCLEAR",
+      "NONINVASIVE",
       "ELECTIVE",
     ];
     return Array.from(set).sort((a, b) => {
@@ -355,18 +358,63 @@ const sortedBlocks = useMemo(() => sortJulToJun(blocks), [blocks]);
     });
   }, [displayByFellow]);
 
+  const rotationsInUseCombined = useMemo(() => {
+    const set = new Set<string>();
+    const add = (byF?: Record<string, Record<string, string | undefined>>) => {
+      if (!byF) return;
+      for (const row of Object.values(byF)) {
+        for (const v of Object.values(row)) if (v) set.add(v);
+      }
+    };
+    const p4 = loadSchedule("PGY-4");
+    const p5 = loadSchedule("PGY-5");
+    add(p4?.byFellow);
+    add(p5?.byFellow);
+    const order = [
+      "VAC",
+      "LAC_CATH",
+      "CCU",
+      "LAC_CONSULT",
+      "HF",
+      "KECK_CONSULT",
+      "ECHO1",
+      "ECHO2",
+      "EP",
+      "NUCLEAR",
+      "NONINVASIVE",
+      "ELECTIVE",
+    ];
+    return Array.from(set).sort((a, b) => {
+      const ia = order.indexOf(a);
+      const ib = order.indexOf(b);
+      if (ia !== -1 && ib !== -1) return ia - ib;
+      if (ia !== -1) return -1;
+      if (ib !== -1) return 1;
+      return a.localeCompare(b);
+    });
+  }, [schedule, activePGY]);
+
   const blockRotationCounts = useMemo(() => {
     const m: Record<string, Record<string, number>> = {};
     for (const b of sortedBlocks) {
       m[b.key] = {};
-      for (const f of fellows) {
-        const label = displayByFellow[f.id]?.[b.key];
-        if (!label) continue;
-        m[b.key][label] = (m[b.key][label] || 0) + 1;
-      }
     }
+    const addFrom = (byF?: Record<string, Record<string, string | undefined>>) => {
+      if (!byF) return;
+      for (const row of Object.values(byF)) {
+        for (const [k, v] of Object.entries(row)) {
+          if (!v) continue;
+          if (!m[k]) m[k] = {};
+          m[k][v] = (m[k][v] || 0) + 1;
+        }
+      }
+    };
+    const p4 = loadSchedule("PGY-4");
+    const p5 = loadSchedule("PGY-5");
+    addFrom(p4?.byFellow);
+    addFrom(p5?.byFellow);
     return m;
-  }, [sortedBlocks, fellows, displayByFellow]);
+  }, [sortedBlocks, schedule, activePGY]);
 
   const perFellowCounts = useMemo(() => {
     const res: Record<string, Record<string, number>> = {};
@@ -627,8 +675,14 @@ const handlePlaceRotations = () => {
                                 ? "rot-keck-consult"
                                 : label === "ECHO1"
                                 ? "rot-echo1"
+                                : label === "ECHO2"
+                                ? "rot-echo2"
                                 : label === "EP"
                                 ? "rot-ep"
+                                : label === "NUCLEAR"
+                                ? "rot-nuclear"
+                                : label === "NONINVASIVE"
+                                ? "rot-noninvasive"
                                 : "rot-elective";
                             return <Badge variant={variant}>{label}</Badge>;
                           })()}
@@ -669,7 +723,7 @@ const handlePlaceRotations = () => {
                         <div key={b.key} className="min-w-[140px]">
                           <div className="text-[10px] text-muted-foreground">{b.key}</div>
                           <div className="flex flex-wrap gap-1 mt-1">
-                            {rotationsInUse.map((rot) => {
+                            {rotationsInUseCombined.map((rot) => {
                               const c = blockRotationCounts[b.key]?.[rot] || 0;
                               if (c === 0) return null;
                               const variant =
@@ -687,8 +741,14 @@ const handlePlaceRotations = () => {
                                   ? "rot-keck-consult"
                                   : rot === "ECHO1"
                                   ? "rot-echo1"
+                                  : rot === "ECHO2"
+                                  ? "rot-echo2"
                                   : rot === "EP"
                                   ? "rot-ep"
+                                  : rot === "NUCLEAR"
+                                  ? "rot-nuclear"
+                                  : rot === "NONINVASIVE"
+                                  ? "rot-noninvasive"
                                   : "rot-elective";
                               return (
                                 <Badge key={rot} variant={variant as any} className="text-[10px] px-2 py-0.5">
@@ -733,8 +793,14 @@ const handlePlaceRotations = () => {
                                     ? "rot-keck-consult"
                                     : rot === "ECHO1"
                                     ? "rot-echo1"
+                                    : rot === "ECHO2"
+                                    ? "rot-echo2"
                                     : rot === "EP"
                                     ? "rot-ep"
+                                    : rot === "NUCLEAR"
+                                    ? "rot-nuclear"
+                                    : rot === "NONINVASIVE"
+                                    ? "rot-noninvasive"
                                     : "rot-elective";
                                 const baseLabel = rot === "VAC" ? "VACATION" : rot === "ELECTIVE" ? "ELECTIVE" : rot;
                                 const plural = c === 1 ? "" : baseLabel.endsWith("S") ? "" : "S";

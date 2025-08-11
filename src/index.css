@@ -73,8 +73,17 @@ All colors MUST be HSL.
     --rot-echo1: 50 100% 88%;
     --rot-echo1-foreground: 40 50% 25%;
 
+    --rot-echo2: 35 95% 90%;
+    --rot-echo2-foreground: 35 45% 25%;
+
     --rot-ep: 180 50% 90%;
     --rot-ep-foreground: 180 35% 25%;
+
+    --rot-nuclear: 310 85% 92%;
+    --rot-nuclear-foreground: 310 40% 28%;
+
+    --rot-noninvasive: 200 55% 92%;
+    --rot-noninvasive-foreground: 200 40% 28%;
 
     --rot-elective: 220 20% 94%;
     --rot-elective-foreground: 222.2 47.4% 11.2%;
@@ -136,8 +145,17 @@ All colors MUST be HSL.
     --rot-echo1: 50 70% 32%;
     --rot-echo1-foreground: 210 40% 98%;
 
+    --rot-echo2: 35 65% 30%;
+    --rot-echo2-foreground: 210 40% 98%;
+
     --rot-ep: 180 50% 28%;
     --rot-ep-foreground: 210 40% 98%;
+
+    --rot-nuclear: 310 60% 32%;
+    --rot-nuclear-foreground: 210 40% 98%;
+
+    --rot-noninvasive: 200 45% 30%;
+    --rot-noninvasive-foreground: 210 40% 98%;
 
     --rot-elective: 220 15% 22%;
     --rot-elective-foreground: 210 40% 98%;
