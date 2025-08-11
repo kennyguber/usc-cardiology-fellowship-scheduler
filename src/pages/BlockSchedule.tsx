@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { HeartPulse, Download, RefreshCw } from "lucide-react";
+import { HeartPulse, Download, RefreshCw, Eraser } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -112,7 +112,42 @@ const handleBuildVacations = () => {
     toast({ title: "Vacations placed", description: `Draft schedule built for ${activePGY}.` });
   };
 
-const exportCSV = () => {
+const handlePlaceRotations = () => {
+    if (!setup) {
+      toast({ variant: "destructive", title: "No setup found", description: "Please configure fellows first." });
+      return;
+    }
+    if (activePGY !== "PGY-4") {
+      toast({ variant: "destructive", title: "PGY-4 only", description: "Switch to PGY-4 to place rotations." });
+      return;
+    }
+    const res = placePGY4Rotations(fellows, blocks, schedule?.byFellow, { randomize: true });
+    if (!res.success) {
+      toast({ variant: "destructive", title: "Unable to place rotations", description: res.conflicts?.[0] || "No solution found." });
+      return;
+    }
+    const next: StoredSchedule = { version: 1, pgy: activePGY, byFellow: res.byFellow };
+    saveSchedule(activePGY, next);
+    setSchedule(next);
+    toast({ title: "Rotations placed", description: "PGY-4 rotations assigned." });
+  };
+
+  const handleClearRotations = () => {
+    if (activePGY !== "PGY-4") return;
+    if (!schedule) return;
+    const cleaned: Record<string, Record<string, string | undefined>> = {};
+    for (const [fid, row] of Object.entries(schedule.byFellow || {})) {
+      const nr: Record<string, string | undefined> = {};
+      for (const [k, v] of Object.entries(row)) if (v === "VAC") nr[k] = v;
+      cleaned[fid] = nr;
+    }
+    const next: StoredSchedule = { version: 1, pgy: activePGY, byFellow: cleaned };
+    saveSchedule(activePGY, next);
+    setSchedule(next);
+    toast({ title: "Rotations cleared", description: "Kept vacations; removed other assignments." });
+  };
+
+  const exportCSV = () => {
     const header = ["Fellow", ...sortedBlocks.map((b) => b.key)].join(",");
     const rows = fellows.map((f) => {
       const row = sortedBlocks.map((b) => displayByFellow[f.id]?.[b.key] ?? "");
@@ -183,6 +218,20 @@ const exportCSV = () => {
 <Button variant="outline" onClick={handleBuildVacations} disabled={activePGY === "TOTAL"}>
                   <RefreshCw className="mr-2 h-4 w-4" /> Place Vacations
                 </Button>
+                <Button
+                  variant="outline"
+                  onClick={handlePlaceRotations}
+                  disabled={activePGY !== "PGY-4" || fellows.length === 0}
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" /> Place Rotations (PGY-4)
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleClearRotations}
+                  disabled={activePGY !== "PGY-4" || !schedule}
+                >
+                  <Eraser className="mr-2 h-4 w-4" /> Clear Rotations
+                </Button>
                 <Button variant="outline" onClick={exportCSV} disabled={fellows.length === 0}>
                   <Download className="mr-2 h-4 w-4" /> Export CSV
                 </Button>
@@ -232,11 +281,18 @@ const exportCSV = () => {
                       </TableCell>
                       {sortedBlocks.map((b) => (
                         <TableCell key={b.key} className="text-center">
-                          {displayByFellow[f.id]?.[b.key] === "VAC" ? (
-                            <Badge variant="destructive">Vacation</Badge>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">&nbsp;</span>
-                          )}
+{(() => {
+                          const label = displayByFellow[f.id]?.[b.key];
+                          if (!label) return <span className="text-xs text-muted-foreground">&nbsp;</span>;
+                          if (label === "VAC") return <Badge variant="destructive">Vacation</Badge>;
+                          const variant: "default" | "secondary" | "destructive" | "outline" =
+                            label === "LAC_CATH"
+                              ? "default"
+                              : label === "CCU" || label === "LAC_CONSULT"
+                              ? "secondary"
+                              : "outline";
+                          return <Badge variant={variant}>{label}</Badge>;
+                        })()}
                         </TableCell>
                       ))}
                     </TableRow>
