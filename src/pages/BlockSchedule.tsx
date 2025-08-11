@@ -96,7 +96,7 @@ const handleBuildVacations = () => {
       });
       return;
     }
-    const result = buildVacationScheduleForPGY(fellows, blocks);
+    const result = buildVacationScheduleForPGY(fellows, blocks, { randomize: true });
     if (!result.success) {
       toast({
         variant: "destructive",
@@ -222,7 +222,7 @@ const exportCSV = () => {
                         <div className="flex flex-wrap gap-1">
                           {Array.from(new Set((f.vacationPrefs || []).filter((k): k is string => !!k))).length > 0 ? (
                             Array.from(new Set((f.vacationPrefs || []).filter((k): k is string => !!k))).map((k) => (
-                              <Badge key={k} variant="secondary">{k}</Badge>
+                              <Badge key={k} variant={displayByFellow[f.id]?.[k] === "VAC" ? "destructive" : "secondary"}>{k}</Badge>
                             ))
                           ) : (
                             <span className="text-xs text-muted-foreground">No prefs</span>

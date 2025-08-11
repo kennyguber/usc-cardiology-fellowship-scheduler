@@ -110,8 +110,13 @@ export type VacationSolveResult = {
 export function buildVacationScheduleForPGY(
   fellows: Fellow[],
   blocks: BlockInfo[],
-  minSpacingBlocks = VACATION_MIN_SPACING_BLOCKS
+  minOrOpts?: number | { randomize?: boolean },
+  maybeOpts?: { randomize?: boolean }
 ): VacationSolveResult {
+  const opts = (typeof minOrOpts === "object" && minOrOpts !== null ? minOrOpts : maybeOpts) || {};
+  const randomize = !!opts.randomize;
+  const minSpacingBlocks = typeof minOrOpts === "number" ? minOrOpts : VACATION_MIN_SPACING_BLOCKS;
+
   const blockKeys = blocks.map((b) => b.key);
   const indexByKey = new Map<string, number>(blockKeys.map((k, i) => [k, i] as const));
   const N = fellows.length;
@@ -154,25 +159,29 @@ export function buildVacationScheduleForPGY(
 
     const allPairs = [...prefPref, ...prefNon, ...nonNon];
 
-    // Simple heuristic: sort pairs by how centered they are (optional)
+    // Heuristic: keep tiers via a large base weight, randomize within tier if requested
     const mid = (blockKeys.length - 1) / 2;
     const score = (a: string, b: string) => {
       const ia = indexByKey.get(a)!;
       const ib = indexByKey.get(b)!;
       const center = Math.abs(ia - mid) + Math.abs(ib - mid);
-      // Prefer pairs closer to middle, and pairs with both preferences first
-      const prefScore = (prefs.includes(a) ? 0 : 1) + (prefs.includes(b) ? 0 : 1);
-      return prefScore * 1000 + center;
+      const prefScore = (prefs.includes(a) ? 0 : 1) + (prefs.includes(b) ? 0 : 1); // 0=pref/pref,1=pref/non,2=non/non
+      const jitter = randomize ? Math.random() : 0; // small jitter won't cross tier gaps
+      return prefScore * 1000 + center + jitter;
     };
 
     allPairs.sort((p1, p2) => score(p1[0], p1[1]) - score(p2[0], p2[1]));
     return { fellow: f, pairs: allPairs, prefCount: prefPref.length };
   });
 
-  // Order fellows: most constrained first (fewest pref-pref pairs, then fewest total pairs)
+  // Order fellows: most constrained first; randomize tie-breaks if requested
   const order = [...byFellowCandidates]
     .map((c, idx) => ({ ...c, idx }))
-    .sort((a, b) => (a.prefCount - b.prefCount) || (a.pairs.length - b.pairs.length));
+    .sort((a, b) => {
+      const cmp = (a.prefCount - b.prefCount) || (a.pairs.length - b.pairs.length);
+      if (cmp !== 0) return cmp;
+      return randomize ? Math.random() - 0.5 : 0;
+    });
 
   const used = new Set<string>();
   const byFellow: FellowSchedule = {};
