@@ -64,8 +64,25 @@ function FellowRow({
   onRemove: () => void;
 }) {
   const spacingOk = hasMinSpacing(blocks, fellow.vacationPrefs, 6);
-  const firstHalf = blocks.filter((b) => b.monthIndex < 6);
-  const secondHalf = blocks.filter((b) => b.monthIndex >= 6);
+  const monthsJulDec = ["JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+  const monthsJanJun = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN"];
+  const sortByMonth = (arr: BlockInfo[], months: string[]) =>
+    arr
+      .slice()
+      .sort((a, b) => {
+        const ma = months.indexOf(a.key.slice(0, 3));
+        const mb = months.indexOf(b.key.slice(0, 3));
+        if (ma !== mb) return ma - mb;
+        return a.half - b.half;
+      });
+  const firstHalf = sortByMonth(
+    blocks.filter((b) => monthsJulDec.includes(b.key.slice(0, 3))),
+    monthsJulDec
+  );
+  const secondHalf = sortByMonth(
+    blocks.filter((b) => monthsJanJun.includes(b.key.slice(0, 3))),
+    monthsJanJun
+  );
   return (
     <TableRow className="animate-fade-in">
       <TableCell className="min-w-[260px]">
