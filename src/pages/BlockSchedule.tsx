@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { HeartPulse, Download, RefreshCw, Eraser } from "lucide-react";
+import { HeartPulse, Download, RefreshCw, Eraser, ChevronUp, ChevronDown } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +45,7 @@ const fellows: Fellow[] = useMemo(
   );
 
   const [schedule, setSchedule] = useState<StoredSchedule | null>(() => (activePGY === "TOTAL" ? null : loadSchedule(activePGY as PGY)));
+  const [panelOpen, setPanelOpen] = useState(false);
 
   useEffect(() => {
     setBlocks(
@@ -124,6 +125,20 @@ const sortedBlocks = useMemo(() => sortJulToJun(blocks), [blocks]);
     }
     return m;
   }, [sortedBlocks, fellows, displayByFellow]);
+
+  const perFellowCounts = useMemo(() => {
+    const res: Record<string, Record<string, number>> = {};
+    for (const f of fellows) {
+      const row = displayByFellow[f.id] || {};
+      const m: Record<string, number> = {};
+      for (const v of Object.values(row)) {
+        if (!v) continue;
+        m[v] = (m[v] || 0) + 1;
+      }
+      res[f.id] = m;
+    }
+    return res;
+  }, [fellows, displayByFellow]);
 const handleBuildVacations = () => {
     if (!setup) {
       toast({ variant: "destructive", title: "No setup found", description: "Please configure fellows first." });
@@ -352,55 +367,20 @@ const handlePlaceRotations = () => {
             </Table>
           </div>
 
-          {activePGY !== "TOTAL" && (<div className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="font-display">Validation</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="text-sm text-muted-foreground">
-                  Rule: exactly 2 vacations per fellow, at least 3 months apart.
-                </div>
-                <div>
-                  <div className="text-sm mb-1">Per-block vacation counts:</div>
-                  <div className="flex flex-wrap gap-2">
-                    {sortedBlocks.map((b) => (
-                      <Badge key={b.key} variant={counts[b.key] && counts[b.key] > 1 ? "destructive" : "secondary"}>
-                        {b.key}: {counts[b.key] ?? 0}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-sm mb-1">Per-fellow status:</div>
-                  <div className="flex flex-col gap-1">
-                    {fellows.map((f) => {
-                      const v = fellowValidations.find((x) => x.id === f.id);
-                      const ok = v && v.count === 2 && v.spacingOk;
-                      return (
-                        <div key={f.id} className="flex items-center justify-between text-sm">
-                          <span className="truncate">{f.name || "Unnamed fellow"}</span>
-                          <Badge variant={ok ? "secondary" : "destructive"}>
-                            {v ? `${v.count} vacations${!v.spacingOk ? ", spacing < 3 mo" : ""}` : "0 vacations"}
-                          </Badge>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-{Object.keys(displayByFellow).length === 0 && (
-                    <div className="text-xs text-muted-foreground">Run "Place Vacations" to generate a draft.</div>
-                  )}
-              </CardContent>
-            </Card>
-
-          </div>)}
         </div>
 
         {activePGY !== "TOTAL" && (
           <>
-            <div className="h-48" />
-            <aside className="fixed bottom-0 left-0 right-0 border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+            <button
+              aria-expanded={panelOpen}
+              onClick={() => setPanelOpen((v) => !v)}
+              className="fixed bottom-4 right-4 z-50 inline-flex items-center gap-2 rounded-full bg-primary text-primary-foreground shadow-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            >
+              <span className="text-sm font-medium">Validation</span>
+              {panelOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+            </button>
+            {panelOpen && <div className="h-48" />}
+            <aside className={`fixed bottom-0 left-0 right-0 border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 transition-transform duration-300 z-40 ${panelOpen ? "translate-y-0" : "translate-y-full"}`}>
               <div className="container mx-auto px-4 py-3 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="font-display font-semibold">Validation</div>
@@ -453,43 +433,48 @@ const handlePlaceRotations = () => {
                   <div className="text-xs font-medium text-muted-foreground">Per-fellow status</div>
                   <div className="overflow-x-auto">
                     <div className="min-w-max space-y-1">
-                      {fellows.map((f) => (
-                        <div key={f.id} className="flex items-center gap-2">
-                          <div className="w-40 truncate text-xs text-muted-foreground">
-                            {f.name || "Unnamed fellow"}
+                      {fellows.map((f) => {
+                        const counts = perFellowCounts[f.id] || {};
+                        const items = rotationsInUse.filter((rot) => (counts[rot] || 0) > 0);
+                        return (
+                          <div key={f.id} className="flex items-center gap-2">
+                            <div className="w-40 truncate text-xs text-muted-foreground">
+                              {f.name || "Unnamed fellow"}
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {items.map((rot) => {
+                                const c = counts[rot] || 0;
+                                const variant =
+                                  rot === "VAC"
+                                    ? "destructive"
+                                    : rot === "LAC_CATH"
+                                    ? "rot-lac-cath"
+                                    : rot === "CCU"
+                                    ? "rot-ccu"
+                                    : rot === "LAC_CONSULT"
+                                    ? "rot-lac-consult"
+                                    : rot === "HF"
+                                    ? "rot-hf"
+                                    : rot === "KECK_CONSULT"
+                                    ? "rot-keck-consult"
+                                    : rot === "ECHO1"
+                                    ? "rot-echo1"
+                                    : rot === "EP"
+                                    ? "rot-ep"
+                                    : "rot-elective";
+                                const baseLabel = rot === "VAC" ? "VACATION" : rot === "ELECTIVE" ? "ELECTIVE" : rot;
+                                const plural = c === 1 ? "" : baseLabel.endsWith("S") ? "" : "S";
+                                return (
+                                  <Badge key={rot} variant={variant as any} className="text-[10px] px-2 py-0.5">
+                                    {c} {baseLabel}
+                                    {plural}
+                                  </Badge>
+                                );
+                              })}
+                            </div>
                           </div>
-                          <div className="flex gap-1">
-                            {sortedBlocks.map((b) => {
-                              const rot = displayByFellow[f.id]?.[b.key];
-                              if (!rot)
-                                return <span key={b.key} className="w-4 h-4 inline-block" />;
-                              const variant =
-                                rot === "VAC"
-                                  ? "destructive"
-                                  : rot === "LAC_CATH"
-                                  ? "rot-lac-cath"
-                                  : rot === "CCU"
-                                  ? "rot-ccu"
-                                  : rot === "LAC_CONSULT"
-                                  ? "rot-lac-consult"
-                                  : rot === "HF"
-                                  ? "rot-hf"
-                                  : rot === "KECK_CONSULT"
-                                  ? "rot-keck-consult"
-                                  : rot === "ECHO1"
-                                  ? "rot-echo1"
-                                  : rot === "EP"
-                                  ? "rot-ep"
-                                  : "rot-elective";
-                              return (
-                                <Badge key={b.key} variant={variant as any} className="text-[10px] px-2 py-0.5">
-                                  {rot}
-                                </Badge>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
