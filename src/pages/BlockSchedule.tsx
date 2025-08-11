@@ -196,6 +196,7 @@ const exportCSV = () => {
               <TableHeader>
                 <TableRow>
                   <TableHead className="min-w-[220px] sticky left-0 bg-background z-10">Fellow</TableHead>
+                  <TableHead className="min-w-[200px]">Prefs</TableHead>
                   {sortedBlocks.map((b) => (
                     <TableHead key={b.key} className="text-center min-w-[90px]">
                       <div className="font-mono text-xs">{b.key}</div>
@@ -207,7 +208,7 @@ const exportCSV = () => {
               <TableBody>
                 {fellows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={1 + sortedBlocks.length} className="text-center text-muted-foreground">
+                    <TableCell colSpan={2 + sortedBlocks.length} className="text-center text-muted-foreground">
                       No fellows for {activePGY}.
                     </TableCell>
                   </TableRow>
@@ -217,7 +218,18 @@ const exportCSV = () => {
                       <TableCell className="min-w-[220px] sticky left-0 bg-background z-10 font-medium">
                         {f.name || <span className="text-muted-foreground">Unnamed fellow</span>}
                       </TableCell>
-{sortedBlocks.map((b) => (
+                      <TableCell className="min-w-[200px]">
+                        <div className="flex flex-wrap gap-1">
+                          {Array.from(new Set((f.vacationPrefs || []).filter((k): k is string => !!k))).length > 0 ? (
+                            Array.from(new Set((f.vacationPrefs || []).filter((k): k is string => !!k))).map((k) => (
+                              <Badge key={k} variant="secondary">{k}</Badge>
+                            ))
+                          ) : (
+                            <span className="text-xs text-muted-foreground">No prefs</span>
+                          )}
+                        </div>
+                      </TableCell>
+                      {sortedBlocks.map((b) => (
                         <TableCell key={b.key} className="text-center">
                           {displayByFellow[f.id]?.[b.key] === "VAC" ? (
                             <Badge variant="destructive">Vacation</Badge>
