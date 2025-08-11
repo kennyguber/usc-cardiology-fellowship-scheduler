@@ -28,8 +28,14 @@ const badgeVariants = cva(
           "border-transparent bg-[hsl(var(--rot-keck-consult))] text-[hsl(var(--rot-keck-consult-foreground))] hover:bg-[hsl(var(--rot-keck-consult))]/90",
         "rot-echo1":
           "border-transparent bg-[hsl(var(--rot-echo1))] text-[hsl(var(--rot-echo1-foreground))] hover:bg-[hsl(var(--rot-echo1))]/90",
+        "rot-echo2":
+          "border-transparent bg-[hsl(var(--rot-echo2))] text-[hsl(var(--rot-echo2-foreground))] hover:bg-[hsl(var(--rot-echo2))]/90",
         "rot-ep":
           "border-transparent bg-[hsl(var(--rot-ep))] text-[hsl(var(--rot-ep-foreground))] hover:bg-[hsl(var(--rot-ep))]/90",
+        "rot-nuclear":
+          "border-transparent bg-[hsl(var(--rot-nuclear))] text-[hsl(var(--rot-nuclear-foreground))] hover:bg-[hsl(var(--rot-nuclear))]/90",
+        "rot-noninvasive":
+          "border-transparent bg-[hsl(var(--rot-noninvasive))] text-[hsl(var(--rot-noninvasive-foreground))] hover:bg-[hsl(var(--rot-noninvasive))]/90",
         "rot-elective":
           "border-transparent bg-[hsl(var(--rot-elective))] text-[hsl(var(--rot-elective-foreground))] hover:bg-[hsl(var(--rot-elective))]/90",
       },

@@ -18,7 +18,7 @@ import {
   type PGY,
   type StoredSchedule,
 } from "@/lib/schedule-engine";
-import { placePGY4Rotations } from "@/lib/rotation-engine";
+import { placePGY4Rotations, placePGY5Rotations } from "@/lib/rotation-engine";
 import { useToast } from "@/hooks/use-toast";
 import type { Rotation } from "@/lib/rotation-engine";
 import BlockEditDialog from "@/components/BlockEditDialog";
@@ -70,9 +70,23 @@ const fellows: Fellow[] = useMemo(
 
   // Edit dialog state
   const [edit, setEdit] = useState<{ open: boolean; fid?: string; key?: string }>({ open: false });
-  const rotationOptions = useMemo<Rotation[]>(
-    () => ["LAC_CATH", "CCU", "LAC_CONSULT", "HF", "KECK_CONSULT", "ECHO1", "EP", "ELECTIVE"],
-    []
+const rotationOptions = useMemo<Rotation[]>(
+    () =>
+      activePGY === "PGY-5"
+        ? [
+            "LAC_CATH",
+            "CCU",
+            "LAC_CONSULT",
+            "HF",
+            "KECK_CONSULT",
+            "ECHO2",
+            "EP",
+            "NUCLEAR",
+            "NONINVASIVE",
+            "ELECTIVE",
+          ]
+        : ["LAC_CATH", "CCU", "LAC_CONSULT", "HF", "KECK_CONSULT", "ECHO1", "EP", "ELECTIVE"],
+    [activePGY]
   );
   const openEdit = (fid: string, key: string) => {
     if (activePGY === "TOTAL") return;
@@ -102,17 +116,22 @@ const fellows: Fellow[] = useMemo(
     const nextByFellow: Record<string, Record<string, string | undefined>> = { ...(schedule.byFellow || {}) };
     const row: Record<string, string | undefined> = { ...(nextByFellow[fid] || {}) };
 
-    if (action.type === "clear") {
-      if (row[k] === "HF") {
+if (action.type === "clear") {
+      if (row[k] === "HF" && activePGY === "PGY-4") {
         const keys = monthToKeys.get(mi) || [];
         for (const kk of keys) {
           if (row[kk] === "HF") delete row[kk];
+        }
+      } else if (row[k] === "KECK_CONSULT" && activePGY === "PGY-5") {
+        const keys = monthToKeys.get(mi) || [];
+        for (const kk of keys) {
+          if (row[kk] === "KECK_CONSULT") delete row[kk];
         }
       } else {
         delete row[k];
       }
     } else {
-      if (action.rotation === "HF") {
+if (action.rotation === "HF" && activePGY === "PGY-4") {
         if (!withinJanToJun(mi)) {
           toast({ variant: "destructive", title: "Invalid HF placement", description: "HF must be a full month between Jan and Jun." });
           return;
@@ -125,69 +144,142 @@ const fellows: Fellow[] = useMemo(
         for (const kk of keys) {
           row[kk] = "HF";
         }
+      } else if (action.rotation === "KECK_CONSULT" && activePGY === "PGY-5") {
+        const keys = monthToKeys.get(mi) || [];
+        if (keys.length < 2) {
+          toast({ variant: "destructive", title: "Invalid KECK_CONSULT placement", description: "KECK_CONSULT must be a full month (2 blocks)." });
+          return;
+        }
+        for (const kk of keys) {
+          row[kk] = "KECK_CONSULT";
+        }
       } else {
         row[k] = action.rotation;
-        // avoid orphaned single HF in the same month
-        const keys = monthToKeys.get(mi) || [];
-        const other = keys.find((kk) => kk !== k);
-        if (other && row[other] === "HF") {
-          delete row[other];
+        // avoid orphaned single HF in the same month (PGY-4 only)
+        if (activePGY === "PGY-4") {
+          const keys = monthToKeys.get(mi) || [];
+          const other = keys.find((kk) => kk !== k);
+          if (other && row[other] === "HF") {
+            delete row[other];
+          }
         }
       }
     }
 
-    // Validate HF rule: any HF must be full-month in Jan–Jun
-    const hfKeys = Object.entries(row).filter(([, v]) => v === "HF").map(([kk]) => kk);
-    const hfByMonth = new Map<number, string[]>();
-    for (const kk of hfKeys) {
-      const mii = keyToMonth.get(kk);
-      if (mii == null) continue;
-      const arr = hfByMonth.get(mii) || [];
-      arr.push(kk);
-      hfByMonth.set(mii, arr);
-    }
-    for (const [mii, arr] of hfByMonth) {
-      if (!withinJanToJun(mii)) {
-        toast({ variant: "destructive", title: "HF rule violation", description: "HF month must be between January and June." });
+// Validations by PGY
+    if (activePGY === "PGY-4") {
+      // HF must be full-month in Jan–Jun
+      const hfKeys = Object.entries(row).filter(([, v]) => v === "HF").map(([kk]) => kk);
+      const hfByMonth = new Map<number, string[]>();
+      for (const kk of hfKeys) {
+        const mii = keyToMonth.get(kk);
+        if (mii == null) continue;
+        const arr = hfByMonth.get(mii) || [];
+        arr.push(kk);
+        hfByMonth.set(mii, arr);
+      }
+      for (const [mii, arr] of hfByMonth) {
+        if (!withinJanToJun(mii)) {
+          toast({ variant: "destructive", title: "HF rule violation", description: "HF month must be between January and June." });
+          return;
+        }
+        if (arr.length !== 2) {
+          toast({ variant: "destructive", title: "HF rule violation", description: "HF must be a full month (2 consecutive blocks)." });
+          return;
+        }
+      }
+
+      // CCU months cannot be consecutive (PGY-4 rule)
+      const ccuMonths = new Set<number>();
+      for (const [kk, vv] of Object.entries(row)) {
+        if (vv === "CCU") {
+          const mii = keyToMonth.get(kk);
+          if (mii != null) ccuMonths.add(mii);
+        }
+      }
+      const ccuList = Array.from(ccuMonths).sort((a, b) => a - b);
+      for (let i = 1; i < ccuList.length; i++) {
+        if (isAdjacentMonth(ccuList[i], ccuList[i - 1])) {
+          toast({ variant: "destructive", title: "CCU rule violation", description: "CCU months cannot be consecutive." });
+          return;
+        }
+      }
+
+      // LAC_CONSULT months cannot be consecutive
+      const lacConsMonths = new Set<number>();
+      for (const [kk, vv] of Object.entries(row)) {
+        if (vv === "LAC_CONSULT") {
+          const mii = keyToMonth.get(kk);
+          if (mii != null) lacConsMonths.add(mii);
+        }
+      }
+      const lacConsList = Array.from(lacConsMonths).sort((a, b) => a - b);
+      for (let i = 1; i < lacConsList.length; i++) {
+        if (isAdjacentMonth(lacConsList[i], lacConsList[i - 1])) {
+          toast({ variant: "destructive", title: "LAC_CONSULT rule violation", description: "LAC_CONSULT months cannot be consecutive." });
+          return;
+        }
+      }
+    } else if (activePGY === "PGY-5") {
+      // KECK_CONSULT must be exactly one full month (2 blocks)
+      const kcKeys = Object.entries(row).filter(([, v]) => v === "KECK_CONSULT").map(([kk]) => kk);
+      if (kcKeys.length > 0) {
+        const kcMonths = new Map<number, number>();
+        for (const kk of kcKeys) {
+          const mii = keyToMonth.get(kk);
+          if (mii != null) kcMonths.set(mii, (kcMonths.get(mii) || 0) + 1);
+        }
+        const valid = Array.from(kcMonths.values()).some((c) => c === 2) && kcKeys.length === 2 && kcMonths.size === 1;
+        if (!valid) {
+          toast({ variant: "destructive", title: "KECK_CONSULT rule", description: "KECK_CONSULT must be a full month (2 blocks in same month)." });
+          return;
+        }
+      }
+
+      // HF must be non-consecutive and not adjacent to CCU
+      const idxBy = (lab: string) =>
+        Object.entries(row)
+          .filter(([, v]) => v === lab)
+          .map(([kk]) => sortedBlocks.findIndex((b) => b.key === kk))
+          .filter((x) => x >= 0)
+          .sort((a, b) => a - b);
+      const hfIdx = idxBy("HF");
+      const ccuIdx = idxBy("CCU");
+      for (let i = 1; i < hfIdx.length; i++) if (hfIdx[i] - hfIdx[i - 1] === 1) {
+        toast({ variant: "destructive", title: "HF spacing", description: "HF blocks must be non-consecutive." });
         return;
       }
-      if (arr.length !== 2) {
-        toast({ variant: "destructive", title: "HF rule violation", description: "HF must be a full month (2 consecutive blocks)." });
+      for (const i of hfIdx) for (const j of ccuIdx) if (Math.abs(i - j) === 1) {
+        toast({ variant: "destructive", title: "HF-CCU adjacency", description: "HF cannot be adjacent to CCU." });
         return;
+      }
+
+      // Non-consecutive for selected labels
+      const nonConLabels: Rotation[] = ["ECHO2", "EP", "NUCLEAR", "NONINVASIVE", "LAC_CATH"];
+      for (const lab of nonConLabels) {
+        const idxs = idxBy(lab);
+        for (let i = 1; i < idxs.length; i++) if (idxs[i] - idxs[i - 1] === 1) {
+          toast({ variant: "destructive", title: `${lab} spacing`, description: `${lab} blocks must be non-consecutive.` });
+          return;
+        }
+      }
+
+      // Cross-PGY overlap with PGY-4 for sensitive rotations
+      const p4 = loadSchedule("PGY-4");
+      if (p4?.byFellow) {
+        const cross = new Set<Rotation>(["CCU", "KECK_CONSULT", "LAC_CONSULT", "HF", "EP"]);
+        for (const [kk, vv] of Object.entries(row)) {
+          if (!vv || !cross.has(vv as Rotation)) continue;
+          for (const rf of Object.values(p4.byFellow)) {
+            if (rf[kk] === vv) {
+              toast({ variant: "destructive", title: "Cross-PGY overlap", description: `${vv} overlaps with PGY-4 at ${kk}.` });
+              return;
+            }
+          }
+        }
       }
     }
 
-    // Validate CCU rule: months cannot be consecutive
-    const ccuMonths = new Set<number>();
-    for (const [kk, vv] of Object.entries(row)) {
-      if (vv === "CCU") {
-        const mii = keyToMonth.get(kk);
-        if (mii != null) ccuMonths.add(mii);
-      }
-    }
-    const ccuList = Array.from(ccuMonths).sort((a, b) => a - b);
-    for (let i = 1; i < ccuList.length; i++) {
-      if (isAdjacentMonth(ccuList[i], ccuList[i - 1])) {
-        toast({ variant: "destructive", title: "CCU rule violation", description: "CCU months cannot be consecutive." });
-        return;
-      }
-    }
-
-    // Validate LAC_CONSULT rule: months cannot be consecutive
-    const lacConsMonths = new Set<number>();
-    for (const [kk, vv] of Object.entries(row)) {
-      if (vv === "LAC_CONSULT") {
-        const mii = keyToMonth.get(kk);
-        if (mii != null) lacConsMonths.add(mii);
-      }
-    }
-    const lacConsList = Array.from(lacConsMonths).sort((a, b) => a - b);
-    for (let i = 1; i < lacConsList.length; i++) {
-      if (isAdjacentMonth(lacConsList[i], lacConsList[i - 1])) {
-        toast({ variant: "destructive", title: "LAC_CONSULT rule violation", description: "LAC_CONSULT months cannot be consecutive." });
-        return;
-      }
-    }
 
     nextByFellow[fid] = row;
     const next: StoredSchedule = { version: 1, pgy: activePGY as PGY, byFellow: nextByFellow };
@@ -337,6 +429,26 @@ const handlePlaceRotations = () => {
     toast({ title: "Rotations placed", description: "PGY-4 rotations assigned." });
   };
 
+  const handlePlaceRotationsPGY5 = () => {
+    if (!setup) {
+      toast({ variant: "destructive", title: "No setup found", description: "Please configure fellows first." });
+      return;
+    }
+    if (activePGY !== "PGY-5") {
+      toast({ variant: "destructive", title: "PGY-5 only", description: "Switch to PGY-5 to place rotations." });
+      return;
+    }
+    const res = placePGY5Rotations(fellows, blocks, schedule?.byFellow, { randomize: true });
+    if (!res.success) {
+      toast({ variant: "destructive", title: "Unable to place rotations", description: res.conflicts?.[0] || "No solution found." });
+      return;
+    }
+    const next: StoredSchedule = { version: 1, pgy: activePGY, byFellow: res.byFellow };
+    saveSchedule(activePGY, next);
+    setSchedule(next);
+    toast({ title: "Rotations placed", description: "PGY-5 rotations assigned." });
+  };
+
   const handleClearRotations = () => {
     if (activePGY !== "PGY-4") return;
     if (!schedule) return;
@@ -429,6 +541,13 @@ const handlePlaceRotations = () => {
                   disabled={activePGY !== "PGY-4" || fellows.length === 0}
                 >
                   <RefreshCw className="mr-2 h-4 w-4" /> Place Rotations (PGY-4)
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handlePlaceRotationsPGY5}
+                  disabled={activePGY !== "PGY-5" || fellows.length === 0}
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" /> Place Rotations (PGY-5)
                 </Button>
                 <Button
                   variant="outline"
