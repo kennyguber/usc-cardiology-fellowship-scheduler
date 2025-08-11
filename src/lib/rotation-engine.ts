@@ -338,21 +338,37 @@ export function placePGY4Rotations(
       // CCU: 4 blocks -> 2 months, non-consecutive months
       const ccuMonths = monthSetFor(f.id, "CCU");
       let needCCU = 4 - [...ccuMonths].reduce((acc, mi) => acc + (monthToKeys.get(mi)?.length || 0), 0);
-      if (needCCU > 0) {
+if (needCCU > 0) {
         const candidateMonths = [...monthToKeys.keys()].filter((mi) => {
           if (!pairFree(f.id, mi, "CCU")) return false;
           for (const m of ccuMonths) if (isAdjacentMonth(mi, m)) return false;
           return true;
         });
-        // heuristic: prefer Jul-Dec to leave Jan-Jun cleaner for HF
-        const julDec = candidateMonths.filter((mi) => mi <= 5);
-        const janJun = candidateMonths.filter((mi) => mi >= 6);
-        const ordered = randomize ? [...shuffle(julDec), ...shuffle(janJun)] : [...julDec, ...janJun];
-        for (const mi of ordered) {
-          placePair(f.id, mi, "CCU");
-          ccuMonths.add(mi);
-          needCCU -= 2;
-          if (needCCU <= 0) break;
+        // If there are any pre-existing HF months, prefer CCU months not adjacent to them
+        const hfPreMonths = monthSetFor(f.id, "HF");
+        const orderMonths = (list: number[]) => {
+          const julDec = list.filter((mi) => mi <= 5);
+          const janJun = list.filter((mi) => mi >= 6);
+          return randomize ? [...shuffle(julDec), ...shuffle(janJun)] : [...julDec, ...janJun];
+        };
+        const tryPlaceFrom = (list: number[]) => {
+          const ordered = orderMonths(list);
+          for (const mi of ordered) {
+            placePair(f.id, mi, "CCU");
+            ccuMonths.add(mi);
+            needCCU -= 2;
+            if (needCCU <= 0) return true;
+          }
+          return false;
+        };
+        if (hfPreMonths.size > 0) {
+          const avoidHF = candidateMonths.filter((mi) => ![...hfPreMonths].some((h) => isAdjacentMonth(mi, h)));
+          const fallback = candidateMonths.filter((mi) => !avoidHF.includes(mi));
+          if (!tryPlaceFrom(avoidHF)) {
+            tryPlaceFrom(fallback);
+          }
+        } else {
+          tryPlaceFrom(candidateMonths);
         }
         if (needCCU > 0) {
           return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place CCU.`] };
