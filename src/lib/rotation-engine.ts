@@ -884,7 +884,7 @@ export function placePGY6Rotations(
   opts?: { randomize?: boolean; maxTries?: number }
 ): SolveRotationsResult {
   const randomize = !!opts?.randomize;
-  const maxTries = opts?.maxTries ?? 60;
+  const maxTries = opts?.maxTries ?? 120;
   if (!fellows || fellows.length === 0) {
     return { success: false, byFellow: {}, conflicts: ["No PGY-6 fellows found"], tried: 0 };
   }
@@ -1063,6 +1063,85 @@ export function placePGY6Rotations(
       return tryOnce(false);
     };
 
+    // Helpers for coverage-first assignment
+    const crossTotal = (label: Rotation, k: string) =>
+      (crossCounts[label].get(k) || 0) + (usedByRot[label].has(k) ? 1 : 0);
+
+    const unplaceSingle = (fid: string, k: string, label: Rotation) => {
+      const row = (byFellow[fid] = byFellow[fid] || {});
+      if (row[k] === label) delete row[k];
+      if (label !== "ELECTIVE") usedByRot[label].delete(k);
+    };
+
+    type QuotaMap = Map<string, number>;
+
+    const assignCoverage = (label: Rotation, perFellowTarget: QuotaMap): { ok: boolean; missing?: string[] } => {
+      // Remaining quotas after existing assignments
+      const remain = new Map<string, number>();
+      for (const id of ids) {
+        const row = byFellow[id] || {};
+        const current = Object.values(row).filter((x) => x === label).length;
+        remain.set(id, Math.max(0, (perFellowTarget.get(id) || 0) - current));
+      }
+
+      const deficits = blockKeys.filter((k) => crossTotal(label, k) < 1);
+      if (deficits.length === 0) return { ok: true };
+
+      const candMap = new Map<string, string[]>();
+      for (const k of deficits) {
+        const cands: string[] = [];
+        for (const fid of ids) {
+          if ((remain.get(fid) || 0) <= 0) continue;
+          const row = byFellow[fid] || {};
+          if (row[k]) continue;
+          if (isUsed(k, label)) continue;
+          if (!nonConsecutiveOk(fid, k, label)) continue;
+          cands.push(fid);
+        }
+        candMap.set(k, cands);
+      }
+
+      const order = [...deficits].sort((a, b) => (candMap.get(a)?.length || 0) - (candMap.get(b)?.length || 0));
+      const stack: { fid: string; k: string }[] = [];
+
+      const BT = (i: number): boolean => {
+        if (i >= order.length) return true;
+        const k = order[i];
+        const cands = (candMap.get(k) || []).sort((a, b) => (remain.get(b)! - remain.get(a)!));
+        for (const fid of (randomize ? shuffle(cands) : cands)) {
+          const row = byFellow[fid] || {};
+          if ((remain.get(fid) || 0) <= 0) continue;
+          if (row[k]) continue;
+          if (isUsed(k, label)) continue;
+          if (!nonConsecutiveOk(fid, k, label)) continue;
+
+          placeSingle(fid, k, label);
+          remain.set(fid, (remain.get(fid) || 0) - 1);
+          stack.push({ fid, k });
+
+          if (BT(i + 1)) return true;
+
+          // undo
+          unplaceSingle(fid, k, label);
+          remain.set(fid, (remain.get(fid) || 0) + 1);
+          stack.pop();
+        }
+        return false;
+      };
+
+      const ok = BT(0);
+      if (!ok) {
+        // rollback all placed in this phase
+        for (let i = stack.length - 1; i >= 0; i--) {
+          const { fid, k } = stack[i];
+          unplaceSingle(fid, k, label);
+          remain.set(fid, (remain.get(fid) || 0) + 1);
+        }
+        return { ok: false, missing: order.filter((k) => crossTotal(label, k) < 1) };
+      }
+      return { ok: true };
+    };
+
     // 1) HF: 1 block for 4 fellows (no adjacency rule with CCU for PGY-6)
     for (const f of fellowOrder) {
       if (!hfFellows.has(f.id)) continue;
@@ -1114,11 +1193,22 @@ export function placePGY6Rotations(
       }
     }
 
-    // 4) ECHO2: 2 for most, 1 for one fellow; non-consecutive, prefer uncovered
-    for (const f of fellowOrder) {
-      const target = f.id === echoLow ? 1 : 2;
-      if (!placeNWithPrefs(f.id, "ECHO2", target, { preferUncovered: true, crossAvoid: true })) {
-        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place ECHO2.`] };
+    // 4) ECHO2: coverage-first: ensure at least one per block across PGYs, then fill remaining quotas
+    {
+      const target: Map<string, number> = new Map();
+      for (const id of ids) target.set(id, id === echoLow ? 1 : 2);
+      const cov = assignCoverage("ECHO2", target);
+      if (!cov.ok) {
+        return { success: false, byFellow: {}, conflicts: [
+          `Coverage solver failed for ECHO2; missing at: ${cov.missing?.join(", ")}`,
+        ] };
+      }
+      // fill remaining to meet per-fellow targets
+      for (const f of fellowOrder) {
+        const t = target.get(f.id)!;
+        if (!placeNWithPrefs(f.id, "ECHO2", t)) {
+          return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to complete ECHO2 quota.`] };
+        }
       }
     }
 
@@ -1137,11 +1227,21 @@ export function placePGY6Rotations(
       }
     }
 
-    // 7) NONINVASIVE: 3 except one with 2 (not same as nuclearLow); prefer uncovered
-    for (const f of fellowOrder) {
-      const target = f.id === noninvLow ? 2 : 3;
-      if (!placeNWithPrefs(f.id, "NONINVASIVE", target, { preferUncovered: true, crossAvoid: true })) {
-        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place NONINVASIVE.`] };
+    // 7) NONINVASIVE: coverage-first: ensure at least one per block, then fill remaining quotas
+    {
+      const target: Map<string, number> = new Map();
+      for (const id of ids) target.set(id, id === noninvLow ? 2 : 3);
+      const cov = assignCoverage("NONINVASIVE", target);
+      if (!cov.ok) {
+        return { success: false, byFellow: {}, conflicts: [
+          `Coverage solver failed for NONINVASIVE; missing at: ${cov.missing?.join(", ")}`,
+        ] };
+      }
+      for (const f of fellowOrder) {
+        const t = target.get(f.id)!;
+        if (!placeNWithPrefs(f.id, "NONINVASIVE", t)) {
+          return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to complete NONINVASIVE quota.`] };
+        }
       }
     }
 
