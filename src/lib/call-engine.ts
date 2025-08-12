@@ -466,6 +466,16 @@ export function listEligiblePrimaryFellows(dateISO: string, schedule: CallSchedu
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+export function listIneligiblePrimaryFellows(dateISO: string, schedule: CallSchedule): { id: string; name: string; pgy: PGY; reasons: string[] }[] {
+  const setup = loadSetup();
+  if (!setup) return [];
+  const items = setup.fellows.map((f) => {
+    const res = validatePrimaryAssignment(schedule, dateISO, f.id);
+    return { id: f.id, name: f.name, pgy: f.pgy, reasons: res.ok ? [] : (res.reasons ?? []) };
+  });
+  return items.filter((i) => i.reasons.length > 0).sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export function applyManualPrimaryAssignment(
   schedule: CallSchedule,
   dateISO: string,

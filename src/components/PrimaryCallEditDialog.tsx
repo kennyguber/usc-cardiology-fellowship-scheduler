@@ -3,7 +3,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { listEligiblePrimaryFellows, applyManualPrimaryAssignment, type CallSchedule } from "@/lib/call-engine";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import { listEligiblePrimaryFellows, listIneligiblePrimaryFellows, applyManualPrimaryAssignment, type CallSchedule } from "@/lib/call-engine";
 import { loadSetup } from "@/lib/schedule-engine";
 import { useToast } from "@/hooks/use-toast";
 
@@ -28,6 +29,8 @@ export function PrimaryCallEditDialog({
   const currentName = currentId ? fellowById[currentId]?.name ?? currentId : undefined;
 
   const eligible = React.useMemo(() => listEligiblePrimaryFellows(iso, schedule), [iso, schedule]);
+  const ineligible = React.useMemo(() => listIneligiblePrimaryFellows(iso, schedule), [iso, schedule]);
+  const [showIneligible, setShowIneligible] = React.useState(false);
 
   const handleAssign = (fid: string | null) => {
     const res = applyManualPrimaryAssignment(schedule, iso, fid);
@@ -72,6 +75,38 @@ export function PrimaryCallEditDialog({
               <div className="text-sm text-muted-foreground">No fellows are eligible for this date under current rules.</div>
             )}
           </div>
+
+          {ineligible.length ? (
+            <Collapsible open={showIneligible} onOpenChange={setShowIneligible}>
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-medium">Ineligible fellows</div>
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" size="sm">
+                    {showIneligible ? "Hide" : "Show"} ({ineligible.length})
+                  </Button>
+                </CollapsibleTrigger>
+              </div>
+              <CollapsibleContent>
+                <ScrollArea className="max-h-60 mt-2 pr-2">
+                  <div className="space-y-2">
+                    {ineligible.map((f) => (
+                      <div key={f.id} className="rounded-md border p-2">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary">{f.pgy}</Badge>
+                          <span className="font-medium">{f.name}</span>
+                        </div>
+                        <ul className="list-disc ml-6 mt-1 text-xs text-muted-foreground">
+                          {f.reasons.map((r, i) => (
+                            <li key={i}>{r}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </CollapsibleContent>
+            </Collapsible>
+          ) : null}
 
           <div className="pt-2 border-t">
             <div className="text-sm font-medium mb-2">Other actions</div>
