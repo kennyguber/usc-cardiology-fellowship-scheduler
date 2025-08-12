@@ -32,15 +32,15 @@ export function BlockEditDialog({ open, onOpenChange, fellowName, blockKey, bloc
         </DialogHeader>
 
         <div className="space-y-2">
-          <div className="text-sm">Change rotation</div>
+          <div className="text-sm">Change assignment</div>
           <Select value={value} onValueChange={setValue}>
-            <SelectTrigger aria-label="Select rotation">
-              <SelectValue placeholder="Select a rotation" />
+            <SelectTrigger aria-label="Select assignment">
+              <SelectValue placeholder="Select an assignment" />
             </SelectTrigger>
             <SelectContent>
               {options.map((opt) => (
                 <SelectItem key={opt} value={opt}>
-                  {opt}
+                  {opt === "VAC" ? "Vacation" : opt}
                 </SelectItem>
               ))}
             </SelectContent>

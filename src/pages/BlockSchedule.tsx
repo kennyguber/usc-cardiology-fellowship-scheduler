@@ -74,6 +74,7 @@ const rotationOptions = useMemo<Rotation[]>(
     () =>
       activePGY === "PGY-5"
         ? [
+            "VAC",
             "LAC_CATH",
             "CCU",
             "LAC_CONSULT",
@@ -87,6 +88,7 @@ const rotationOptions = useMemo<Rotation[]>(
           ]
         : activePGY === "PGY-6"
         ? [
+            "VAC",
             "LAC_CATH",
             "HF",
             "KECK_CONSULT",
@@ -96,7 +98,7 @@ const rotationOptions = useMemo<Rotation[]>(
             "NONINVASIVE",
             "ELECTIVE",
           ]
-        : ["LAC_CATH", "CCU", "LAC_CONSULT", "HF", "KECK_CONSULT", "ECHO1", "EP", "ELECTIVE"],
+        : ["VAC", "LAC_CATH", "CCU", "LAC_CONSULT", "HF", "KECK_CONSULT", "ECHO1", "EP", "ELECTIVE"],
     [activePGY]
   );
   const openEdit = (fid: string, key: string) => {
@@ -142,7 +144,39 @@ const rotationOptions = useMemo<Rotation[]>(
         delete row[k];
       }
     } else {
-      if (action.rotation === "HF" && activePGY === "PGY-4") {
+      if (action.rotation === "VAC") {
+        // Only one vacation per block across fellows in same PGY
+        const conflictInBlock = Object.entries(schedule.byFellow || {}).some(
+          ([ofid, orow]) => ofid !== fid && orow?.[k] === "VAC"
+        );
+        if (conflictInBlock) {
+          toast({ variant: "destructive", title: "Vacation conflict", description: "Another fellow already has Vacation in this block." });
+          return;
+        }
+        // Max 2 vacations per fellow, with >= 6-block spacing
+        const existingVacKeys = Object.entries(row)
+          .filter(([, v]) => v === "VAC")
+          .map(([kk]) => kk);
+        const alreadyVacHere = row[k] === "VAC";
+        const prospectiveVacKeys = alreadyVacHere ? existingVacKeys : [...existingVacKeys, k];
+        if (prospectiveVacKeys.length > 2) {
+          toast({ variant: "destructive", title: "Vacation limit", description: "A fellow can have at most two vacations." });
+          return;
+        }
+        if (!hasMinSpacing(sortedBlocks, prospectiveVacKeys, 6)) {
+          toast({ variant: "destructive", title: "Vacation spacing", description: "Vacations must be at least 6 blocks apart." });
+          return;
+        }
+        row[k] = "VAC";
+        // avoid orphaned single HF in the same month (PGY-4 only)
+        if (activePGY === "PGY-4") {
+          const keys = monthToKeys.get(mi) || [];
+          const other = keys.find((kk) => kk !== k);
+          if (other && row[other] === "HF") {
+            delete row[other];
+          }
+        }
+      } else if (action.rotation === "HF" && activePGY === "PGY-4") {
         if (!withinJanToJun(mi)) {
           toast({ variant: "destructive", title: "Invalid HF placement", description: "HF must be a full month between Jan and Jun." });
           return;
