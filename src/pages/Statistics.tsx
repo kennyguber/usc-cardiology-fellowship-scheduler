@@ -15,6 +15,7 @@ export default function Statistics() {
   const setup = loadSetup();
   const fellows = setup?.fellows ?? [];
   const schedule = loadCallSchedule();
+  return (
     <main className="min-h-screen bg-background">
       <section className="container mx-auto px-4 py-8">
         <h1 className="text-2xl font-semibold font-display flex items-center gap-2">
@@ -26,7 +27,7 @@ export default function Statistics() {
             <CardTitle>Call count by fellow</CardTitle>
           </CardHeader>
           <CardContent>
-            <CallCoverageTable schedule={loadCallSchedule()} fellows={loadSetup()?.fellows ?? []} />
+            <CallCoverageTable schedule={schedule} fellows={fellows} />
           </CardContent>
         </Card>
       </section>
