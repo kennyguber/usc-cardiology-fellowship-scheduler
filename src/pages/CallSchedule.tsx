@@ -413,27 +413,34 @@ export default function CallSchedule() {
                           {Array.from({ length: m.firstWeekday }).map((_, i) => (
                             <div key={`e-${i}`} className="h-20 rounded-md bg-muted/30" />
                           ))}
-                          {Array.from({ length: m.daysInMonth }).map((_, i) => {
-                            const day = i + 1;
-                            const iso = toISO(new Date(m.year, m.month, day));
-                            const fid = schedule?.days?.[iso];
-                            const name = fid ? (fellowById[fid]?.name ?? fid) : "";
-                            const last = lastNameOf(name) || "—";
-                            const hol = holidayMap[iso];
-                            const weekend = isWeekend(new Date(m.year, m.month, day));
-                            const cellBg = hol ? "bg-[hsl(var(--holiday))]" : weekend ? "bg-muted/70" : "bg-card";
-                            return (
-                              <div key={iso} className={`h-20 rounded-md border ${cellBg} p-2 text-xs`}>
-                                <div className="flex items-center justify-between">
-                                  <span className="font-medium">{day}</span>
-                                  {hol ? <span className="px-1 py-0.5 rounded bg-muted text-muted-foreground">{hol}</span> : null}
-                                </div>
-                                <div className="mt-2 text-sm">
-                                  {fid ? <Badge variant={fellowColorById[fid]}>{last}</Badge> : "—"}
-                                </div>
-                              </div>
-                            );
-                          })}
+{Array.from({ length: m.daysInMonth }).map((_, i) => {
+  const day = i + 1;
+  const iso = toISO(new Date(m.year, m.month, day));
+  const fid = schedule?.days?.[iso];
+  const name = fid ? (fellowById[fid]?.name ?? fid) : "";
+  const last = lastNameOf(name) || "—";
+  const hol = holidayMap[iso];
+  const weekend = isWeekend(new Date(m.year, m.month, day));
+  const cellBg = hol ? "bg-[hsl(var(--holiday))]" : weekend ? "bg-muted/70" : "bg-card";
+  const rot = rotationOnDate(fid, new Date(m.year, m.month, day));
+  return (
+    <div key={iso} className={`h-20 rounded-md border ${cellBg} p-2 text-xs`}>
+      <div className="flex items-center justify-between">
+        <span className="font-medium">{day}</span>
+        {hol ? <span className="px-1 py-0.5 rounded bg-muted text-muted-foreground">{hol}</span> : null}
+      </div>
+      <div className="mt-2 text-sm">
+        {fid ? (
+          <Badge variant={fellowColorById[fid]}>
+            {`${last}${rot ? ` (${rot})` : ""}`}
+          </Badge>
+        ) : (
+          "—"
+        )}
+      </div>
+    </div>
+  );
+})}
                         </div>
                       </div>
                     ))}
