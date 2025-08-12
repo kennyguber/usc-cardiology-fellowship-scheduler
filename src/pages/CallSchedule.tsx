@@ -157,7 +157,7 @@ export default function CallSchedule() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Coverage Summary</CardTitle>
+            <CardTitle className="font-display">Coverage Summary</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {!setup ? (
@@ -206,7 +206,7 @@ export default function CallSchedule() {
 
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle>Prior 5 primary call assignments (pre-seed)</CardTitle>
+            <CardTitle className="font-display">Prior 5 primary call assignments (pre-seed)</CardTitle>
           </CardHeader>
           <CardContent>
             {!setup ? (
@@ -237,7 +237,7 @@ export default function CallSchedule() {
 
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle>Schedule</CardTitle>
+            <CardTitle className="font-display">Schedule</CardTitle>
           </CardHeader>
           <CardContent>
             {!setup ? (
