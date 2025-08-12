@@ -1122,11 +1122,10 @@ export function placePGY6Rotations(
       }
     }
 
-    // 5) NONINVASIVE: 3 except one with 2 (not same as nuclearLow); prefer uncovered
+    // 5) EP: 2 each; non-consecutive; no cross-year avoidance
     for (const f of fellowOrder) {
-      const target = f.id === noninvLow ? 2 : 3;
-      if (!placeNWithPrefs(f.id, "NONINVASIVE", target, { preferUncovered: true, crossAvoid: true })) {
-        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place NONINVASIVE.`] };
+      if (!placeNWithPrefs(f.id, "EP", 2)) {
+        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place EP.`] };
       }
     }
 
@@ -1157,10 +1156,11 @@ export function placePGY6Rotations(
       }
     }
 
-    // 7) EP: 2 each; non-consecutive; no cross-year avoidance
+    // 7) NONINVASIVE: 3 except one with 2 (not same as nuclearLow); prefer uncovered
     for (const f of fellowOrder) {
-      if (!placeNWithPrefs(f.id, "EP", 2)) {
-        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place EP.`] };
+      const target = f.id === noninvLow ? 2 : 3;
+      if (!placeNWithPrefs(f.id, "NONINVASIVE", target, { preferUncovered: true, crossAvoid: true })) {
+        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place NONINVASIVE.`] };
       }
     }
 
@@ -1251,17 +1251,6 @@ export function placePGY6Rotations(
     addComb(p5?.byFellow);
     addComb(byFellow);
 
-    // Compute PGY-5/PGY-6 NUCLEAR coverage map specifically
-    const p5NucByBlock = new Map<string, number>();
-    if (p5?.byFellow) {
-      for (const row of Object.values(p5.byFellow)) {
-        for (const [k, v] of Object.entries(row)) if (v === "NUCLEAR") p5NucByBlock.set(k, (p5NucByBlock.get(k) || 0) + 1);
-      }
-    }
-    const p6NucByBlock = new Map<string, number>();
-    for (const row of Object.values(byFellow)) {
-      for (const [k, v] of Object.entries(row)) if (v === "NUCLEAR") p6NucByBlock.set(k, (p6NucByBlock.get(k) || 0) + 1);
-    }
 
     for (const k of blockKeys) {
       const m = combined.get(k) || new Map<Rotation, number>();
@@ -1270,9 +1259,6 @@ export function placePGY6Rotations(
         if ((m.get(rot) || 0) < 1) conflicts.push(`${k}: essential coverage missing for ${rot}.`);
       }
       if ((m.get("LAC_CATH") || 0) < 2) conflicts.push(`${k}: essential coverage missing for LAC_CATH (need 2).`);
-      // NUCLEAR must be covered by PGY-5 or PGY-6 specifically
-      const nuc56 = (p5NucByBlock.get(k) || 0) + (p6NucByBlock.get(k) || 0);
-      if (nuc56 < 1) conflicts.push(`${k}: essential coverage missing for NUCLEAR (PGY-5/6).`);
     }
 
     if (conflicts.length > 0) return { success: false, byFellow: {}, conflicts };
