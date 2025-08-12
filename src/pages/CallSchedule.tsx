@@ -3,9 +3,12 @@ import { HeartPulse, Loader2, RefreshCcw, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { useSEO } from "@/lib/seo";
 import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, type CallSchedule } from "@/lib/call-engine";
 import { loadSetup } from "@/lib/schedule-engine";
+import { computeAcademicYearHolidays } from "@/lib/holidays";
 
 export default function CallSchedule() {
   useSEO({
@@ -20,12 +23,82 @@ export default function CallSchedule() {
   const [loading, setLoading] = useState(false);
   const [uncovered, setUncovered] = useState<string[]>([]);
   const [success, setSuccess] = useState<boolean | null>(null);
+  const [priorSeeds, setPriorSeeds] = useState<Record<string, string>>({});
+
+  const toISO = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+  const seedsKey = useMemo(() => (setup?.yearStart ? `cfsa_calls_prior5_v1:${setup.yearStart}` : ""), [setup?.yearStart]);
+
+  const priorDates = useMemo(() => {
+    if (!setup?.yearStart) return [] as string[];
+    const start = new Date(setup.yearStart);
+    const list: string[] = [];
+    for (let i = 5; i >= 1; i--) {
+      const d = new Date(start);
+      d.setDate(d.getDate() - i);
+      list.push(toISO(d));
+    }
+    return list;
+  }, [setup?.yearStart]);
 
   useEffect(() => {
     const existing = loadCallSchedule();
     if (existing) setSchedule(existing);
   }, []);
 
+  useEffect(() => {
+    if (!seedsKey) return;
+    try {
+      const raw = localStorage.getItem(seedsKey);
+      setPriorSeeds(raw ? JSON.parse(raw) : {});
+    } catch {
+      setPriorSeeds({});
+    }
+  }, [seedsKey]);
+
+  const updateSeed = (iso: string, fid: string) => {
+    const next = { ...priorSeeds, [iso]: fid };
+    setPriorSeeds(next);
+    try {
+      if (seedsKey) localStorage.setItem(seedsKey, JSON.stringify(next));
+    } catch {}
+  };
+
+  const allDays = useMemo(() => {
+    if (!setup?.yearStart) return [] as string[];
+    const start = new Date(setup.yearStart);
+    const end = new Date(start.getFullYear() + 1, 5, 30);
+    const list: string[] = [];
+    let cur = new Date(start);
+    while (cur <= end) {
+      list.push(toISO(cur));
+      cur.setDate(cur.getDate() + 1);
+    }
+    return list;
+  }, [setup?.yearStart]);
+
+  const holidayMap = useMemo(() => {
+    if (!setup?.yearStart) return {} as Record<string, string>;
+    const map: Record<string, string> = {};
+    for (const h of computeAcademicYearHolidays(setup.yearStart)) map[h.date] = h.name;
+    return map;
+  }, [setup?.yearStart]);
+
+  const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  const months = useMemo(() => {
+    if (!setup?.yearStart) return [] as { label: string; firstWeekday: number; daysInMonth: number; year: number; month: number }[];
+    const start = new Date(setup.yearStart);
+    const list: { label: string; firstWeekday: number; daysInMonth: number; year: number; month: number }[] = [];
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(start.getFullYear(), start.getMonth() + i, 1);
+      const label = d.toLocaleString(undefined, { month: "long", year: "numeric" });
+      const firstWeekday = new Date(d.getFullYear(), d.getMonth(), 1).getDay();
+      const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+      list.push({ label, firstWeekday, daysInMonth, year: d.getFullYear(), month: d.getMonth() });
+    }
+    return list;
+  }, [setup?.yearStart]);
   const fellowById = useMemo(() => Object.fromEntries(fellows.map((f) => [f.id, f] as const)), [fellows]);
 
   const countsSorted = useMemo(() => {
@@ -45,7 +118,7 @@ export default function CallSchedule() {
   const handleGenerate = async () => {
     setLoading(true);
     try {
-      const result = buildPrimaryCallSchedule();
+      const result = buildPrimaryCallSchedule({ priorPrimarySeeds: priorSeeds });
       setSchedule(result.schedule);
       setUncovered(result.uncovered ?? []);
       setSuccess(result.success);
@@ -117,35 +190,6 @@ export default function CallSchedule() {
                   </div>
                 )}
 
-                <div className="mt-6">
-                  <div className="text-sm font-medium mb-2">Call count by fellow</div>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Fellow</TableHead>
-                        <TableHead>PGY</TableHead>
-                        <TableHead className="text-right">Calls</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {countsSorted.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={3} className="text-muted-foreground">
-                            No schedule generated yet.
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        countsSorted.map((r) => (
-                          <TableRow key={r.id}>
-                            <TableCell>{r.name}</TableCell>
-                            <TableCell>{r.pgy}</TableCell>
-                            <TableCell className="text-right">{r.n}</TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
 
                 {uncovered.length > 0 && (
                   <div className="mt-6">
@@ -159,6 +203,128 @@ export default function CallSchedule() {
             )}
           </CardContent>
         </Card>
+
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Prior 5 primary call assignments (pre-seed)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {!setup ? (
+              <div className="text-muted-foreground">Please complete Setup first.</div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {priorDates.map((iso) => (
+                  <div key={iso} className="flex items-center gap-3">
+                    <div className="w-28 text-sm text-muted-foreground">{iso}</div>
+                    <Select value={priorSeeds[iso] ?? ""} onValueChange={(v) => updateSeed(iso, v)}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select fellow" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {fellows.map((f) => (
+                          <SelectItem key={f.id} value={f.id}>
+                            {f.name} ({f.pgy})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Schedule</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {!setup ? (
+              <div className="text-muted-foreground">Please complete Setup first.</div>
+            ) : (
+              <Tabs defaultValue="table">
+                <TabsList>
+                  <TabsTrigger value="table">Table</TabsTrigger>
+                  <TabsTrigger value="calendar">Calendar</TabsTrigger>
+                </TabsList>
+                <TabsContent value="table">
+                  <div className="mt-4 overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Day</TableHead>
+                          <TableHead>Holiday</TableHead>
+                          <TableHead>Primary</TableHead>
+                          <TableHead>Jeopardy</TableHead>
+                          <TableHead>HF coverage</TableHead>
+                          <TableHead>HF fellow</TableHead>
+                          <TableHead>Vacation</TableHead>
+                          <TableHead>Clinic</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {allDays.map((iso) => {
+                          const d = new Date(iso);
+                          const dow = weekdays[d.getDay()];
+                          const fid = schedule?.days?.[iso];
+                          const primary = fid ? (fellowById[fid]?.name ?? fid) : "—";
+                          const hol = holidayMap[iso] ?? "";
+                          return (
+                            <TableRow key={iso}>
+                              <TableCell>{iso}</TableCell>
+                              <TableCell>{dow}</TableCell>
+                              <TableCell>{hol}</TableCell>
+                              <TableCell>{primary}</TableCell>
+                              <TableCell>—</TableCell>
+                              <TableCell>—</TableCell>
+                              <TableCell>—</TableCell>
+                              <TableCell>—</TableCell>
+                              <TableCell>—</TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </TabsContent>
+                <TabsContent value="calendar">
+                  <div className="mt-4 grid gap-6">
+                    {months.map((m, idx) => (
+                      <div key={idx}>
+                        <div className="text-sm font-medium mb-2">{m.label}</div>
+                        <div className="grid grid-cols-7 gap-2">
+                          {Array.from({ length: m.firstWeekday }).map((_, i) => (
+                            <div key={`e-${i}`} className="h-20 rounded-md bg-muted/30" />
+                          ))}
+                          {Array.from({ length: m.daysInMonth }).map((_, i) => {
+                            const day = i + 1;
+                            const iso = toISO(new Date(m.year, m.month, day));
+                            const fid = schedule?.days?.[iso];
+                            const name = fid ? (fellowById[fid]?.name ?? fid) : "";
+                            const initials = name ? name.split(" ").map((p) => p[0]).join("") : "—";
+                            const hol = holidayMap[iso];
+                            return (
+                              <div key={iso} className="h-20 rounded-md border bg-card p-2 text-xs">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-medium">{day}</span>
+                                  {hol ? <span className="px-1 py-0.5 rounded bg-muted text-muted-foreground">{hol}</span> : null}
+                                </div>
+                                <div className="mt-2 text-sm">{initials}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </TabsContent>
+              </Tabs>
+            )}
+          </CardContent>
+        </Card>
+
       </section>
     </main>
   );

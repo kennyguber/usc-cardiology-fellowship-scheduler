@@ -1,6 +1,9 @@
 import { HeartPulse } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSEO } from "@/lib/seo";
+import { loadSetup } from "@/lib/schedule-engine";
+import { loadCallSchedule } from "@/lib/call-engine";
+import CallCoverageTable from "@/components/CallCoverageTable";
 
 export default function Statistics() {
   useSEO({
@@ -9,7 +12,9 @@ export default function Statistics() {
     canonical: window.location.href,
   });
 
-  return (
+  const setup = loadSetup();
+  const fellows = setup?.fellows ?? [];
+  const schedule = loadCallSchedule();
     <main className="min-h-screen bg-background">
       <section className="container mx-auto px-4 py-8">
         <h1 className="text-2xl font-semibold font-display flex items-center gap-2">
@@ -18,10 +23,10 @@ export default function Statistics() {
         <div className="ecg-trace-static mt-2 mb-6" />
         <Card>
           <CardHeader>
-            <CardTitle>Coming soon</CardTitle>
+            <CardTitle>Call count by fellow</CardTitle>
           </CardHeader>
           <CardContent>
-            Charts and tables for calls, rotations, spacing, and coverage will appear here.
+            <CallCoverageTable schedule={loadCallSchedule()} fellows={loadSetup()?.fellows ?? []} />
           </CardContent>
         </Card>
       </section>

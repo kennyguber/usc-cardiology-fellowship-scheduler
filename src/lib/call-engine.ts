@@ -96,6 +96,9 @@ function eligiblePoolByPGY(date: Date, setup: SetupState, schedByPGY: Record<PGY
     // Rotation exclusions
     const rot = getRotationOnDate(f, date, schedByPGY, setup.yearStart);
     if (rot === "VAC" || rot === "HF") continue;
+    // Exclude EP rotation on Tuesdays and Thursdays
+    const dow = date.getDay(); // 0=Sun ... 6=Sat
+    if (rot === "EP" && (dow === 2 || dow === 4)) continue;
     pools[f.pgy].push(f);
   }
 
@@ -154,7 +157,7 @@ export type BuildCallResult = {
   uncovered?: string[];
 };
 
-export function buildPrimaryCallSchedule(): BuildCallResult {
+export function buildPrimaryCallSchedule(opts?: { priorPrimarySeeds?: Record<string, string> }): BuildCallResult {
   const setup = loadSetup();
   if (!setup) {
     return {
@@ -174,6 +177,16 @@ export function buildPrimaryCallSchedule(): BuildCallResult {
   const assignments: Record<string, string> = {};
   const lastByFellow: Record<string, string | undefined> = {};
   const counts: Record<string, number> = {};
+
+  // Seed last assignment dates from priorPrimarySeeds (do not count toward totals)
+  const seeds = opts?.priorPrimarySeeds || {};
+  for (const [isoSeed, fid] of Object.entries(seeds)) {
+    // Only consider seeds strictly before the academic year start
+    if (isoSeed < setup.yearStart && fid) {
+      const prev = lastByFellow[fid];
+      if (!prev || prev < isoSeed) lastByFellow[fid] = isoSeed;
+    }
+  }
 
   function tryAssign(date: Date): boolean {
     const iso = toISODate(date);
