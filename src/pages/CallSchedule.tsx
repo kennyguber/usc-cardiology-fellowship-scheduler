@@ -322,19 +322,19 @@ export default function CallSchedule() {
                   <TabsTrigger value="calendar">Calendar</TabsTrigger>
                 </TabsList>
                 <TabsContent value="table">
-                  <div className="mt-4 overflow-x-auto">
+                  <div className="mt-4 max-h-[70vh] overflow-auto">
                     <Table>
-                        <TableHeader>
+                        <TableHeader className="sticky top-0 z-20 bg-background">
                           <TableRow>
-                            <TableHead className="sticky top-0 z-10 bg-background">Date</TableHead>
-                            <TableHead className="sticky top-0 z-10 bg-background">Day</TableHead>
-                            <TableHead className="sticky top-0 z-10 bg-background">Holiday</TableHead>
-                            <TableHead className="sticky top-0 z-10 bg-background">Primary</TableHead>
-                            <TableHead className="sticky top-0 z-10 bg-background">Jeopardy</TableHead>
-                            <TableHead className="sticky top-0 z-10 bg-background">HF coverage</TableHead>
-                            <TableHead className="sticky top-0 z-10 bg-background">HF fellow</TableHead>
-                            <TableHead className="sticky top-0 z-10 bg-background">Vacation</TableHead>
-                            <TableHead className="sticky top-0 z-10 bg-background">Clinic</TableHead>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Day</TableHead>
+                            <TableHead>Holiday</TableHead>
+                            <TableHead>Primary</TableHead>
+                            <TableHead>Jeopardy</TableHead>
+                            <TableHead>HF coverage</TableHead>
+                            <TableHead>HF fellow</TableHead>
+                            <TableHead>Vacation</TableHead>
+                            <TableHead>Clinic</TableHead>
                           </TableRow>
                         </TableHeader>
                       <TableBody>

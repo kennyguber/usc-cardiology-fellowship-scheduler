@@ -141,20 +141,20 @@ export default function PrimaryCallStatsTable({ fellows, schedule }: Props) {
     `M: ${r.dow.M}; T: ${r.dow.T}; W: ${r.dow.W}; Th: ${r.dow.Th}; F: ${r.dow.F}; Sa: ${r.dow.Sa}; Su: ${r.dow.Su}`;
 
   return (
-    <div className="w-full overflow-x-auto">
+    <div className="w-full max-h-[70vh] overflow-auto">
       <Table>
-        <TableHeader>
+        <TableHeader className="sticky top-0 z-20 bg-background">
           <TableRow>
-            <TableHead className="sticky top-0 z-10 bg-background">Fellow</TableHead>
-            <TableHead className="sticky top-0 z-10 bg-background">PGY</TableHead>
-            <TableHead className="sticky top-0 z-10 bg-background text-right">Total Calls</TableHead>
-            <TableHead className="sticky top-0 z-10 bg-background text-right">Weekday Calls</TableHead>
-            <TableHead className="sticky top-0 z-10 bg-background">Weekday Distribution</TableHead>
-            <TableHead className="sticky top-0 z-10 bg-background text-right">Weekend Calls</TableHead>
-            <TableHead className="sticky top-0 z-10 bg-background text-right">Holiday Calls</TableHead>
-            <TableHead className="sticky top-0 z-10 bg-background text-right">Average Days Between Call</TableHead>
-            <TableHead className="sticky top-0 z-10 bg-background text-right">Longest Gap Between Call</TableHead>
-            <TableHead className="sticky top-0 z-10 bg-background">Longest Call Gap Dates</TableHead>
+            <TableHead>Fellow</TableHead>
+            <TableHead>PGY</TableHead>
+            <TableHead className="text-right">Total Calls</TableHead>
+            <TableHead className="text-right">Weekday Calls</TableHead>
+            <TableHead>Weekday Distribution</TableHead>
+            <TableHead className="text-right">Weekend Calls</TableHead>
+            <TableHead className="text-right">Holiday Calls</TableHead>
+            <TableHead className="text-right">Average Days Between Call</TableHead>
+            <TableHead className="text-right">Longest Gap Between Call</TableHead>
+            <TableHead>Longest Call Gap Dates</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
