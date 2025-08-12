@@ -240,7 +240,7 @@ export default function VacationPreferences() {
               <HeartPulse className="h-6 w-6 text-primary" aria-hidden="true" />
               Vacation Preferences
             </h1>
-            <div className="ecg-divider mt-2" aria-hidden="true" />
+            <div className="ecg-trace-static mt-2" aria-hidden="true" />
           </div>
           <div className="flex gap-2">
             <Input

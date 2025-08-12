@@ -15,7 +15,7 @@ export default function CallSchedule() {
         <h1 className="text-2xl font-semibold font-display flex items-center gap-2">
           <HeartPulse className="h-6 w-6 text-primary" /> Call Schedule
         </h1>
-        <div className="ecg-divider mt-2 mb-6" />
+        <div className="ecg-trace-static mt-2 mb-6" />
         <Card>
           <CardHeader>
             <CardTitle>Coming soon</CardTitle>

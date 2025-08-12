@@ -596,7 +596,7 @@ const handlePlaceRotations = () => {
           <h1 className="text-2xl font-semibold font-display flex items-center gap-2">
             <HeartPulse className="h-6 w-6 text-primary" /> Block Schedule
           </h1>
-          <div className="ecg-divider mt-2 mb-6" />
+          <div className="ecg-trace-static mt-2 mb-6" />
           <Card>
             <CardHeader>
               <CardTitle>Setup required</CardTitle>
@@ -621,7 +621,7 @@ const handlePlaceRotations = () => {
         <h1 className="text-2xl font-semibold font-display flex items-center gap-2">
           <HeartPulse className="h-6 w-6 text-primary" /> Block Schedule
         </h1>
-        <div className="ecg-divider mt-2 mb-6" />
+        <div className="ecg-trace-static mt-2 mb-6" />
 
         <Card className="mb-6">
           <CardHeader>

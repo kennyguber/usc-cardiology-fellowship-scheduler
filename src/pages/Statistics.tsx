@@ -15,7 +15,7 @@ export default function Statistics() {
         <h1 className="text-2xl font-semibold font-display flex items-center gap-2">
           <HeartPulse className="h-6 w-6 text-primary" /> Statistics
         </h1>
-        <div className="ecg-divider mt-2 mb-6" />
+        <div className="ecg-trace-static mt-2 mb-6" />
         <Card>
           <CardHeader>
             <CardTitle>Coming soon</CardTitle>
