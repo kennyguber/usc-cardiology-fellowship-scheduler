@@ -9,6 +9,7 @@ import { useSEO } from "@/lib/seo";
 import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, type CallSchedule } from "@/lib/call-engine";
 import { loadSetup } from "@/lib/schedule-engine";
 import { computeAcademicYearHolidays } from "@/lib/holidays";
+import { parseISO } from "date-fns";
 
 export default function CallSchedule() {
   useSEO({
@@ -31,7 +32,7 @@ export default function CallSchedule() {
 
   const priorDates = useMemo(() => {
     if (!setup?.yearStart) return [] as string[];
-    const start = new Date(setup.yearStart);
+    const start = parseISO(setup.yearStart);
     const list: string[] = [];
     for (let i = 5; i >= 1; i--) {
       const d = new Date(start);
@@ -66,7 +67,7 @@ export default function CallSchedule() {
 
   const allDays = useMemo(() => {
     if (!setup?.yearStart) return [] as string[];
-    const start = new Date(setup.yearStart);
+    const start = parseISO(setup.yearStart);
     const end = new Date(start.getFullYear() + 1, 5, 30);
     const list: string[] = [];
     let cur = new Date(start);
@@ -88,7 +89,7 @@ export default function CallSchedule() {
 
   const months = useMemo(() => {
     if (!setup?.yearStart) return [] as { label: string; firstWeekday: number; daysInMonth: number; year: number; month: number }[];
-    const start = new Date(setup.yearStart);
+    const start = parseISO(setup.yearStart);
     const list: { label: string; firstWeekday: number; daysInMonth: number; year: number; month: number }[] = [];
     for (let i = 0; i < 12; i++) {
       const d = new Date(start.getFullYear(), start.getMonth() + i, 1);
@@ -266,7 +267,7 @@ export default function CallSchedule() {
                       </TableHeader>
                       <TableBody>
                         {allDays.map((iso) => {
-                          const d = new Date(iso);
+                          const d = parseISO(iso);
                           const dow = weekdays[d.getDay()];
                           const fid = schedule?.days?.[iso];
                           const primary = fid ? (fellowById[fid]?.name ?? fid) : "—";
