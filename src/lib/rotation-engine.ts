@@ -1122,10 +1122,11 @@ export function placePGY6Rotations(
       }
     }
 
-    // 5) EP: 2 each; non-consecutive; no cross-year avoidance
+    // 5) NONINVASIVE: 3 except one with 2 (not same as nuclearLow); prefer uncovered
     for (const f of fellowOrder) {
-      if (!placeNWithPrefs(f.id, "EP", 2)) {
-        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place EP.`] };
+      const target = f.id === noninvLow ? 2 : 3;
+      if (!placeNWithPrefs(f.id, "NONINVASIVE", target, { preferUncovered: true, crossAvoid: true })) {
+        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place NONINVASIVE.`] };
       }
     }
 
@@ -1156,11 +1157,10 @@ export function placePGY6Rotations(
       }
     }
 
-    // 7) NONINVASIVE: 3 except one with 2 (not same as nuclearLow); prefer uncovered
+    // 7) EP: 2 each; non-consecutive; no cross-year avoidance
     for (const f of fellowOrder) {
-      const target = f.id === noninvLow ? 2 : 3;
-      if (!placeNWithPrefs(f.id, "NONINVASIVE", target, { preferUncovered: true, crossAvoid: true })) {
-        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place NONINVASIVE.`] };
+      if (!placeNWithPrefs(f.id, "EP", 2)) {
+        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place EP.`] };
       }
     }
 
