@@ -7,10 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
+
 import { useToast } from "@/hooks/use-toast";
 import { useSEO } from "@/lib/seo";
-import { BlockInfo, generateAcademicYearBlocks, hasMinSpacing } from "@/lib/block-utils";
+import { BlockInfo, generateAcademicYearBlocks } from "@/lib/block-utils";
 import { HeartPulse } from "lucide-react";
 import { computeAcademicYearHolidays } from "@/lib/holidays";
 
@@ -63,7 +63,7 @@ function FellowRow({
   onChange: (f: Fellow) => void;
   onRemove: () => void;
 }) {
-  const spacingOk = hasMinSpacing(blocks, fellow.vacationPrefs, 6);
+  
   const monthsJulDec = ["JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
   const monthsJanJun = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN"];
   const sortByMonth = (arr: BlockInfo[], months: string[]) =>
@@ -137,12 +137,7 @@ function FellowRow({
           </Select>
         </TableCell>
       ))}
-      <TableCell className="text-right space-x-2">
-        {!spacingOk ? (
-          <Badge variant="destructive">Spacing &lt; 6 blocks</Badge>
-        ) : (
-          <Badge variant="secondary">OK</Badge>
-        )}
+      <TableCell className="text-right">
         <Button variant="ghost" onClick={onRemove}>
           Remove
         </Button>
@@ -294,7 +289,7 @@ export default function VacationPreferences() {
               <CardContent>
                 <div className="flex justify-between mb-4">
                   <p className="text-sm text-muted-foreground">
-                    Add fellows, set PGY level, and choose their top four vacation blocks. Spacing rule: ≥ 6 blocks.
+                    Add fellows, set PGY level, and choose their top-two vacation preferences within each 6-month block.
                   </p>
                   <Button onClick={addFellow}>Add Fellow</Button>
                 </div>
