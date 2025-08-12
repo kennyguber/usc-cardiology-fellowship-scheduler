@@ -351,6 +351,13 @@ export default function CallSchedule() {
                             ? "bg-muted/70"
                             : "";
                           const primaryName = fid ? `${fellowById[fid]?.name ?? fid}${rot ? ` (${rot})` : ""}` : "—";
+                          const blockKey = blockKeyForDate(d);
+                          const hfIds = fellows
+                            .filter((f) => schedByPGY[f.pgy]?.byFellow?.[f.id]?.[blockKey] === "HF")
+                            .map((f) => f.id);
+                          const vacIds = fellows
+                            .filter((f) => schedByPGY[f.pgy]?.byFellow?.[f.id]?.[blockKey] === "VAC")
+                            .map((f) => f.id);
                           return (
                             <TableRow key={iso} className={rowClass}>
                               <TableCell>{iso}</TableCell>
@@ -365,8 +372,32 @@ export default function CallSchedule() {
                               </TableCell>
                               <TableCell>—</TableCell>
                               <TableCell>—</TableCell>
-                              <TableCell>—</TableCell>
-                              <TableCell>—</TableCell>
+                              <TableCell>
+                                {hfIds.length ? (
+                                  <div className="flex flex-wrap gap-1">
+                                    {hfIds.map((id) => (
+                                      <Badge key={id} variant={fellowColorById[id]}>
+                                        {fellowById[id]?.name ?? id}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  "—"
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {vacIds.length ? (
+                                  <div className="flex flex-wrap gap-1">
+                                    {vacIds.map((id) => (
+                                      <Badge key={id} variant={fellowColorById[id]}>
+                                        {fellowById[id]?.name ?? id}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  "—"
+                                )}
+                              </TableCell>
                               <TableCell>—</TableCell>
                             </TableRow>
                           );
