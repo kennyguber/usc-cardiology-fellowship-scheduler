@@ -54,6 +54,11 @@ All colors MUST be HSL.
 
     --sidebar-ring: 217.2 91.2% 59.8%;
 
+    /* PGY pastel background tokens */
+    --pgy4: 226 65% 97%;
+    --pgy5: 275 55% 97%;
+    --pgy6: 150 55% 96%;
+
     /* Pastel rotation tokens */
     --rot-lac-cath: 340 85% 92%;
     --rot-lac-cath-foreground: 340 40% 30%;
@@ -125,6 +130,11 @@ All colors MUST be HSL.
     --sidebar-accent-foreground: 240 4.8% 95.9%;
     --sidebar-border: 240 3.7% 15.9%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* PGY pastel background tokens (dark mode) */
+    --pgy4: 226 30% 16%;
+    --pgy5: 275 25% 16%;
+    --pgy6: 150 25% 16%;
 
     /* Pastel rotation tokens (dark mode) */
     --rot-lac-cath: 340 60% 30%;

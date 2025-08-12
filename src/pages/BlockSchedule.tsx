@@ -704,8 +704,8 @@ const handlePlaceRotations = () => {
                   </TableRow>
                 ) : (
                   fellows.map((f) => (
-                    <TableRow key={f.id}>
-                      <TableCell className="min-w-[220px] sticky left-0 bg-background z-10 font-medium">
+                    <TableRow key={f.id} className={`${f.pgy === "PGY-4" ? "bg-[hsl(var(--pgy4))] hover:bg-[hsl(var(--pgy4))]" : f.pgy === "PGY-5" ? "bg-[hsl(var(--pgy5))] hover:bg-[hsl(var(--pgy5))]" : "bg-[hsl(var(--pgy6))] hover:bg-[hsl(var(--pgy6))]"}`}>
+                      <TableCell className={`min-w-[220px] sticky left-0 z-10 font-medium ${f.pgy === "PGY-4" ? "bg-[hsl(var(--pgy4))]" : f.pgy === "PGY-5" ? "bg-[hsl(var(--pgy5))]" : "bg-[hsl(var(--pgy6))]"}`}>
                         {f.name || <span className="text-muted-foreground">Unnamed fellow</span>}
                       </TableCell>
                       <TableCell className="min-w-[200px]">
