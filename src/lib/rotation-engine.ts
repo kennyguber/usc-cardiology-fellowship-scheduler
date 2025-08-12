@@ -65,10 +65,11 @@ export function placePGY4Rotations(
   fellows: Fellow[],
   blocks: BlockInfo[],
   existingByFellow: FellowSchedule | undefined,
-  opts?: { randomize?: boolean; maxTries?: number }
+  opts?: { randomize?: boolean; maxTries?: number; lockVacations?: boolean }
 ): SolveRotationsResult {
   const randomize = !!opts?.randomize;
   const maxTries = opts?.maxTries ?? 40;
+  const lockVacations = opts?.lockVacations ?? true;
 
   if (!fellows || fellows.length === 0) {
     return { success: false, byFellow: {}, conflicts: ["No PGY-4 fellows found"], tried: 0 };
@@ -124,17 +125,19 @@ export function placePGY4Rotations(
       }
     }
 
-    // Step A: Reseat vacations out of first five keys if present
-    for (const f of fellows) {
-      const row = (byFellow[f.id] = byFellow[f.id] || {});
-      const vacs = Object.entries(row)
-        .filter(([, v]) => v === "VAC")
-        .map(([k]) => k);
-      const vacsInFirst = vacs.filter((k) => firstFive.includes(k as any));
-      if (vacsInFirst.length === 0) continue;
+    // Step A: Respect existing vacations unless explicitly unlocked
+    if (!lockVacations) {
+      // Reseat vacations out of first five keys if present
+      for (const f of fellows) {
+        const row = (byFellow[f.id] = byFellow[f.id] || {});
+        const vacs = Object.entries(row)
+          .filter(([, v]) => v === "VAC")
+          .map(([k]) => k);
+        const vacsInFirst = vacs.filter((k) => firstFive.includes(k as any));
+        if (vacsInFirst.length === 0) continue;
 
-      // Helper: can place a vacation at candidate key?
-      const otherVac = vacs.find((k) => !vacsInFirst.includes(k));
+        // Helper: can place a vacation at candidate key?
+        const otherVac = vacs.find((k) => !vacsInFirst.includes(k));
         const canPlaceVacAt = (cand: string) => {
           if (isBlocked(cand, "VAC")) return false;
           if (row[cand]) return false;
@@ -148,29 +151,17 @@ export function placePGY4Rotations(
           return true;
         };
 
-      for (const k of vacsInFirst) {
-        // remove temporarily
-        delete row[k];
-        unmarkUsed(k, "VAC");
-        // try preferred blocks first
-        const preferred = Array.from(
-          new Set((f.vacationPrefs || []).filter((x): x is string => !!x && !firstFive.includes(x as any)))
-        );
-        const preferredCandidates = randomize ? shuffle(preferred) : preferred;
-        let placed = false;
-        for (const cand of preferredCandidates) {
-          if (canPlaceVacAt(cand)) {
-            row[cand] = "VAC";
-            markUsed(cand, "VAC");
-            placed = true;
-            break;
-          }
-        }
-        if (!placed) {
-          // fallback: any other block
-          const others = blockKeys.filter((bk) => !firstFive.includes(bk as any));
-          const ordered = randomize ? shuffle(others) : others;
-          for (const cand of ordered) {
+        for (const k of vacsInFirst) {
+          // remove temporarily
+          delete row[k];
+          unmarkUsed(k, "VAC");
+          // try preferred blocks first
+          const preferred = Array.from(
+            new Set((f.vacationPrefs || []).filter((x): x is string => !!x && !firstFive.includes(x as any)))
+          );
+          const preferredCandidates = randomize ? shuffle(preferred) : preferred;
+          let placed = false;
+          for (const cand of preferredCandidates) {
             if (canPlaceVacAt(cand)) {
               row[cand] = "VAC";
               markUsed(cand, "VAC");
@@ -178,13 +169,26 @@ export function placePGY4Rotations(
               break;
             }
           }
-        }
-        if (!placed) {
-          return {
-            success: false,
-            byFellow: {},
-            conflicts: [`Could not move ${f.name || f.id}'s vacation from ${k} out of early LAC_CATH window.`],
-          };
+          if (!placed) {
+            // fallback: any other block
+            const others = blockKeys.filter((bk) => !firstFive.includes(bk as any));
+            const ordered = randomize ? shuffle(others) : others;
+            for (const cand of ordered) {
+              if (canPlaceVacAt(cand)) {
+                row[cand] = "VAC";
+                markUsed(cand, "VAC");
+                placed = true;
+                break;
+              }
+            }
+          }
+          if (!placed) {
+            return {
+              success: false,
+              byFellow: {},
+              conflicts: [`Could not move ${f.name || f.id}'s vacation from ${k} out of early LAC_CATH window.`],
+            };
+          }
         }
       }
     }
