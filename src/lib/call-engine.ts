@@ -83,6 +83,29 @@ function hasSpacingOK(fellow: Fellow, lastAssigned: Record<string, string | unde
   return differenceInCalendarDays(date, lastDate) >= MIN_SPACING_DAYS;
 }
 
+function isFriday(d: Date): boolean {
+  return d.getDay() === 5;
+}
+
+function getEquityCategory(date: Date, setup: SetupState): "weekday" | "wkndHol" {
+  const dow = date.getDay();
+  if (dow === 5) return "weekday"; // Fridays count as weekdays for equity
+  const iso = toISODate(date);
+  const holiday = isHoliday(iso, setup);
+  const weekend = isWeekendDate(date);
+  return weekend || holiday ? "wkndHol" : "weekday";
+}
+
+function okNoConsecutiveSaturday(
+  fellow: Fellow,
+  date: Date,
+  lastSaturday: Record<string, string | undefined>
+): boolean {
+  if (date.getDay() !== 6) return true; // Only care about Saturdays
+  const prevSatISO = toISODate(addDays(date, -7));
+  return lastSaturday[fellow.id] !== prevSatISO;
+}
+
 function eligiblePoolByPGY(date: Date, setup: SetupState, schedByPGY: Record<PGY, StoredSchedule | null>) {
   const afterAug = afterAug15(date, setup.yearStart);
   const isWeekend = isWeekendDate(date);
@@ -177,7 +200,9 @@ export function buildPrimaryCallSchedule(opts?: { priorPrimarySeeds?: Record<str
   const assignments: Record<string, string> = {};
   const lastByFellow: Record<string, string | undefined> = {};
   const counts: Record<string, number> = {};
-
+  const weekdayCatCounts: Record<string, number> = {};
+  const wkndHolCatCounts: Record<string, number> = {};
+  const lastSaturdayByFellow: Record<string, string | undefined> = {};
   // Seed last assignment dates from priorPrimarySeeds (do not count toward totals)
   const seeds = opts?.priorPrimarySeeds || {};
   for (const [isoSeed, fid] of Object.entries(seeds)) {
@@ -191,20 +216,31 @@ export function buildPrimaryCallSchedule(opts?: { priorPrimarySeeds?: Record<str
   function tryAssign(date: Date): boolean {
     const iso = toISODate(date);
     const { pools, priority } = eligiblePoolByPGY(date, setup, schedByPGY);
+    const cat = getEquityCategory(date, setup);
 
     // Iterate PGY preference order
     for (const pgy of priority) {
       const candidates = pools[pgy]
         .filter((f) => withinCallLimit(f, counts))
-        .filter((f) => hasSpacingOK(f, lastByFellow, date));
+        .filter((f) => hasSpacingOK(f, lastByFellow, date))
+        .filter((f) => okNoConsecutiveSaturday(f, date, lastSaturdayByFellow));
 
       if (candidates.length === 0) continue;
 
-      const picked = pickWeighted(candidates, (f) => 1 / ((counts[f.id] ?? 0) + 1));
+      const picked = pickWeighted(candidates, (f) => {
+        const catCounts = cat === "wkndHol" ? wkndHolCatCounts : weekdayCatCounts;
+        return 1 / ((catCounts[f.id] ?? 0) + 1);
+      });
       if (picked) {
         assignments[iso] = picked.id;
         lastByFellow[picked.id] = iso;
         counts[picked.id] = (counts[picked.id] ?? 0) + 1;
+        if (date.getDay() === 6) lastSaturdayByFellow[picked.id] = iso;
+        if (cat === "wkndHol") {
+          wkndHolCatCounts[picked.id] = (wkndHolCatCounts[picked.id] ?? 0) + 1;
+        } else {
+          weekdayCatCounts[picked.id] = (weekdayCatCounts[picked.id] ?? 0) + 1;
+        }
         return true;
       }
     }
@@ -212,14 +248,24 @@ export function buildPrimaryCallSchedule(opts?: { priorPrimarySeeds?: Record<str
     // As a secondary attempt, pool across all eligible fellows ignoring PGY preference (but keeping all rules)
     const allCandidates = [...pools["PGY-4"], ...pools["PGY-5"], ...pools["PGY-6"]]
       .filter((f) => withinCallLimit(f, counts))
-      .filter((f) => hasSpacingOK(f, lastByFellow, date));
+      .filter((f) => hasSpacingOK(f, lastByFellow, date))
+      .filter((f) => okNoConsecutiveSaturday(f, date, lastSaturdayByFellow));
 
     if (allCandidates.length) {
-      const picked = pickWeighted(allCandidates, (f) => 1 / ((counts[f.id] ?? 0) + 1));
+      const picked = pickWeighted(allCandidates, (f) => {
+        const catCounts = cat === "wkndHol" ? wkndHolCatCounts : weekdayCatCounts;
+        return 1 / ((catCounts[f.id] ?? 0) + 1);
+      });
       if (picked) {
         assignments[iso] = picked.id;
         lastByFellow[picked.id] = iso;
         counts[picked.id] = (counts[picked.id] ?? 0) + 1;
+        if (date.getDay() === 6) lastSaturdayByFellow[picked.id] = iso;
+        if (cat === "wkndHol") {
+          wkndHolCatCounts[picked.id] = (wkndHolCatCounts[picked.id] ?? 0) + 1;
+        } else {
+          weekdayCatCounts[picked.id] = (weekdayCatCounts[picked.id] ?? 0) + 1;
+        }
         return true;
       }
     }
@@ -263,10 +309,16 @@ export function buildPrimaryCallSchedule(opts?: { priorPrimarySeeds?: Record<str
         const groups: Fellow[] = [
           ...priority.flatMap((p) => pools[p]),
         ];
+        const cat = getEquityCategory(date, setup);
         const candidates = groups
           .filter((f) => withinCallLimit(f, counts))
           .filter((f) => hasSpacingOK(f, lastByFellow, date))
-          .sort((a, b) => (counts[a.id] ?? 0) - (counts[b.id] ?? 0));
+          .filter((f) => okNoConsecutiveSaturday(f, date, lastSaturdayByFellow))
+          .sort((a, b) => {
+            const ac = cat === "wkndHol" ? (wkndHolCatCounts[a.id] ?? 0) : (weekdayCatCounts[a.id] ?? 0);
+            const bc = cat === "wkndHol" ? (wkndHolCatCounts[b.id] ?? 0) : (weekdayCatCounts[b.id] ?? 0);
+            return ac - bc;
+          });
 
         for (const f of candidates) {
           // place
@@ -274,12 +326,25 @@ export function buildPrimaryCallSchedule(opts?: { priorPrimarySeeds?: Record<str
           const prevLast = lastByFellow[f.id];
           lastByFellow[f.id] = iso;
           counts[f.id] = (counts[f.id] ?? 0) + 1;
+          const prevSat = lastSaturdayByFellow[f.id];
+          if (date.getDay() === 6) lastSaturdayByFellow[f.id] = iso;
+          if (cat === "wkndHol") {
+            wkndHolCatCounts[f.id] = (wkndHolCatCounts[f.id] ?? 0) + 1;
+          } else {
+            weekdayCatCounts[f.id] = (weekdayCatCounts[f.id] ?? 0) + 1;
+          }
 
           if (backtrack(i + 1)) return true;
 
           // undo
           counts[f.id] = (counts[f.id] ?? 1) - 1;
           if (prevLast) lastByFellow[f.id] = prevLast; else delete lastByFellow[f.id];
+          if (cat === "wkndHol") {
+            wkndHolCatCounts[f.id] = (wkndHolCatCounts[f.id] ?? 1) - 1;
+          } else {
+            weekdayCatCounts[f.id] = (weekdayCatCounts[f.id] ?? 1) - 1;
+          }
+          if (prevSat) lastSaturdayByFellow[f.id] = prevSat; else delete lastSaturdayByFellow[f.id];
           delete assignments[iso];
         }
         return false;
