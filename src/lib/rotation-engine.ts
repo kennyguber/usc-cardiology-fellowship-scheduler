@@ -1334,7 +1334,7 @@ export function placePGY6Rotations(
 
     for (const k of blockKeys) {
       const m = combined.get(k) || new Map<Rotation, number>();
-      const needSingles: Rotation[] = ["CCU", "HF", "KECK_CONSULT", "LAC_CONSULT", "ECHO2", "NONINVASIVE"];
+      const needSingles: Rotation[] = ["CCU", "HF", "KECK_CONSULT", "ECHO2", "NONINVASIVE"];
       for (const rot of needSingles) {
         if ((m.get(rot) || 0) < 1) conflicts.push(`${k}: essential coverage missing for ${rot}.`);
       }
