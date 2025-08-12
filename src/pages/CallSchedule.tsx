@@ -7,8 +7,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { useSEO } from "@/lib/seo";
 import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, type CallSchedule } from "@/lib/call-engine";
-import { loadSetup } from "@/lib/schedule-engine";
+import { loadSchedule, loadSetup, type PGY, type StoredSchedule } from "@/lib/schedule-engine";
 import { computeAcademicYearHolidays } from "@/lib/holidays";
+import { monthAbbrForIndex } from "@/lib/block-utils";
 import { parseISO } from "date-fns";
 
 export default function CallSchedule() {
@@ -101,6 +102,31 @@ export default function CallSchedule() {
     return list;
   }, [setup?.yearStart]);
   const fellowById = useMemo(() => Object.fromEntries(fellows.map((f) => [f.id, f] as const)), [fellows]);
+
+  const schedByPGY = useMemo<Record<PGY, StoredSchedule | null>>(
+    () => ({
+      "PGY-4": loadSchedule("PGY-4"),
+      "PGY-5": loadSchedule("PGY-5"),
+      "PGY-6": loadSchedule("PGY-6"),
+    }),
+    []
+  );
+
+  const blockKeyForDate = (d: Date) => {
+    const abbr = monthAbbrForIndex(d.getMonth());
+    const half = d.getDate() <= 15 ? 1 : 2;
+    return `${abbr}${half}`;
+  };
+
+  const rotationOnDate = (fid?: string, d?: Date) => {
+    if (!fid || !d) return undefined;
+    const f = fellowById[fid];
+    if (!f) return undefined;
+    const sched = schedByPGY[f.pgy];
+    const row = sched?.byFellow?.[fid];
+    if (!row) return undefined;
+    return row[blockKeyForDate(d)];
+  };
 
   const countsSorted = useMemo(() => {
     const entries = Object.entries(schedule?.countsByFellow ?? {});
@@ -270,7 +296,8 @@ export default function CallSchedule() {
                           const d = parseISO(iso);
                           const dow = weekdays[d.getDay()];
                           const fid = schedule?.days?.[iso];
-                          const primary = fid ? (fellowById[fid]?.name ?? fid) : "—";
+                          const rot = rotationOnDate(fid, d);
+                          const primary = fid ? `${fellowById[fid]?.name ?? fid}${rot ? ` (${rot})` : ""}` : "—";
                           const hol = holidayMap[iso] ?? "";
                           return (
                             <TableRow key={iso}>
