@@ -143,19 +143,21 @@ export default function PrimaryCallStatsTable({ fellows, schedule }: Props) {
   return (
     <div className="w-full max-h-[70vh] overflow-auto">
       <Table>
-        <TableBody>
+        <TableHeader>
           <TableRow>
-            <TableCell className="sticky top-0 z-20 bg-background font-medium">Fellow</TableCell>
-            <TableCell className="sticky top-0 z-20 bg-background font-medium">PGY</TableCell>
-            <TableCell className="sticky top-0 z-20 bg-background font-medium text-right">Total Calls</TableCell>
-            <TableCell className="sticky top-0 z-20 bg-background font-medium text-right">Weekday Calls</TableCell>
-            <TableCell className="sticky top-0 z-20 bg-background font-medium">Weekday Distribution</TableCell>
-            <TableCell className="sticky top-0 z-20 bg-background font-medium text-right">Weekend Calls</TableCell>
-            <TableCell className="sticky top-0 z-20 bg-background font-medium text-right">Holiday Calls</TableCell>
-            <TableCell className="sticky top-0 z-20 bg-background font-medium text-right">Average Days Between Call</TableCell>
-            <TableCell className="sticky top-0 z-20 bg-background font-medium text-right">Longest Gap Between Call</TableCell>
-            <TableCell className="sticky top-0 z-20 bg-background font-medium">Longest Call Gap Dates</TableCell>
+            <TableHead className="sticky top-0 z-20 bg-background">Fellow</TableHead>
+            <TableHead className="sticky top-0 z-20 bg-background">PGY</TableHead>
+            <TableHead className="sticky top-0 z-20 bg-background text-right">Total Calls</TableHead>
+            <TableHead className="sticky top-0 z-20 bg-background text-right">Weekday Calls</TableHead>
+            <TableHead className="sticky top-0 z-20 bg-background">Weekday Distribution</TableHead>
+            <TableHead className="sticky top-0 z-20 bg-background text-right">Weekend Calls</TableHead>
+            <TableHead className="sticky top-0 z-20 bg-background text-right">Holiday Calls</TableHead>
+            <TableHead className="sticky top-0 z-20 bg-background text-right">Average Days Between Call</TableHead>
+            <TableHead className="sticky top-0 z-20 bg-background text-right">Longest Gap Between Call</TableHead>
+            <TableHead className="sticky top-0 z-20 bg-background">Longest Call Gap Dates</TableHead>
           </TableRow>
+        </TableHeader>
+        <TableBody>
           {rows.map((r) => (
             <TableRow key={r.id}>
               <TableCell>{r.name}</TableCell>

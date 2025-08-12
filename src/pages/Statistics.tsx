@@ -32,9 +32,6 @@ export default function Statistics() {
           </TabsList>
           <TabsContent value="primary">
             <Card>
-              <CardHeader>
-                <CardTitle>Primary Call Statistics</CardTitle>
-              </CardHeader>
               <CardContent>
                 <PrimaryCallStatsTable schedule={schedule} fellows={fellows} />
               </CardContent>
