@@ -632,7 +632,7 @@ const handlePlaceRotations = () => {
               <div className="text-sm text-muted-foreground">
                 Academic year start: <span className="font-medium text-foreground">{setup.yearStart}</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
 <Tabs value={activePGY} onValueChange={(v) => setActivePGY(v as PGY | "TOTAL")}>
                   <TabsList>
                     <TabsTrigger value="PGY-4">PGY-4</TabsTrigger>
