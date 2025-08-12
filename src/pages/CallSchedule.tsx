@@ -12,6 +12,7 @@ import { loadSchedule, loadSetup, type PGY, type StoredSchedule } from "@/lib/sc
 import { computeAcademicYearHolidays } from "@/lib/holidays";
 import { monthAbbrForIndex } from "@/lib/block-utils";
 import { parseISO } from "date-fns";
+import PrimaryCallEditDialog from "@/components/PrimaryCallEditDialog";
 
 export default function CallSchedule() {
   useSEO({
@@ -27,6 +28,7 @@ export default function CallSchedule() {
   const [uncovered, setUncovered] = useState<string[]>([]);
   const [success, setSuccess] = useState<boolean | null>(null);
   const [priorSeeds, setPriorSeeds] = useState<Record<string, string>>({});
+  const [editISO, setEditISO] = useState<string | null>(null);
 
   const toISO = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
@@ -363,10 +365,16 @@ export default function CallSchedule() {
           <TableCell>{dow}</TableCell>
           <TableCell>{hol}</TableCell>
           <TableCell>
-            {fid ? (
-              <Badge variant={fellowColorById[fid]}>{primaryName}</Badge>
+            {schedule ? (
+              fid ? (
+                <button onClick={() => setEditISO(iso)} aria-label={`Edit primary for ${iso}`} className="inline-flex">
+                  <Badge variant={fellowColorById[fid]}>{primaryName}</Badge>
+                </button>
+              ) : (
+                <Button variant="link" size="sm" onClick={() => setEditISO(iso)}>Assign</Button>
+              )
             ) : (
-              "—"
+              fid ? <Badge variant={fellowColorById[fid]}>{primaryName}</Badge> : "—"
             )}
           </TableCell>
           <TableCell>—</TableCell>
@@ -403,6 +411,21 @@ export default function CallSchedule() {
     })}
   </TableBody>
 </Table>
+{editISO && schedule && (
+  <PrimaryCallEditDialog
+    iso={editISO}
+    schedule={schedule}
+    onClose={() => setEditISO(null)}
+    onApply={(updated) => {
+      setSchedule(updated);
+      saveCallSchedule(updated);
+      const newUncovered = allDays.filter((d) => !updated.days[d]);
+      setUncovered(newUncovered);
+      setSuccess(newUncovered.length === 0);
+      setEditISO(null);
+    }}
+  />
+)}
                 </TabsContent>
                 <TabsContent value="calendar">
                   <div className="mt-4 grid gap-6">

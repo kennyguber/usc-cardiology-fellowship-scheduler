@@ -403,3 +403,103 @@ export function saveCallSchedule(schedule: CallSchedule) {
     // ignore
   }
 }
+
+// Manual edit helpers for primary call assignments
+// Compute dynamic state (last assignment before date, last Saturday, adjusted counts)
+function computeStateForDate(schedule: CallSchedule, dateISO: string) {
+  const counts: Record<string, number> = { ...schedule.countsByFellow };
+  const lastByFellow: Record<string, string | undefined> = {};
+  const lastSaturdayByFellow: Record<string, string | undefined> = {};
+  const entries = Object.entries(schedule.days).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const target = parseISO(dateISO);
+  const curAssigned = schedule.days[dateISO];
+  if (curAssigned) counts[curAssigned] = Math.max(0, (counts[curAssigned] ?? 1) - 1);
+  for (const [iso, fid] of entries) {
+    if (!fid) continue;
+    const d = parseISO(iso);
+    if (isAfter(d, target) || isEqual(d, target)) continue; // only before the target date
+    lastByFellow[fid] = iso;
+    if (d.getDay() === 6) lastSaturdayByFellow[fid] = iso;
+  }
+  return { counts, lastByFellow, lastSaturdayByFellow };
+}
+
+export function validatePrimaryAssignment(schedule: CallSchedule, dateISO: string, fellowId: string): { ok: boolean; reasons?: string[] } {
+  const setup = loadSetup();
+  if (!setup) return { ok: false, reasons: ["Setup not completed"] };
+  const schedByPGY: Record<PGY, StoredSchedule | null> = {
+    "PGY-4": loadSchedule("PGY-4"),
+    "PGY-5": loadSchedule("PGY-5"),
+    "PGY-6": loadSchedule("PGY-6"),
+  };
+  const date = parseISO(dateISO);
+  const fellow = setup.fellows.find((f) => f.id === fellowId);
+  if (!fellow) return { ok: false, reasons: ["Unknown fellow"] };
+
+  const { pools } = eligiblePoolByPGY(date, setup, schedByPGY);
+  const eligibleBase = pools[fellow.pgy].some((f) => f.id === fellowId);
+  const reasons: string[] = [];
+  if (!eligibleBase) reasons.push("Rotation or time-window ineligible for this date");
+
+  const { counts, lastByFellow, lastSaturdayByFellow } = computeStateForDate(schedule, dateISO);
+  if (!withinCallLimit(fellow, counts)) reasons.push("Exceeds annual call cap for this PGY");
+  if (!hasSpacingOK(fellow, lastByFellow, date)) reasons.push(`Must be at least ${MIN_SPACING_DAYS} days from last call`);
+  if (!okNoConsecutiveSaturday(fellow, date, lastSaturdayByFellow)) reasons.push("Cannot take consecutive Saturdays");
+
+  return { ok: reasons.length === 0, reasons: reasons.length ? reasons : undefined };
+}
+
+export function listEligiblePrimaryFellows(dateISO: string, schedule: CallSchedule): { id: string; name: string; pgy: PGY }[] {
+  const setup = loadSetup();
+  if (!setup) return [];
+  const schedByPGY: Record<PGY, StoredSchedule | null> = {
+    "PGY-4": loadSchedule("PGY-4"),
+    "PGY-5": loadSchedule("PGY-5"),
+    "PGY-6": loadSchedule("PGY-6"),
+  };
+  const date = parseISO(dateISO);
+  const { pools } = eligiblePoolByPGY(date, setup, schedByPGY);
+  const all = [...pools["PGY-4"], ...pools["PGY-5"], ...pools["PGY-6"]];
+  const eligible = all.filter((f) => validatePrimaryAssignment(schedule, dateISO, f.id).ok);
+  return eligible
+    .map((f) => ({ id: f.id, name: f.name, pgy: f.pgy }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function applyManualPrimaryAssignment(
+  schedule: CallSchedule,
+  dateISO: string,
+  fellowId: string | null
+): { ok: boolean; schedule?: CallSchedule; reasons?: string[] } {
+  // Clearing is always allowed
+  if (fellowId === null) {
+    const prev = schedule.days[dateISO];
+    const next: CallSchedule = {
+      ...schedule,
+      days: { ...schedule.days },
+      countsByFellow: { ...schedule.countsByFellow },
+    };
+    if (prev) {
+      delete next.days[dateISO];
+      next.countsByFellow[prev] = Math.max(0, (next.countsByFellow[prev] ?? 1) - 1);
+    } else {
+      delete next.days[dateISO];
+    }
+    return { ok: true, schedule: next };
+  }
+
+  const val = validatePrimaryAssignment(schedule, dateISO, fellowId);
+  if (!val.ok) return { ok: false, reasons: val.reasons };
+
+  const prev = schedule.days[dateISO];
+  const next: CallSchedule = {
+    ...schedule,
+    days: { ...schedule.days, [dateISO]: fellowId },
+    countsByFellow: { ...schedule.countsByFellow },
+  };
+  if (prev && prev !== fellowId) next.countsByFellow[prev] = Math.max(0, (next.countsByFellow[prev] ?? 1) - 1);
+  if (!prev || prev !== fellowId) next.countsByFellow[fellowId] = (next.countsByFellow[fellowId] ?? 0) + 1;
+
+  return { ok: true, schedule: next };
+}
+
