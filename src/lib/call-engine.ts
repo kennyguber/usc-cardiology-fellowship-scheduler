@@ -54,12 +54,9 @@ function afterAug15(d: Date, yearStartISO: string): boolean {
 }
 
 function dateToBlockKey(d: Date, yearStartISO: string): string {
-  const start = parseISO(yearStartISO);
-  const monthsDiff = (d.getFullYear() - start.getFullYear()) * 12 + (d.getMonth() - start.getMonth());
-  const rel = ((monthsDiff % 12) + 12) % 12; // 0..11
-  const abbr = monthAbbrForIndex(rel);
-  const day = d.getDate();
-  const half = day <= 15 ? 1 : 2;
+  // Use actual calendar month for block key so it matches generateAcademicYearBlocks
+  const abbr = monthAbbrForIndex(d.getMonth());
+  const half = d.getDate() <= 15 ? 1 : 2;
   return `${abbr}${half}`;
 }
 

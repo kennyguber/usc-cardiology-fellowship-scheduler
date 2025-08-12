@@ -162,6 +162,21 @@ export default function CallSchedule() {
 
   const totalDays = useMemo(() => Object.keys(schedule?.days ?? {}).length, [schedule]);
 
+  const violations = useMemo(() => {
+    if (!schedule || !setup) return [] as { iso: string; reason: string; fellow: string }[];
+    const list: { iso: string; reason: string; fellow: string }[] = [];
+    for (const [iso, fid] of Object.entries(schedule.days)) {
+      if (!fid) continue;
+      const d = parseISO(iso);
+      const rot = rotationOnDate(fid, d);
+      const name = fellowById[fid]?.name ?? fid;
+      if (rot === "HF") list.push({ iso, reason: "HF rotation assigned to primary", fellow: name });
+      const dow = d.getDay();
+      if (rot === "EP" && (dow === 2 || dow === 4)) list.push({ iso, reason: "EP rotation assigned on Tue/Thu", fellow: name });
+    }
+    return list.sort((a, b) => a.iso.localeCompare(b.iso));
+  }, [schedule, setup, fellowById, rotationOnDate]);
+
   const handleGenerate = async () => {
     setLoading(true);
     try {
@@ -243,6 +258,17 @@ export default function CallSchedule() {
                     <div className="text-sm font-medium mb-1">Uncovered dates</div>
                     <div className="text-sm text-muted-foreground break-words">
                       {uncovered.join(", ")}
+                    </div>
+                  </div>
+                )}
+
+                {violations.length > 0 && (
+                  <div className="mt-6">
+                    <div className="text-sm font-medium mb-1 text-destructive">Rule violations</div>
+                    <div className="text-sm text-muted-foreground space-y-1">
+                      {violations.map((v) => (
+                        <div key={`${v.iso}-${v.fellow}`}>{v.iso}: {v.fellow} — {v.reason}</div>
+                      ))}
                     </div>
                   </div>
                 )}
