@@ -325,15 +325,15 @@ export default function CallSchedule() {
 <Table containerClassName="mt-4 max-h-[70vh] overflow-auto">
   <TableHeader>
     <TableRow>
-      <TableHead className="sticky top-0 z-20 bg-background">Date</TableHead>
-      <TableHead className="sticky top-0 z-20 bg-background">Day</TableHead>
-      <TableHead className="sticky top-0 z-20 bg-background">Holiday</TableHead>
-      <TableHead className="sticky top-0 z-20 bg-background">Primary</TableHead>
-      <TableHead className="sticky top-0 z-20 bg-background">Jeopardy</TableHead>
-      <TableHead className="sticky top-0 z-20 bg-background">HF coverage</TableHead>
-      <TableHead className="sticky top-0 z-20 bg-background">HF fellow</TableHead>
-      <TableHead className="sticky top-0 z-20 bg-background">Vacation</TableHead>
-      <TableHead className="sticky top-0 z-20 bg-background">Clinic</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background">Date</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background">Day</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background">Holiday</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background">Primary</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background">Jeopardy</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background">HF coverage</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background">HF fellow</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background">Vacation</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background">Clinic</TableHead>
     </TableRow>
   </TableHeader>
   <TableBody>

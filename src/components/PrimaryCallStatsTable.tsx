@@ -193,19 +193,19 @@ export default function PrimaryCallStatsTable({ fellows, schedule }: Props) {
 <Table containerClassName="w-full max-h-[70vh] overflow-auto">
   <TableHeader>
     <TableRow>
-      <TableHead className="sticky top-0 z-20 bg-background">Fellow</TableHead>
-      <TableHead className="sticky top-0 z-20 bg-background">PGY</TableHead>
-      <TableHead className="sticky top-0 z-20 bg-background text-right">Total Calls</TableHead>
-      <TableHead className="sticky top-0 z-20 bg-background text-right">Weekday Calls</TableHead>
-      <TableHead className="sticky top-0 z-20 bg-background">Weekday Distribution</TableHead>
-      <TableHead className="sticky top-0 z-20 bg-background text-right">Weekend Calls</TableHead>
-      <TableHead className="sticky top-0 z-20 bg-background text-right">Holiday Calls</TableHead>
-      <TableHead className="sticky top-0 z-20 bg-background text-right">Average Days Between Call</TableHead>
-      <TableHead className="sticky top-0 z-20 bg-background text-right">Longest Gap Between Call</TableHead>
-      <TableHead className="sticky top-0 z-20 bg-background">Longest Call Gap Dates</TableHead>
-      <TableHead className="sticky top-0 z-20 bg-background text-right">4-Day Call Frequency</TableHead>
-      <TableHead className="sticky top-0 z-20 bg-background">Most Calls in a Month</TableHead>
-      <TableHead className="sticky top-0 z-20 bg-background text-right">Calls During CCU</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background">Fellow</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background">PGY</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background text-right">Total Calls</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background text-right">Weekday Calls</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background">Weekday Distribution</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background text-right">Weekend Calls</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background text-right">Holiday Calls</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background text-right">Average Days Between Call</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background text-right">Longest Gap Between Call</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background">Longest Call Gap Dates</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background text-right">4-Day Call Frequency</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background">Most Calls in a Month</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background text-right">Calls During CCU</TableHead>
     </TableRow>
   </TableHeader>
   <TableBody>
