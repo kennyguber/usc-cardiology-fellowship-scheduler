@@ -539,7 +539,6 @@ const handlePlaceRotations = () => {
       toast({ variant: "destructive", title: "PGY-6 only", description: "Switch to PGY-6 to place rotations." });
       return;
     }
-    // Force clear to a vacations-only baseline before solving
     const baseByFellow = schedule?.byFellow
       ? Object.fromEntries(
           Object.entries(schedule.byFellow).map(([fid, row]) => [
@@ -548,21 +547,15 @@ const handlePlaceRotations = () => {
           ])
         ) as Record<string, Record<string, string | undefined>>
       : undefined;
-    const baseline: StoredSchedule = { version: 1, pgy: activePGY, byFellow: baseByFellow || {} };
-    saveSchedule(activePGY, baseline);
-    setSchedule(baseline);
-
-    // Add stronger randomness and more attempts for varied outcomes
-    const runId = Math.floor(Math.random() * 1_000_000).toString().padStart(6, "0");
-    const res = placePGY6Rotations(fellows, blocks, baseByFellow, { randomize: true, maxTries: 120 });
+    const res = placePGY6Rotations(fellows, blocks, baseByFellow, { randomize: true });
     if (!res.success) {
-      toast({ variant: "destructive", title: "Unable to place rotations", description: (res.conflicts?.[0] || "No solution found.") + ` (Run #${runId})` });
+      toast({ variant: "destructive", title: "Unable to place rotations", description: res.conflicts?.[0] || "No solution found." });
       return;
     }
     const next: StoredSchedule = { version: 1, pgy: activePGY, byFellow: res.byFellow };
     saveSchedule(activePGY, next);
     setSchedule(next);
-    toast({ title: "Rotations placed", description: `PGY-6 rotations assigned. Run #${runId}.` });
+    toast({ title: "Rotations placed", description: "PGY-6 rotations assigned." });
   };
 
   const handleClearRotations = () => {

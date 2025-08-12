@@ -1129,30 +1129,11 @@ export function placePGY6Rotations(
       }
     }
 
-    // 6) NUCLEAR: 3 except one with 2; non-consecutive; ensure per-block coverage by PGY-5 or PGY-6
-    // Build quick lookup for PGY-5 NUCLEAR coverage per block
-    const p5NuclearBlocks = new Set<string>();
-    if (p5?.byFellow) {
-      for (const row of Object.values(p5.byFellow)) {
-        for (const [k, v] of Object.entries(row)) {
-          if (v === "NUCLEAR") p5NuclearBlocks.add(k);
-        }
-      }
-    }
+    // 6) NUCLEAR: 3 except one with 2; non-consecutive
     for (const f of fellowOrder) {
       const target = f.id === nuclearLow ? 2 : 3;
-      let need = target - Object.values(byFellow[f.id] || {}).filter((x) => x === "NUCLEAR").length;
-      const row = (byFellow[f.id] = byFellow[f.id] || {});
-      while (need > 0) {
-        // Prefer blocks not yet covered by PGY-5 or current PGY-6 placements
-        const preferred = blockKeys.filter((k) => !row[k] && !isUsed(k, "NUCLEAR") && !p5NuclearBlocks.has(k) && nonConsecutiveOk(f.id, k, "NUCLEAR"));
-        const fallback = blockKeys.filter((k) => !row[k] && !isUsed(k, "NUCLEAR") && nonConsecutiveOk(f.id, k, "NUCLEAR"));
-        const pick = (randomize ? shuffle(preferred) : preferred)[0] || (randomize ? shuffle(fallback) : fallback)[0];
-        if (!pick) {
-          return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place NUCLEAR.`] };
-        }
-        placeSingle(f.id, pick, "NUCLEAR");
-        need--;
+      if (!placeNWithPrefs(f.id, "NUCLEAR", target)) {
+        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place NUCLEAR.`] };
       }
     }
 
@@ -1250,7 +1231,6 @@ export function placePGY6Rotations(
     addComb(p4?.byFellow);
     addComb(p5?.byFellow);
     addComb(byFellow);
-
 
     for (const k of blockKeys) {
       const m = combined.get(k) || new Map<Rotation, number>();
