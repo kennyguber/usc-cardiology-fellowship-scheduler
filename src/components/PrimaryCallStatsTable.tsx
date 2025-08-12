@@ -2,6 +2,8 @@ import React from "react";
 import type { CallSchedule } from "@/lib/call-engine";
 import { computeAcademicYearHolidays } from "@/lib/holidays";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { loadSchedule, type PGY, type StoredSchedule } from "@/lib/schedule-engine";
+import { monthAbbrForIndex } from "@/lib/block-utils";
 
 // Minimal Fellow type for our needs
 type Fellow = { id: string; name: string; pgy: any };
@@ -27,6 +29,15 @@ export default function PrimaryCallStatsTable({ fellows, schedule }: Props) {
   const holidaySet = new Set(holidays.map((h) => h.date));
 
   const order = ["M", "T", "W", "Th", "F", "Sa", "Su"] as const;
+
+  const blockKeyForDate = (d: Date) => `${monthAbbrForIndex(d.getUTCMonth())}${d.getUTCDate() <= 15 ? 1 : 2}`;
+  const monthLabel = (m: number) => new Date(Date.UTC(2000, m, 1)).toLocaleString(undefined, { month: "long" });
+  const blockKeyForISO = (iso: string) => blockKeyForDate(new Date(iso + "T00:00:00Z"));
+  const schedByPGY: Record<PGY, StoredSchedule | null> = {
+    "PGY-4": loadSchedule("PGY-4"),
+    "PGY-5": loadSchedule("PGY-5"),
+    "PGY-6": loadSchedule("PGY-6"),
+  };
 
   type Acc = {
     id: string;
@@ -86,6 +97,9 @@ export default function PrimaryCallStatsTable({ fellows, schedule }: Props) {
     avgGap: number | null;
     longestGap: number | null;
     longestGapDates: { start: string; end: string } | null;
+    fourDayFreq: number;
+    mostCallsMonthLabel: string | null;
+    callsDuringCCU: number;
   };
 
   const rows: Row[] = Object.values(byFellow).map((acc) => {
@@ -93,6 +107,7 @@ export default function PrimaryCallStatsTable({ fellows, schedule }: Props) {
     const gaps: number[] = [];
     let longest: number | null = null;
     let longestPair: { start: string; end: string } | null = null;
+    let fourDay = 0;
     for (let i = 1; i < sorted.length; i++) {
       const gap = daysBetween(new Date(sorted[i]), new Date(sorted[i - 1]));
       gaps.push(gap);
@@ -100,9 +115,40 @@ export default function PrimaryCallStatsTable({ fellows, schedule }: Props) {
         longest = gap;
         longestPair = { start: sorted[i - 1], end: sorted[i] };
       }
+      if (gap <= 4) fourDay += 1;
     }
     const avg = gaps.length ? gaps.reduce((a, b) => a + b, 0) / gaps.length : null;
-    return { ...acc, avgGap: avg, longestGap: longest, longestGapDates: longestPair };
+
+    // Most calls in a month
+    const monthCounts: Record<number, number> = {};
+    for (const iso of sorted) {
+      const d = new Date(iso + "T00:00:00Z");
+      const m = d.getUTCMonth();
+      monthCounts[m] = (monthCounts[m] ?? 0) + 1;
+    }
+    let maxCount = 0;
+    let maxMonth: number | null = null;
+    for (const [mStr, count] of Object.entries(monthCounts)) {
+      const c = count as number;
+      const m = Number(mStr);
+      if (c > maxCount) {
+        maxCount = c;
+        maxMonth = m;
+      }
+    }
+    const mostLabel = maxMonth != null && maxCount > 0 ? `${maxCount} (${monthLabel(maxMonth)})` : null;
+
+    // Calls during CCU
+    let ccuCount = 0;
+    const pgy = acc.pgy as PGY;
+    const sched = schedByPGY[pgy];
+    const rowMap = sched?.byFellow?.[acc.id] || {};
+    for (const iso of sorted) {
+      const key = blockKeyForISO(iso);
+      if (rowMap[key] === "CCU") ccuCount += 1;
+    }
+
+    return { ...acc, avgGap: avg, longestGap: longest, longestGapDates: longestPair, fourDayFreq: fourDay, mostCallsMonthLabel: mostLabel, callsDuringCCU: ccuCount };
   });
 
   // Include fellows with zero calls as well
@@ -121,6 +167,9 @@ export default function PrimaryCallStatsTable({ fellows, schedule }: Props) {
         avgGap: null,
         longestGap: null,
         longestGapDates: null,
+        fourDayFreq: 0,
+        mostCallsMonthLabel: null,
+        callsDuringCCU: 0,
       });
     }
   }
@@ -154,6 +203,9 @@ export default function PrimaryCallStatsTable({ fellows, schedule }: Props) {
       <TableHead className="sticky top-0 z-20 bg-background text-right">Average Days Between Call</TableHead>
       <TableHead className="sticky top-0 z-20 bg-background text-right">Longest Gap Between Call</TableHead>
       <TableHead className="sticky top-0 z-20 bg-background">Longest Call Gap Dates</TableHead>
+      <TableHead className="sticky top-0 z-20 bg-background text-right">4-Day Call Frequency</TableHead>
+      <TableHead className="sticky top-0 z-20 bg-background">Most Calls in a Month</TableHead>
+      <TableHead className="sticky top-0 z-20 bg-background text-right">Calls During CCU</TableHead>
     </TableRow>
   </TableHeader>
   <TableBody>
@@ -171,6 +223,9 @@ export default function PrimaryCallStatsTable({ fellows, schedule }: Props) {
         <TableCell>
           {r.longestGapDates ? `${r.longestGapDates.start} to ${r.longestGapDates.end}` : "—"}
         </TableCell>
+        <TableCell className="text-right tabular-nums">{r.fourDayFreq}</TableCell>
+        <TableCell>{r.mostCallsMonthLabel ?? "—"}</TableCell>
+        <TableCell className="text-right tabular-nums">{r.callsDuringCCU}</TableCell>
       </TableRow>
     ))}
   </TableBody>
