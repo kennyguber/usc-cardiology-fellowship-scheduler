@@ -38,6 +38,22 @@ const badgeVariants = cva(
           "border-transparent bg-[hsl(var(--rot-noninvasive))] text-[hsl(var(--rot-noninvasive-foreground))] hover:bg-[hsl(var(--rot-noninvasive))]/90",
         "rot-elective":
           "border-transparent bg-[hsl(var(--rot-elective))] text-[hsl(var(--rot-elective-foreground))] hover:bg-[hsl(var(--rot-elective))]/90",
+        // Fellow color variants
+        f1: "border-transparent bg-[hsl(var(--fellow-1))] text-[hsl(var(--fellow-1-foreground))] hover:bg-[hsl(var(--fellow-1))]/90",
+        f2: "border-transparent bg-[hsl(var(--fellow-2))] text-[hsl(var(--fellow-2-foreground))] hover:bg-[hsl(var(--fellow-2))]/90",
+        f3: "border-transparent bg-[hsl(var(--fellow-3))] text-[hsl(var(--fellow-3-foreground))] hover:bg-[hsl(var(--fellow-3))]/90",
+        f4: "border-transparent bg-[hsl(var(--fellow-4))] text-[hsl(var(--fellow-4-foreground))] hover:bg-[hsl(var(--fellow-4))]/90",
+        f5: "border-transparent bg-[hsl(var(--fellow-5))] text-[hsl(var(--fellow-5-foreground))] hover:bg-[hsl(var(--fellow-5))]/90",
+        f6: "border-transparent bg-[hsl(var(--fellow-6))] text-[hsl(var(--fellow-6-foreground))] hover:bg-[hsl(var(--fellow-6))]/90",
+        f7: "border-transparent bg-[hsl(var(--fellow-7))] text-[hsl(var(--fellow-7-foreground))] hover:bg-[hsl(var(--fellow-7))]/90",
+        f8: "border-transparent bg-[hsl(var(--fellow-8))] text-[hsl(var(--fellow-8-foreground))] hover:bg-[hsl(var(--fellow-8))]/90",
+        f9: "border-transparent bg-[hsl(var(--fellow-9))] text-[hsl(var(--fellow-9-foreground))] hover:bg-[hsl(var(--fellow-9))]/90",
+        f10: "border-transparent bg-[hsl(var(--fellow-10))] text-[hsl(var(--fellow-10-foreground))] hover:bg-[hsl(var(--fellow-10))]/90",
+        f11: "border-transparent bg-[hsl(var(--fellow-11))] text-[hsl(var(--fellow-11-foreground))] hover:bg-[hsl(var(--fellow-11))]/90",
+        f12: "border-transparent bg-[hsl(var(--fellow-12))] text-[hsl(var(--fellow-12-foreground))] hover:bg-[hsl(var(--fellow-12))]/90",
+        f13: "border-transparent bg-[hsl(var(--fellow-13))] text-[hsl(var(--fellow-13-foreground))] hover:bg-[hsl(var(--fellow-13))]/90",
+        f14: "border-transparent bg-[hsl(var(--fellow-14))] text-[hsl(var(--fellow-14-foreground))] hover:bg-[hsl(var(--fellow-14))]/90",
+        f15: "border-transparent bg-[hsl(var(--fellow-15))] text-[hsl(var(--fellow-15-foreground))] hover:bg-[hsl(var(--fellow-15))]/90",
       },
     },
     defaultVariants: {

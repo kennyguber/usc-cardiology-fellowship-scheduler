@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { useSEO } from "@/lib/seo";
 import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, type CallSchedule } from "@/lib/call-engine";
 import { loadSchedule, loadSetup, type PGY, type StoredSchedule } from "@/lib/schedule-engine";
@@ -103,6 +104,18 @@ export default function CallSchedule() {
   }, [setup?.yearStart]);
   const fellowById = useMemo(() => Object.fromEntries(fellows.map((f) => [f.id, f] as const)), [fellows]);
 
+  // Assign stable fellow color variants (f1..f15) based on fellows order
+  const fellowColorVariants = [
+    "f1","f2","f3","f4","f5","f6","f7","f8","f9","f10","f11","f12","f13","f14","f15",
+  ] as const;
+  const fellowColorById = useMemo(() => {
+    const map: Record<string, (typeof fellowColorVariants)[number]> = {};
+    fellows.forEach((f, idx) => {
+      map[f.id] = fellowColorVariants[idx % fellowColorVariants.length];
+    });
+    return map;
+  }, [fellows]);
+
   const schedByPGY = useMemo<Record<PGY, StoredSchedule | null>>(
     () => ({
       "PGY-4": loadSchedule("PGY-4"),
@@ -127,6 +140,13 @@ export default function CallSchedule() {
     if (!row) return undefined;
     return row[blockKeyForDate(d)];
   };
+
+  const isWeekend = (d: Date) => {
+    const dow = d.getDay();
+    return dow === 0 || dow === 6;
+  };
+
+  const lastNameOf = (full?: string) => (full ? full.trim().split(/\s+/).slice(-1)[0] : "");
 
   const countsSorted = useMemo(() => {
     const entries = Object.entries(schedule?.countsByFellow ?? {});
@@ -297,14 +317,26 @@ export default function CallSchedule() {
                           const dow = weekdays[d.getDay()];
                           const fid = schedule?.days?.[iso];
                           const rot = rotationOnDate(fid, d);
-                          const primary = fid ? `${fellowById[fid]?.name ?? fid}${rot ? ` (${rot})` : ""}` : "—";
                           const hol = holidayMap[iso] ?? "";
+                          const weekend = isWeekend(d);
+                          const rowClass = hol
+                            ? "bg-[hsl(var(--holiday))]"
+                            : weekend
+                            ? "bg-muted/70"
+                            : "";
+                          const primaryName = fid ? `${fellowById[fid]?.name ?? fid}${rot ? ` (${rot})` : ""}` : "—";
                           return (
-                            <TableRow key={iso}>
+                            <TableRow key={iso} className={rowClass}>
                               <TableCell>{iso}</TableCell>
                               <TableCell>{dow}</TableCell>
                               <TableCell>{hol}</TableCell>
-                              <TableCell>{primary}</TableCell>
+                              <TableCell>
+                                {fid ? (
+                                  <Badge variant={fellowColorById[fid]}>{primaryName}</Badge>
+                                ) : (
+                                  "—"
+                                )}
+                              </TableCell>
                               <TableCell>—</TableCell>
                               <TableCell>—</TableCell>
                               <TableCell>—</TableCell>
@@ -331,15 +363,19 @@ export default function CallSchedule() {
                             const iso = toISO(new Date(m.year, m.month, day));
                             const fid = schedule?.days?.[iso];
                             const name = fid ? (fellowById[fid]?.name ?? fid) : "";
-                            const initials = name ? name.split(" ").map((p) => p[0]).join("") : "—";
+                            const last = lastNameOf(name) || "—";
                             const hol = holidayMap[iso];
+                            const weekend = isWeekend(new Date(m.year, m.month, day));
+                            const cellBg = hol ? "bg-[hsl(var(--holiday))]" : weekend ? "bg-muted/70" : "bg-card";
                             return (
-                              <div key={iso} className="h-20 rounded-md border bg-card p-2 text-xs">
+                              <div key={iso} className={`h-20 rounded-md border ${cellBg} p-2 text-xs`}>
                                 <div className="flex items-center justify-between">
                                   <span className="font-medium">{day}</span>
                                   {hol ? <span className="px-1 py-0.5 rounded bg-muted text-muted-foreground">{hol}</span> : null}
                                 </div>
-                                <div className="mt-2 text-sm">{initials}</div>
+                                <div className="mt-2 text-sm">
+                                  {fid ? <Badge variant={fellowColorById[fid]}>{last}</Badge> : "—"}
+                                </div>
                               </div>
                             );
                           })}

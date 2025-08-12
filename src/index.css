@@ -92,6 +92,42 @@ All colors MUST be HSL.
 
     --rot-elective: 220 20% 94%;
     --rot-elective-foreground: 222.2 47.4% 11.2%;
+
+    /* Holiday pastel token */
+    --holiday: 345 90% 96%;
+    --holiday-foreground: 340 35% 28%;
+
+    /* Fellow badge tokens (15 distinct pastel hues) */
+    --fellow-1: 0 75% 92%;
+    --fellow-1-foreground: 10 35% 25%;
+    --fellow-2: 20 80% 92%;
+    --fellow-2-foreground: 20 40% 25%;
+    --fellow-3: 35 85% 92%;
+    --fellow-3-foreground: 35 40% 25%;
+    --fellow-4: 50 85% 90%;
+    --fellow-4-foreground: 40 45% 25%;
+    --fellow-5: 70 65% 90%;
+    --fellow-5-foreground: 70 35% 25%;
+    --fellow-6: 90 55% 90%;
+    --fellow-6-foreground: 90 35% 25%;
+    --fellow-7: 120 55% 90%;
+    --fellow-7-foreground: 120 35% 25%;
+    --fellow-8: 150 55% 90%;
+    --fellow-8-foreground: 150 35% 25%;
+    --fellow-9: 170 60% 90%;
+    --fellow-9-foreground: 170 35% 25%;
+    --fellow-10: 190 65% 92%;
+    --fellow-10-foreground: 200 35% 25%;
+    --fellow-11: 210 70% 92%;
+    --fellow-11-foreground: 220 35% 25%;
+    --fellow-12: 230 70% 92%;
+    --fellow-12-foreground: 230 35% 25%;
+    --fellow-13: 250 70% 92%;
+    --fellow-13-foreground: 250 35% 25%;
+    --fellow-14: 270 65% 92%;
+    --fellow-14-foreground: 270 35% 25%;
+    --fellow-15: 300 70% 92%;
+    --fellow-15-foreground: 300 35% 25%;
   }
 
   .dark {
@@ -169,6 +205,42 @@ All colors MUST be HSL.
 
     --rot-elective: 220 15% 22%;
     --rot-elective-foreground: 210 40% 98%;
+
+    /* Holiday pastel token (dark) */
+    --holiday: 345 60% 28%;
+    --holiday-foreground: 210 40% 98%;
+
+    /* Fellow badge tokens (dark) */
+    --fellow-1: 0 60% 28%;
+    --fellow-1-foreground: 210 40% 98%;
+    --fellow-2: 20 60% 28%;
+    --fellow-2-foreground: 210 40% 98%;
+    --fellow-3: 35 60% 28%;
+    --fellow-3-foreground: 210 40% 98%;
+    --fellow-4: 50 60% 28%;
+    --fellow-4-foreground: 210 40% 98%;
+    --fellow-5: 70 50% 28%;
+    --fellow-5-foreground: 210 40% 98%;
+    --fellow-6: 90 45% 28%;
+    --fellow-6-foreground: 210 40% 98%;
+    --fellow-7: 120 45% 28%;
+    --fellow-7-foreground: 210 40% 98%;
+    --fellow-8: 150 45% 28%;
+    --fellow-8-foreground: 210 40% 98%;
+    --fellow-9: 170 45% 28%;
+    --fellow-9-foreground: 210 40% 98%;
+    --fellow-10: 190 55% 28%;
+    --fellow-10-foreground: 210 40% 98%;
+    --fellow-11: 210 55% 28%;
+    --fellow-11-foreground: 210 40% 98%;
+    --fellow-12: 230 55% 28%;
+    --fellow-12-foreground: 210 40% 98%;
+    --fellow-13: 250 55% 28%;
+    --fellow-13-foreground: 210 40% 98%;
+    --fellow-14: 270 55% 28%;
+    --fellow-14-foreground: 210 40% 98%;
+    --fellow-15: 300 55% 28%;
+    --fellow-15-foreground: 210 40% 98%;
   }
 }
 
