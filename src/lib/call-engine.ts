@@ -125,11 +125,12 @@ function eligiblePoolByPGY(date: Date, setup: SetupState, schedByPGY: Record<PGY
   // Determine PGY priority list
   let priority: PGY[] = ["PGY-5", "PGY-4", "PGY-6"]; // default fallback order
   if (isWeekend || holiday) {
-    // Weekend/holiday logic
+    // Exclude PGY-6 from weekend/holiday primary calls entirely
+    pools["PGY-6"] = [];
     if (afterAug) {
-      priority = ["PGY-4", "PGY-5", "PGY-6"]; // PGY-4 weekend priority after Aug 15
+      priority = ["PGY-4", "PGY-5"]; // After Aug 15: weekends/holidays shared by PGY-4 then PGY-5
     } else {
-      priority = ["PGY-5", "PGY-6"]; // Pre-Aug15 weekends: only 5 and 6 eligible
+      priority = ["PGY-5"]; // Pre-Aug 15: only PGY-5 eligible on weekends/holidays
     }
   } else {
     // Weekdays

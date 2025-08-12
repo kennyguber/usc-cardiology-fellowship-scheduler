@@ -62,12 +62,18 @@ export default function PrimaryCallStatsTable({ fellows, schedule }: Props) {
     acc.total += 1;
     acc.dates.push(iso);
 
-    const d = new Date(iso);
-    const dow = d.getDay(); // 0=Sun ... 6=Sat
+    const d = new Date(iso + "T00:00:00Z"); // force UTC to avoid TZ shifts
+    const dow = d.getUTCDay(); // 0=Sun ... 6=Sat in UTC
     const isHoliday = holidaySet.has(iso);
 
     // Weekday distribution (always count toward day of week)
-    const label = dow === 0 ? "Su" : dow === 1 ? "M" : dow === 2 ? "T" : dow === 3 ? "W" : dow === 4 ? "Th" : dow === 5 ? "F" : "Sa";
+    const label =
+      dow === 0 ? "Su" :
+      dow === 1 ? "M" :
+      dow === 2 ? "T" :
+      dow === 3 ? "W" :
+      dow === 4 ? "Th" :
+      dow === 5 ? "F" : "Sa";
     acc.dow[label as typeof order[number]] += 1;
 
     // Mutually exclusive buckets for Weekday/Weekend/Holiday
@@ -119,7 +125,17 @@ export default function PrimaryCallStatsTable({ fellows, schedule }: Props) {
     }
   }
 
-  rows.sort((a, b) => a.name.localeCompare(b.name));
+  const pgyOrder = (p: any) => {
+    if (typeof p === "number") return p;
+    const m = String(p).match(/(\d+)/);
+    return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
+  };
+  rows.sort((a, b) => {
+    const ap = pgyOrder(a.pgy);
+    const bp = pgyOrder(b.pgy);
+    if (ap !== bp) return ap - bp;
+    return a.name.localeCompare(b.name);
+  });
 
   const fmtDist = (r: Row) =>
     `M: ${r.dow.M}; T: ${r.dow.T}; W: ${r.dow.W}; Th: ${r.dow.Th}; F: ${r.dow.F}; Sa: ${r.dow.Sa}; Su: ${r.dow.Su}`;
@@ -148,7 +164,7 @@ export default function PrimaryCallStatsTable({ fellows, schedule }: Props) {
               <TableCell>{String(r.pgy)}</TableCell>
               <TableCell className="text-right tabular-nums">{r.total}</TableCell>
               <TableCell className="text-right tabular-nums">{r.weekday}</TableCell>
-              <TableCell className="font-mono text-sm">{fmtDist(r)}</TableCell>
+              <TableCell>{fmtDist(r)}</TableCell>
               <TableCell className="text-right tabular-nums">{r.weekend}</TableCell>
               <TableCell className="text-right tabular-nums">{r.holiday}</TableCell>
               <TableCell className="text-right tabular-nums">{r.avgGap == null ? "—" : r.avgGap.toFixed(1)}</TableCell>
