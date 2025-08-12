@@ -322,89 +322,87 @@ export default function CallSchedule() {
                   <TabsTrigger value="calendar">Calendar</TabsTrigger>
                 </TabsList>
                 <TabsContent value="table">
-                  <div className="mt-4 max-h-[70vh] overflow-auto">
-                    <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="sticky top-0 z-20 bg-background">Date</TableHead>
-                            <TableHead className="sticky top-0 z-20 bg-background">Day</TableHead>
-                            <TableHead className="sticky top-0 z-20 bg-background">Holiday</TableHead>
-                            <TableHead className="sticky top-0 z-20 bg-background">Primary</TableHead>
-                            <TableHead className="sticky top-0 z-20 bg-background">Jeopardy</TableHead>
-                            <TableHead className="sticky top-0 z-20 bg-background">HF coverage</TableHead>
-                            <TableHead className="sticky top-0 z-20 bg-background">HF fellow</TableHead>
-                            <TableHead className="sticky top-0 z-20 bg-background">Vacation</TableHead>
-                            <TableHead className="sticky top-0 z-20 bg-background">Clinic</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                      <TableBody>
-                        {allDays.map((iso) => {
-                          const d = parseISO(iso);
-                          const dow = weekdays[d.getDay()];
-                          const fid = schedule?.days?.[iso];
-                          const rot = rotationOnDate(fid, d);
-                          const hol = holidayMap[iso] ?? "";
-                          const weekend = isWeekend(d);
-                          const rowClass = hol
-                            ? "bg-[hsl(var(--holiday))]"
-                            : weekend
-                            ? "bg-muted/70"
-                            : "";
-                          const primaryName = fid ? `${fellowById[fid]?.name ?? fid}${rot ? ` (${rot})` : ""}` : "—";
-                          const blockKey = blockKeyForDate(d);
-                          const hfIds = fellows
-                            .filter((f) => schedByPGY[f.pgy]?.byFellow?.[f.id]?.[blockKey] === "HF")
-                            .map((f) => f.id);
-                          const vacIds = fellows
-                            .filter((f) => schedByPGY[f.pgy]?.byFellow?.[f.id]?.[blockKey] === "VAC")
-                            .map((f) => f.id);
-                          return (
-                            <TableRow key={iso} className={rowClass}>
-                              <TableCell>{iso}</TableCell>
-                              <TableCell>{dow}</TableCell>
-                              <TableCell>{hol}</TableCell>
-                              <TableCell>
-                                {fid ? (
-                                  <Badge variant={fellowColorById[fid]}>{primaryName}</Badge>
-                                ) : (
-                                  "—"
-                                )}
-                              </TableCell>
-                              <TableCell>—</TableCell>
-                              <TableCell>—</TableCell>
-                              <TableCell>
-                                {hfIds.length ? (
-                                  <div className="flex flex-wrap gap-1">
-                                    {hfIds.map((id) => (
-                                      <Badge key={id} variant={fellowColorById[id]}>
-                                        {fellowById[id]?.name ?? id}
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  "—"
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                {vacIds.length ? (
-                                  <div className="flex flex-wrap gap-1">
-                                    {vacIds.map((id) => (
-                                      <Badge key={id} variant={fellowColorById[id]}>
-                                        {fellowById[id]?.name ?? id}
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  "—"
-                                )}
-                              </TableCell>
-                              <TableCell>—</TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
+<Table containerClassName="mt-4 max-h-[70vh] overflow-auto">
+  <TableHeader>
+    <TableRow>
+      <TableHead className="sticky top-0 z-20 bg-background">Date</TableHead>
+      <TableHead className="sticky top-0 z-20 bg-background">Day</TableHead>
+      <TableHead className="sticky top-0 z-20 bg-background">Holiday</TableHead>
+      <TableHead className="sticky top-0 z-20 bg-background">Primary</TableHead>
+      <TableHead className="sticky top-0 z-20 bg-background">Jeopardy</TableHead>
+      <TableHead className="sticky top-0 z-20 bg-background">HF coverage</TableHead>
+      <TableHead className="sticky top-0 z-20 bg-background">HF fellow</TableHead>
+      <TableHead className="sticky top-0 z-20 bg-background">Vacation</TableHead>
+      <TableHead className="sticky top-0 z-20 bg-background">Clinic</TableHead>
+    </TableRow>
+  </TableHeader>
+  <TableBody>
+    {allDays.map((iso) => {
+      const d = parseISO(iso);
+      const dow = weekdays[d.getDay()];
+      const fid = schedule?.days?.[iso];
+      const rot = rotationOnDate(fid, d);
+      const hol = holidayMap[iso] ?? "";
+      const weekend = isWeekend(d);
+      const rowClass = hol
+        ? "bg-[hsl(var(--holiday))]"
+        : weekend
+        ? "bg-muted/70"
+        : "";
+      const primaryName = fid ? `${fellowById[fid]?.name ?? fid}${rot ? ` (${rot})` : ""}` : "—";
+      const blockKey = blockKeyForDate(d);
+      const hfIds = fellows
+        .filter((f) => schedByPGY[f.pgy]?.byFellow?.[f.id]?.[blockKey] === "HF")
+        .map((f) => f.id);
+      const vacIds = fellows
+        .filter((f) => schedByPGY[f.pgy]?.byFellow?.[f.id]?.[blockKey] === "VAC")
+        .map((f) => f.id);
+      return (
+        <TableRow key={iso} className={rowClass}>
+          <TableCell>{iso}</TableCell>
+          <TableCell>{dow}</TableCell>
+          <TableCell>{hol}</TableCell>
+          <TableCell>
+            {fid ? (
+              <Badge variant={fellowColorById[fid]}>{primaryName}</Badge>
+            ) : (
+              "—"
+            )}
+          </TableCell>
+          <TableCell>—</TableCell>
+          <TableCell>—</TableCell>
+          <TableCell>
+            {hfIds.length ? (
+              <div className="flex flex-wrap gap-1">
+                {hfIds.map((id) => (
+                  <Badge key={id} variant={fellowColorById[id]}>
+                    {fellowById[id]?.name ?? id}
+                  </Badge>
+                ))}
+              </div>
+            ) : (
+              "—"
+            )}
+          </TableCell>
+          <TableCell>
+            {vacIds.length ? (
+              <div className="flex flex-wrap gap-1">
+                {vacIds.map((id) => (
+                  <Badge key={id} variant={fellowColorById[id]}>
+                    {fellowById[id]?.name ?? id}
+                  </Badge>
+                ))}
+              </div>
+            ) : (
+              "—"
+            )}
+          </TableCell>
+          <TableCell>—</TableCell>
+        </TableRow>
+      );
+    })}
+  </TableBody>
+</Table>
                 </TabsContent>
                 <TabsContent value="calendar">
                   <div className="mt-4 grid gap-6">

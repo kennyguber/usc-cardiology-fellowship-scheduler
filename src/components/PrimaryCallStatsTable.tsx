@@ -141,41 +141,39 @@ export default function PrimaryCallStatsTable({ fellows, schedule }: Props) {
     `M: ${r.dow.M}; T: ${r.dow.T}; W: ${r.dow.W}; Th: ${r.dow.Th}; F: ${r.dow.F}; Sa: ${r.dow.Sa}; Su: ${r.dow.Su}`;
 
   return (
-    <div className="w-full max-h-[70vh] overflow-auto">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="sticky top-0 z-20 bg-background">Fellow</TableHead>
-            <TableHead className="sticky top-0 z-20 bg-background">PGY</TableHead>
-            <TableHead className="sticky top-0 z-20 bg-background text-right">Total Calls</TableHead>
-            <TableHead className="sticky top-0 z-20 bg-background text-right">Weekday Calls</TableHead>
-            <TableHead className="sticky top-0 z-20 bg-background">Weekday Distribution</TableHead>
-            <TableHead className="sticky top-0 z-20 bg-background text-right">Weekend Calls</TableHead>
-            <TableHead className="sticky top-0 z-20 bg-background text-right">Holiday Calls</TableHead>
-            <TableHead className="sticky top-0 z-20 bg-background text-right">Average Days Between Call</TableHead>
-            <TableHead className="sticky top-0 z-20 bg-background text-right">Longest Gap Between Call</TableHead>
-            <TableHead className="sticky top-0 z-20 bg-background">Longest Call Gap Dates</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((r) => (
-            <TableRow key={r.id}>
-              <TableCell>{r.name}</TableCell>
-              <TableCell>{String(r.pgy)}</TableCell>
-              <TableCell className="text-right tabular-nums">{r.total}</TableCell>
-              <TableCell className="text-right tabular-nums">{r.weekday}</TableCell>
-              <TableCell>{fmtDist(r)}</TableCell>
-              <TableCell className="text-right tabular-nums">{r.weekend}</TableCell>
-              <TableCell className="text-right tabular-nums">{r.holiday}</TableCell>
-              <TableCell className="text-right tabular-nums">{r.avgGap == null ? "—" : r.avgGap.toFixed(1)}</TableCell>
-              <TableCell className="text-right tabular-nums">{r.longestGap == null ? "—" : r.longestGap}</TableCell>
-              <TableCell>
-                {r.longestGapDates ? `${r.longestGapDates.start} to ${r.longestGapDates.end}` : "—"}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+<Table containerClassName="w-full max-h-[70vh] overflow-auto">
+  <TableHeader>
+    <TableRow>
+      <TableHead className="sticky top-0 z-20 bg-background">Fellow</TableHead>
+      <TableHead className="sticky top-0 z-20 bg-background">PGY</TableHead>
+      <TableHead className="sticky top-0 z-20 bg-background text-right">Total Calls</TableHead>
+      <TableHead className="sticky top-0 z-20 bg-background text-right">Weekday Calls</TableHead>
+      <TableHead className="sticky top-0 z-20 bg-background">Weekday Distribution</TableHead>
+      <TableHead className="sticky top-0 z-20 bg-background text-right">Weekend Calls</TableHead>
+      <TableHead className="sticky top-0 z-20 bg-background text-right">Holiday Calls</TableHead>
+      <TableHead className="sticky top-0 z-20 bg-background text-right">Average Days Between Call</TableHead>
+      <TableHead className="sticky top-0 z-20 bg-background text-right">Longest Gap Between Call</TableHead>
+      <TableHead className="sticky top-0 z-20 bg-background">Longest Call Gap Dates</TableHead>
+    </TableRow>
+  </TableHeader>
+  <TableBody>
+    {rows.map((r) => (
+      <TableRow key={r.id}>
+        <TableCell>{r.name}</TableCell>
+        <TableCell>{String(r.pgy)}</TableCell>
+        <TableCell className="text-right tabular-nums">{r.total}</TableCell>
+        <TableCell className="text-right tabular-nums">{r.weekday}</TableCell>
+        <TableCell>{fmtDist(r)}</TableCell>
+        <TableCell className="text-right tabular-nums">{r.weekend}</TableCell>
+        <TableCell className="text-right tabular-nums">{r.holiday}</TableCell>
+        <TableCell className="text-right tabular-nums">{r.avgGap == null ? "—" : r.avgGap.toFixed(1)}</TableCell>
+        <TableCell className="text-right tabular-nums">{r.longestGap == null ? "—" : r.longestGap}</TableCell>
+        <TableCell>
+          {r.longestGapDates ? `${r.longestGapDates.start} to ${r.longestGapDates.end}` : "—"}
+        </TableCell>
+      </TableRow>
+    ))}
+  </TableBody>
+</Table>
   );
 }
