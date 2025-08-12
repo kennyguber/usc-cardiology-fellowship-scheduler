@@ -3,7 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSEO } from "@/lib/seo";
 import { loadSetup } from "@/lib/schedule-engine";
 import { loadCallSchedule } from "@/lib/call-engine";
-import CallCoverageTable from "@/components/CallCoverageTable";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import PrimaryCallStatsTable from "@/components/PrimaryCallStatsTable";
 
 export default function Statistics() {
   useSEO({
@@ -22,14 +23,54 @@ export default function Statistics() {
           <HeartPulse className="h-6 w-6 text-primary" /> Statistics
         </h1>
         <div className="ecg-trace-static mt-2 mb-6" />
-        <Card>
-          <CardHeader>
-            <CardTitle>Call count by fellow</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <CallCoverageTable schedule={schedule} fellows={fellows} />
-          </CardContent>
-        </Card>
+        <Tabs defaultValue="primary" className="mt-4">
+          <TabsList>
+            <TabsTrigger value="primary">Primary Call Statistics</TabsTrigger>
+            <TabsTrigger value="jeopardy">Jeopardy Statistics</TabsTrigger>
+            <TabsTrigger value="hf">Heart Failure Coverage Statistics</TabsTrigger>
+            <TabsTrigger value="clinic">Clinic Statistics</TabsTrigger>
+          </TabsList>
+          <TabsContent value="primary">
+            <Card>
+              <CardHeader>
+                <CardTitle>Primary Call Statistics</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <PrimaryCallStatsTable schedule={schedule} fellows={fellows} />
+              </CardContent>
+            </Card>
+          </TabsContent>
+          <TabsContent value="jeopardy">
+            <Card>
+              <CardHeader>
+                <CardTitle>Jeopardy Statistics</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-muted-foreground">Coming soon.</div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+          <TabsContent value="hf">
+            <Card>
+              <CardHeader>
+                <CardTitle>Heart Failure Coverage Statistics</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-muted-foreground">Coming soon.</div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+          <TabsContent value="clinic">
+            <Card>
+              <CardHeader>
+                <CardTitle>Clinic Statistics</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-muted-foreground">Coming soon.</div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </section>
     </main>
   );
