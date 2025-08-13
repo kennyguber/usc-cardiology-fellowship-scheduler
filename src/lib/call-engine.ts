@@ -520,6 +520,79 @@ function listIneligiblePrimaryFellows(dateISO: string, schedule: CallSchedule): 
   return items.filter((i) => i.reasons.length > 0).sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * Create a preview schedule with atomic changes applied
+ */
+function previewScheduleChange(
+  schedule: CallSchedule,
+  changes: Array<{ dateISO: string; fellowId: string | null }>
+): CallSchedule {
+  const preview: CallSchedule = {
+    ...schedule,
+    days: { ...schedule.days },
+    countsByFellow: { ...schedule.countsByFellow },
+  };
+
+  // Apply all changes atomically
+  for (const { dateISO, fellowId } of changes) {
+    const prev = preview.days[dateISO];
+    
+    if (fellowId === null) {
+      // Clear assignment
+      if (prev) {
+        delete preview.days[dateISO];
+        preview.countsByFellow[prev] = Math.max(0, (preview.countsByFellow[prev] ?? 1) - 1);
+      }
+    } else {
+      // Set assignment
+      preview.days[dateISO] = fellowId;
+      if (prev && prev !== fellowId) {
+        preview.countsByFellow[prev] = Math.max(0, (preview.countsByFellow[prev] ?? 1) - 1);
+      }
+      if (!prev || prev !== fellowId) {
+        preview.countsByFellow[fellowId] = (preview.countsByFellow[fellowId] ?? 0) + 1;
+      }
+    }
+  }
+
+  return preview;
+}
+
+/**
+ * Validate a set of schedule changes using atomic preview
+ */
+function validateScheduleChange(
+  schedule: CallSchedule,
+  changes: Array<{ dateISO: string; fellowId: string | null }>
+): { ok: boolean; reasons?: string[] } {
+  const preview = previewScheduleChange(schedule, changes);
+  const reasons: string[] = [];
+
+  // Validate each affected fellow in the final state
+  const affectedFellows = new Set<string>();
+  for (const { fellowId } of changes) {
+    if (fellowId) affectedFellows.add(fellowId);
+  }
+
+  for (const fellowId of affectedFellows) {
+    // Get all assignments for this fellow in the preview
+    const fellowAssignments = Object.entries(preview.days)
+      .filter(([_, fid]) => fid === fellowId)
+      .map(([dateISO]) => dateISO)
+      .sort();
+
+    // Validate each assignment in the context of the complete preview
+    for (const dateISO of fellowAssignments) {
+      const validation = validatePrimaryAssignment(preview, dateISO, fellowId);
+      if (!validation.ok && validation.reasons) {
+        reasons.push(...validation.reasons.map(r => `${dateISO}: ${r}`));
+      }
+    }
+  }
+
+  return { ok: reasons.length === 0, reasons: reasons.length ? reasons : undefined };
+}
+
 function applyManualPrimaryAssignment(
   schedule: CallSchedule,
   dateISO: string,
@@ -575,30 +648,13 @@ function isValidPrimarySwap(
   if (!fidA || !fidB) return { ok: false, reasons: ["Both dates must be assigned to swap"] };
   if (fidA === fidB) return { ok: false, reasons: ["Same fellow on both dates — swap has no effect"] };
 
-  // Try A -> B then B -> A to avoid order sensitivity
-  const reasons: string[] = [];
+  // Use atomic preview validation to avoid sequential assignment issues
+  const changes = [
+    { dateISO: dateAISO, fellowId: fidB },
+    { dateISO: dateBISO, fellowId: fidA }
+  ];
 
-  // Direction 1: assign B to A, then A to B
-  const first = applyManualPrimaryAssignment(schedule, dateAISO, fidB);
-  if (first.ok && first.schedule) {
-    const second = applyManualPrimaryAssignment(first.schedule, dateBISO, fidA);
-    if (second.ok) return { ok: true };
-    if (second.reasons) reasons.push(...second.reasons);
-  } else {
-    if (first.reasons) reasons.push(...first.reasons);
-  }
-
-  // Direction 2: assign A to B, then B to A
-  const firstRev = applyManualPrimaryAssignment(schedule, dateBISO, fidA);
-  if (firstRev.ok && firstRev.schedule) {
-    const secondRev = applyManualPrimaryAssignment(firstRev.schedule, dateAISO, fidB);
-    if (secondRev.ok) return { ok: true };
-    if (secondRev.reasons) reasons.push(...secondRev.reasons);
-  } else {
-    if (firstRev.reasons) reasons.push(...firstRev.reasons);
-  }
-
-  return { ok: false, reasons: reasons.length ? reasons : ["Swap invalid under scheduling rules"] };
+  return validateScheduleChange(schedule, changes);
 }
 
 function applyPrimarySwap(
@@ -608,13 +664,18 @@ function applyPrimarySwap(
 ): { ok: boolean; schedule?: CallSchedule; reasons?: string[] } {
   const val = isValidPrimarySwap(schedule, dateAISO, dateBISO);
   if (!val.ok) return val;
+  
   const fidA = schedule.days[dateAISO]!;
   const fidB = schedule.days[dateBISO]!;
-  const step1 = applyManualPrimaryAssignment(schedule, dateAISO, fidB);
-  if (!step1.ok || !step1.schedule) return { ok: false, reasons: step1.reasons || ["Failed to apply first step"] };
-  const step2 = applyManualPrimaryAssignment(step1.schedule, dateBISO, fidA);
-  if (!step2.ok) return { ok: false, reasons: step2.reasons || ["Failed to apply second step"] };
-  return step2;
+  
+  // Apply atomic swap using preview logic
+  const changes = [
+    { dateISO: dateAISO, fellowId: fidB },
+    { dateISO: dateBISO, fellowId: fidA }
+  ];
+  
+  const swappedSchedule = previewScheduleChange(schedule, changes);
+  return { ok: true, schedule: swappedSchedule };
 }
 
 function listPrimarySwapSuggestions(
@@ -673,21 +734,19 @@ function applyDragAndDrop(
   }
 
   if (!targetFellowId) {
-    // Move operation: clear source FIRST, then assign to target
-    // This prevents validation from seeing the fellow assigned to both dates
-    const clearResult = applyManualPrimaryAssignment(schedule, sourceISO, null);
-    if (!clearResult.ok) {
-      return { success: false, error: clearResult.reasons?.join(", ") || "Failed to clear source" };
+    // Move operation: use atomic preview validation
+    const changes = [
+      { dateISO: sourceISO, fellowId: null },
+      { dateISO: targetISO, fellowId: sourceFellowId }
+    ];
+
+    const validation = validateScheduleChange(schedule, changes);
+    if (!validation.ok) {
+      return { success: false, error: validation.reasons?.join(", ") || "Move failed validation" };
     }
-    
-    const assignResult = applyManualPrimaryAssignment(clearResult.schedule!, targetISO, sourceFellowId);
-    if (!assignResult.ok) {
-      // If assignment fails, restore the source assignment
-      applyManualPrimaryAssignment(clearResult.schedule!, sourceISO, sourceFellowId);
-      return { success: false, error: assignResult.reasons?.join(", ") || "Assignment failed" };
-    }
-    
-    return { success: true, schedule: assignResult.schedule };
+
+    const finalSchedule = previewScheduleChange(schedule, changes);
+    return { success: true, schedule: finalSchedule };
   } else {
     // Swap operation
     const swapResult = applyPrimarySwap(schedule, sourceISO, targetISO);
