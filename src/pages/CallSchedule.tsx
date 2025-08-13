@@ -411,21 +411,6 @@ export default function CallSchedule() {
     })}
   </TableBody>
 </Table>
-{editISO && schedule && (
-  <PrimaryCallEditDialog
-    iso={editISO}
-    schedule={schedule}
-    onClose={() => setEditISO(null)}
-    onApply={(updated) => {
-      setSchedule(updated);
-      saveCallSchedule(updated);
-      const newUncovered = allDays.filter((d) => !updated.days[d]);
-      setUncovered(newUncovered);
-      setSuccess(newUncovered.length === 0);
-      setEditISO(null);
-    }}
-  />
-)}
                 </TabsContent>
                 <TabsContent value="calendar">
                   <div className="mt-4 grid gap-6">
@@ -454,9 +439,17 @@ export default function CallSchedule() {
       </div>
       <div className="mt-2 text-sm">
         {fid ? (
-          <Badge variant={fellowColorById[fid]}>
-            {`${last}${rot ? ` (${rot})` : ""}`}
-          </Badge>
+          schedule ? (
+            <button onClick={() => setEditISO(iso)} aria-label={`Edit primary for ${iso}`} className="inline-flex">
+              <Badge variant={fellowColorById[fid]}>
+                {`${last}${rot ? ` (${rot})` : ""}`}
+              </Badge>
+            </button>
+          ) : (
+            <Badge variant={fellowColorById[fid]}>
+              {`${last}${rot ? ` (${rot})` : ""}`}
+            </Badge>
+          )
         ) : (
           "—"
         )}
@@ -470,6 +463,21 @@ export default function CallSchedule() {
                   </div>
                 </TabsContent>
               </Tabs>
+              {editISO && schedule && (
+                <PrimaryCallEditDialog
+                  iso={editISO}
+                  schedule={schedule}
+                  onClose={() => setEditISO(null)}
+                  onApply={(updated) => {
+                    setSchedule(updated);
+                    saveCallSchedule(updated);
+                    const newUncovered = allDays.filter((d) => !updated.days[d]);
+                    setUncovered(newUncovered);
+                    setSuccess(newUncovered.length === 0);
+                    setEditISO(null);
+                  }}
+                />
+              )}
             )}
           </CardContent>
         </Card>
