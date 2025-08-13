@@ -673,14 +673,21 @@ function applyDragAndDrop(
   }
 
   if (!targetFellowId) {
-    // Simple move operation
-    const result = applyManualPrimaryAssignment(schedule, targetISO, sourceFellowId);
-    if (!result.ok) {
-      return { success: false, error: result.reasons?.join(", ") || "Assignment failed" };
+    // Move operation: clear source FIRST, then assign to target
+    // This prevents validation from seeing the fellow assigned to both dates
+    const clearResult = applyManualPrimaryAssignment(schedule, sourceISO, null);
+    if (!clearResult.ok) {
+      return { success: false, error: clearResult.reasons?.join(", ") || "Failed to clear source" };
     }
-    // Clear the source after successful assignment to target
-    const finalResult = applyManualPrimaryAssignment(result.schedule!, sourceISO, null);
-    return { success: true, schedule: finalResult.schedule };
+    
+    const assignResult = applyManualPrimaryAssignment(clearResult.schedule!, targetISO, sourceFellowId);
+    if (!assignResult.ok) {
+      // If assignment fails, restore the source assignment
+      applyManualPrimaryAssignment(clearResult.schedule!, sourceISO, sourceFellowId);
+      return { success: false, error: assignResult.reasons?.join(", ") || "Assignment failed" };
+    }
+    
+    return { success: true, schedule: assignResult.schedule };
   } else {
     // Swap operation
     const swapResult = applyPrimarySwap(schedule, sourceISO, targetISO);
