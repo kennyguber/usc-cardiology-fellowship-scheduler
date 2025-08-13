@@ -877,47 +877,79 @@ const handlePlaceRotations = () => {
                              id={`${f.id}-${b.key}`}
                              className={`text-center ${activePGY !== "TOTAL" ? "cursor-pointer hover:bg-muted/30" : ""}`}
                            >
-                             {label && activePGY !== "TOTAL" ? (
-                               <DraggableBadge
-                                 id={`${f.id}-${b.key}`}
-                                 variant={
-                                   label === "VAC"
-                                     ? "destructive"
-                                     : label === "LAC_CATH"
-                                     ? "rot-lac-cath"
-                                     : label === "CCU"
-                                     ? "rot-ccu"
-                                     : label === "LAC_CONSULT"
-                                     ? "rot-lac-consult"
-                                     : label === "HF"
-                                     ? "rot-hf"
-                                     : label === "KECK_CONSULT"
-                                     ? "rot-keck-consult"
-                                     : label === "ECHO1"
-                                     ? "rot-echo1"
-                                     : label === "ECHO2"
-                                     ? "rot-echo2"
-                                     : label === "EP"
-                                     ? "rot-ep"
-                                     : label === "NUCLEAR"
-                                     ? "rot-nuclear"
-                                     : label === "NONINVASIVE"
-                                     ? "rot-noninvasive"
-                                     : "rot-elective"
-                                 }
-                                 onClick={() => openEdit(f.id, b.key)}
-                               >
-                                 {label === "VAC" ? "Vacation" : label}
-                               </DraggableBadge>
-                             ) : (
-                               <div
-                                 className="w-full h-full flex items-center justify-center"
-                                 onClick={activePGY !== "TOTAL" ? () => openEdit(f.id, b.key) : undefined}
-                                 title={activePGY !== "TOTAL" ? "Click to edit" : undefined}
-                               >
-                                 <span className="text-xs text-muted-foreground">&nbsp;</span>
-                               </div>
-                             )}
+                              {label ? (
+                                activePGY !== "TOTAL" ? (
+                                  <DraggableBadge
+                                    id={`${f.id}-${b.key}`}
+                                    variant={
+                                      label === "VAC"
+                                        ? "destructive"
+                                        : label === "LAC_CATH"
+                                        ? "rot-lac-cath"
+                                        : label === "CCU"
+                                        ? "rot-ccu"
+                                        : label === "LAC_CONSULT"
+                                        ? "rot-lac-consult"
+                                        : label === "HF"
+                                        ? "rot-hf"
+                                        : label === "KECK_CONSULT"
+                                        ? "rot-keck-consult"
+                                        : label === "ECHO1"
+                                        ? "rot-echo1"
+                                        : label === "ECHO2"
+                                        ? "rot-echo2"
+                                        : label === "EP"
+                                        ? "rot-ep"
+                                        : label === "NUCLEAR"
+                                        ? "rot-nuclear"
+                                        : label === "NONINVASIVE"
+                                        ? "rot-noninvasive"
+                                        : "rot-elective"
+                                    }
+                                    onClick={() => openEdit(f.id, b.key)}
+                                  >
+                                    {label === "VAC" ? "Vacation" : label}
+                                  </DraggableBadge>
+                                ) : (
+                                  <Badge
+                                    variant={
+                                      label === "VAC"
+                                        ? "destructive"
+                                        : label === "LAC_CATH"
+                                        ? "rot-lac-cath"
+                                        : label === "CCU"
+                                        ? "rot-ccu"
+                                        : label === "LAC_CONSULT"
+                                        ? "rot-lac-consult"
+                                        : label === "HF"
+                                        ? "rot-hf"
+                                        : label === "KECK_CONSULT"
+                                        ? "rot-keck-consult"
+                                        : label === "ECHO1"
+                                        ? "rot-echo1"
+                                        : label === "ECHO2"
+                                        ? "rot-echo2"
+                                        : label === "EP"
+                                        ? "rot-ep"
+                                        : label === "NUCLEAR"
+                                        ? "rot-nuclear"
+                                        : label === "NONINVASIVE"
+                                        ? "rot-noninvasive"
+                                        : "rot-elective"
+                                    }
+                                  >
+                                    {label === "VAC" ? "Vacation" : label}
+                                  </Badge>
+                                )
+                              ) : (
+                                <div
+                                  className="w-full h-full flex items-center justify-center"
+                                  onClick={activePGY !== "TOTAL" ? () => openEdit(f.id, b.key) : undefined}
+                                  title={activePGY !== "TOTAL" ? "Click to edit" : undefined}
+                                >
+                                  <span className="text-xs text-muted-foreground">&nbsp;</span>
+                                </div>
+                              )}
                            </DroppableCell>
                          );
                        })}
