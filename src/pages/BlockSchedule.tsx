@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { HeartPulse, Download, RefreshCw, Eraser, ChevronUp, ChevronDown } from "lucide-react";
+import { DndContext, DragOverlay, DragStartEvent, DragEndEvent } from "@dnd-kit/core";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +23,9 @@ import { placePGY4Rotations, placePGY5Rotations, placePGY6Rotations } from "@/li
 import { useToast } from "@/hooks/use-toast";
 import type { Rotation } from "@/lib/rotation-engine";
 import BlockEditDialog from "@/components/BlockEditDialog";
+import { DraggableBadge } from "@/components/DraggableBadge";
+import { DroppableCell } from "@/components/DroppableCell";
+import { applyBlockDragAndDrop } from "@/lib/block-engine";
 
 export default function BlockSchedule() {
   useSEO({
@@ -70,6 +74,9 @@ const fellows: Fellow[] = useMemo(
 
   // Edit dialog state
   const [edit, setEdit] = useState<{ open: boolean; fid?: string; key?: string }>({ open: false });
+  
+  // Drag and drop state
+  const [dragData, setDragData] = useState<{ fellowId: string; blockKey: string; rotation: string } | null>(null);
 const rotationOptions = useMemo<Rotation[]>(
     () =>
       activePGY === "PGY-5"
@@ -332,6 +339,54 @@ const rotationOptions = useMemo<Rotation[]>(
     setSchedule(next);
     setEdit({ open: false });
     toast({ title: "Block updated", description: "Assignment updated successfully." });
+  };
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const { active } = event;
+    const [fellowId, blockKey] = (active.id as string).split("-");
+    const rotation = schedule?.byFellow?.[fellowId]?.[blockKey];
+    
+    if (rotation) {
+      setDragData({ fellowId, blockKey, rotation });
+    }
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    setDragData(null);
+    
+    if (!over || !schedule || activePGY === "TOTAL") {
+      return;
+    }
+    
+    const [dragFellowId, dragBlockKey] = (active.id as string).split("-");
+    const [dropFellowId, dropBlockKey] = (over.id as string).split("-");
+    
+    if (dragFellowId === dropFellowId && dragBlockKey === dropBlockKey) {
+      return; // No change
+    }
+    
+    const result = applyBlockDragAndDrop(
+      schedule,
+      dragFellowId,
+      dragBlockKey,
+      dropFellowId,
+      dropBlockKey,
+      blocks,
+      fellows
+    );
+    
+    if (result.success && result.schedule) {
+      saveSchedule(activePGY as PGY, result.schedule);
+      setSchedule(result.schedule);
+      toast({ title: "Block moved", description: "Assignment updated successfully." });
+    } else {
+      toast({ 
+        variant: "destructive", 
+        title: "Invalid move", 
+        description: result.error || "This move violates scheduling rules." 
+      });
+    }
   };
 
   useEffect(() => {
@@ -716,7 +771,8 @@ const handlePlaceRotations = () => {
 
         <div className="grid gap-6 md:grid-cols-3">
           <div className={`rounded-md border overflow-x-auto md:col-span-3`}>
-            <Table>
+            <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+              <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead className="min-w-[220px] sticky left-0 bg-background z-10">Fellow</TableHead>
@@ -753,49 +809,72 @@ const handlePlaceRotations = () => {
                           )}
                         </div>
                       </TableCell>
-                      {sortedBlocks.map((b) => (
-                        <TableCell
-                          key={b.key}
-                          className={`text-center ${activePGY !== "TOTAL" ? "cursor-pointer hover:bg-muted/30" : ""}`}
-                          onClick={activePGY !== "TOTAL" ? () => openEdit(f.id, b.key) : undefined}
-                          title={activePGY !== "TOTAL" ? "Click to edit" : undefined}
-                        >
-                          {(() => {
-                            const label = displayByFellow[f.id]?.[b.key];
-                            if (!label) return <span className="text-xs text-muted-foreground">&nbsp;</span>;
-                            if (label === "VAC") return <Badge variant="destructive">Vacation</Badge>;
-                            const variant =
-                              label === "LAC_CATH"
-                                ? "rot-lac-cath"
-                                : label === "CCU"
-                                ? "rot-ccu"
-                                : label === "LAC_CONSULT"
-                                ? "rot-lac-consult"
-                                : label === "HF"
-                                ? "rot-hf"
-                                : label === "KECK_CONSULT"
-                                ? "rot-keck-consult"
-                                : label === "ECHO1"
-                                ? "rot-echo1"
-                                : label === "ECHO2"
-                                ? "rot-echo2"
-                                : label === "EP"
-                                ? "rot-ep"
-                                : label === "NUCLEAR"
-                                ? "rot-nuclear"
-                                : label === "NONINVASIVE"
-                                ? "rot-noninvasive"
-                                : "rot-elective";
-                            return <Badge variant={variant}>{label}</Badge>;
-                          })()}
-                        </TableCell>
-                      ))}
+                       {sortedBlocks.map((b) => {
+                         const label = displayByFellow[f.id]?.[b.key];
+                         return (
+                           <DroppableCell
+                             key={b.key}
+                             id={`${f.id}-${b.key}`}
+                             className={`text-center ${activePGY !== "TOTAL" ? "cursor-pointer hover:bg-muted/30" : ""}`}
+                           >
+                             {label && activePGY !== "TOTAL" ? (
+                               <DraggableBadge
+                                 id={`${f.id}-${b.key}`}
+                                 variant={
+                                   label === "VAC"
+                                     ? "destructive"
+                                     : label === "LAC_CATH"
+                                     ? "rot-lac-cath"
+                                     : label === "CCU"
+                                     ? "rot-ccu"
+                                     : label === "LAC_CONSULT"
+                                     ? "rot-lac-consult"
+                                     : label === "HF"
+                                     ? "rot-hf"
+                                     : label === "KECK_CONSULT"
+                                     ? "rot-keck-consult"
+                                     : label === "ECHO1"
+                                     ? "rot-echo1"
+                                     : label === "ECHO2"
+                                     ? "rot-echo2"
+                                     : label === "EP"
+                                     ? "rot-ep"
+                                     : label === "NUCLEAR"
+                                     ? "rot-nuclear"
+                                     : label === "NONINVASIVE"
+                                     ? "rot-noninvasive"
+                                     : "rot-elective"
+                                 }
+                                 onClick={() => openEdit(f.id, b.key)}
+                               >
+                                 {label === "VAC" ? "Vacation" : label}
+                               </DraggableBadge>
+                             ) : (
+                               <div
+                                 className="w-full h-full flex items-center justify-center"
+                                 onClick={activePGY !== "TOTAL" ? () => openEdit(f.id, b.key) : undefined}
+                                 title={activePGY !== "TOTAL" ? "Click to edit" : undefined}
+                               >
+                                 <span className="text-xs text-muted-foreground">&nbsp;</span>
+                               </div>
+                             )}
+                           </DroppableCell>
+                         );
+                       })}
                     </TableRow>
                   ))
                 )}
-              </TableBody>
-            </Table>
-          </div>
+               </TableBody>
+             </Table>
+             <DragOverlay>
+               {dragData && (
+                 <Badge variant="outline" className="opacity-80">
+                   {dragData.rotation === "VAC" ? "Vacation" : dragData.rotation}
+                 </Badge>
+               )}
+             </DragOverlay>
+           </DndContext>
+         </div>
 
         </div>
 
