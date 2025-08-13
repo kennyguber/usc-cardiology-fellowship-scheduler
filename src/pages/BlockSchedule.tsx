@@ -451,31 +451,32 @@ const rotationOptions = useMemo<Rotation[]>(
     if (activePGY === "TOTAL") {
       const total: Record<string, Record<string, string | undefined>> = {};
       
-      // Get all active fellow IDs to filter by
-      const activeFellowIds = new Set(setup?.fellows.map(f => f.id) || []);
-      console.log("👥 Active fellow IDs:", Array.from(activeFellowIds));
-      
+      // For TOTAL tab, include ALL fellows from all saved schedules
+      // Don't filter by setup, as the schedule data is the source of truth
       (["PGY-4", "PGY-5", "PGY-6"] as PGY[]).forEach((p) => {
         const s = loadSchedule(p);
         if (s && s.byFellow) {
-          // Only include schedules for fellows that exist in current setup
+          console.log(`📋 Loading ${p} schedule with ${Object.keys(s.byFellow).length} fellows`);
           Object.entries(s.byFellow).forEach(([fellowId, fellowSchedule]) => {
-            if (activeFellowIds.has(fellowId)) {
+            // Include all fellows with schedule data
+            if (fellowSchedule && Object.keys(fellowSchedule).length > 0) {
               total[fellowId] = fellowSchedule;
               console.log(`✅ Including fellow ${fellowId} from ${p}`);
             } else {
-              console.log(`❌ Excluding orphaned fellow ${fellowId} from ${p}`);
+              console.log(`⚠️ Skipping empty schedule for fellow ${fellowId} from ${p}`);
             }
           });
+        } else {
+          console.log(`❌ No schedule data found for ${p}`);
         }
       });
-      console.log("📊 Total displayByFellow (filtered):", total);
+      console.log(`📊 Total displayByFellow: ${Object.keys(total).length} fellows total`);
       return total;
     }
     const result = schedule?.byFellow ?? {};
     console.log("📊 Current displayByFellow:", result);
     return result;
-  }, [activePGY, schedule, schedule?.byFellow, setup?.fellows]);
+  }, [activePGY, schedule, schedule?.byFellow]);
   const counts = useMemo(() => countByBlock(displayByFellow), [displayByFellow]);
   const fellowValidations = useMemo(() => {
     return fellows.map((f) => {
