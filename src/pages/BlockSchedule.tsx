@@ -355,16 +355,40 @@ const rotationOptions = useMemo<Rotation[]>(
     const { active, over } = event;
     setDragData(null);
     
+    console.log("🎯 Drag End - Start", { 
+      activeId: active.id, 
+      overId: over?.id, 
+      activePGY, 
+      hasSchedule: !!schedule 
+    });
+    
     if (!over || !schedule || activePGY === "TOTAL") {
+      console.log("❌ Drag End - Early return", { 
+        hasOver: !!over, 
+        hasSchedule: !!schedule, 
+        activePGY 
+      });
       return;
     }
     
     const [dragFellowId, dragBlockKey] = (active.id as string).split("-");
     const [dropFellowId, dropBlockKey] = (over.id as string).split("-");
     
+    console.log("🎯 Drag End - Parsed IDs", { 
+      dragFellowId, 
+      dragBlockKey, 
+      dropFellowId, 
+      dropBlockKey 
+    });
+    
     if (dragFellowId === dropFellowId && dragBlockKey === dropBlockKey) {
+      console.log("⚠️ Drag End - No change needed");
       return; // No change
     }
+    
+    // Get current rotation being dragged
+    const currentRotation = schedule.byFellow?.[dragFellowId]?.[dragBlockKey];
+    console.log("🎯 Current rotation being dragged:", currentRotation);
     
     const result = applyBlockDragAndDrop(
       schedule,
@@ -376,15 +400,33 @@ const rotationOptions = useMemo<Rotation[]>(
       fellows
     );
     
+    console.log("🎯 Drag Drop Result:", result);
+    
     if (result.success && result.schedule) {
+      console.log("✅ Successful drag drop, updating state...");
+      console.log("📋 Old schedule byFellow:", JSON.stringify(schedule.byFellow, null, 2));
+      console.log("📋 New schedule byFellow:", JSON.stringify(result.schedule.byFellow, null, 2));
+      
+      // Save to localStorage first
       saveSchedule(activePGY as PGY, result.schedule);
-      setSchedule(result.schedule);
-      toast({ title: "Block moved", description: "Assignment updated successfully." });
+      console.log("💾 Saved to localStorage");
+      
+      // Force state update with new object reference
+      setSchedule({ ...result.schedule });
+      console.log("🔄 State updated with new schedule");
+      
+      toast({ 
+        title: "Block moved", 
+        description: "Assignment updated successfully.",
+        duration: 3000
+      });
     } else {
+      console.log("❌ Failed drag drop:", result.error);
       toast({ 
         variant: "destructive", 
         title: "Invalid move", 
-        description: result.error || "This move violates scheduling rules." 
+        description: result.error || "This move violates scheduling rules.",
+        duration: 5000
       });
     }
   };
@@ -405,6 +447,7 @@ const rotationOptions = useMemo<Rotation[]>(
 
   const sortedBlocks = useMemo(() => sortJulToJun(blocks), [blocks]);
   const displayByFellow = useMemo(() => {
+    console.log("🔄 Recomputing displayByFellow", { activePGY, scheduleExists: !!schedule });
     if (activePGY === "TOTAL") {
       const total: Record<string, Record<string, string | undefined>> = {};
       (["PGY-4", "PGY-5", "PGY-6"] as PGY[]).forEach((p) => {
@@ -413,10 +456,13 @@ const rotationOptions = useMemo<Rotation[]>(
           Object.assign(total, s.byFellow);
         }
       });
+      console.log("📊 Total displayByFellow:", total);
       return total;
     }
-    return schedule?.byFellow ?? {};
-  }, [activePGY, schedule]);
+    const result = schedule?.byFellow ?? {};
+    console.log("📊 Current displayByFellow:", result);
+    return result;
+  }, [activePGY, schedule, schedule?.byFellow]);
   const counts = useMemo(() => countByBlock(displayByFellow), [displayByFellow]);
   const fellowValidations = useMemo(() => {
     return fellows.map((f) => {

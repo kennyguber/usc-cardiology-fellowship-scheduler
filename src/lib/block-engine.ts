@@ -229,50 +229,80 @@ export function applyBlockDragAndDrop(
   blocks: BlockInfo[],
   fellows: Fellow[]
 ): BlockSwapResult {
+  console.log("🔧 Block Engine - applyBlockDragAndDrop called", {
+    dragFellowId,
+    dragBlockKey,
+    dropFellowId,
+    dropBlockKey,
+    currentScheduleKeys: Object.keys(currentSchedule.byFellow || {}),
+    fellowsCount: fellows.length
+  });
+
   if (!currentSchedule.byFellow) {
+    console.log("❌ No schedule data available");
     return { success: false, error: "No schedule data available" };
   }
   
   const dragRotation = currentSchedule.byFellow[dragFellowId]?.[dragBlockKey];
   const dropRotation = currentSchedule.byFellow[dropFellowId]?.[dropBlockKey];
   
+  console.log("🎯 Rotations:", { dragRotation, dropRotation });
+  
   // If dragging to an empty cell, it's a move operation
   if (dragFellowId === dropFellowId && !dropRotation) {
+    console.log("📱 Same fellow move operation (to empty cell)");
     const changes: BlockChange[] = [
       { fellowId: dragFellowId, blockKey: dragBlockKey, rotation: undefined },
       { fellowId: dropFellowId, blockKey: dropBlockKey, rotation: dragRotation as Rotation }
     ];
     
+    console.log("📝 Move changes:", changes);
+    
     const validation = validateBlockScheduleChange(currentSchedule, changes, blocks, fellows);
+    console.log("✅ Move validation result:", validation);
+    
     if (!validation.success) {
+      console.log("❌ Move validation failed:", validation.error);
       return { success: false, error: validation.error };
     }
     
     const newByFellow = previewBlockScheduleChange(currentSchedule, changes);
+    console.log("🔄 New byFellow after move:", newByFellow);
+    
     const newSchedule: StoredSchedule = {
       ...currentSchedule,
       byFellow: newByFellow
     };
     
+    console.log("✅ Move operation successful");
     return { success: true, schedule: newSchedule };
   }
   
   // Otherwise, it's a swap operation
+  console.log("🔄 Swap operation");
   const changes: BlockChange[] = [
     { fellowId: dragFellowId, blockKey: dragBlockKey, rotation: dropRotation as Rotation },
     { fellowId: dropFellowId, blockKey: dropBlockKey, rotation: dragRotation as Rotation }
   ];
   
+  console.log("📝 Swap changes:", changes);
+  
   const validation = validateBlockScheduleChange(currentSchedule, changes, blocks, fellows);
+  console.log("✅ Swap validation result:", validation);
+  
   if (!validation.success) {
+    console.log("❌ Swap validation failed:", validation.error);
     return { success: false, error: validation.error };
   }
   
   const newByFellow = previewBlockScheduleChange(currentSchedule, changes);
+  console.log("🔄 New byFellow after swap:", newByFellow);
+  
   const newSchedule: StoredSchedule = {
     ...currentSchedule,
     byFellow: newByFellow
   };
   
+  console.log("✅ Swap operation successful");
   return { success: true, schedule: newSchedule };
 }
