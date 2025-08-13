@@ -450,19 +450,32 @@ const rotationOptions = useMemo<Rotation[]>(
     console.log("🔄 Recomputing displayByFellow", { activePGY, scheduleExists: !!schedule });
     if (activePGY === "TOTAL") {
       const total: Record<string, Record<string, string | undefined>> = {};
+      
+      // Get all active fellow IDs to filter by
+      const activeFellowIds = new Set(setup?.fellows.map(f => f.id) || []);
+      console.log("👥 Active fellow IDs:", Array.from(activeFellowIds));
+      
       (["PGY-4", "PGY-5", "PGY-6"] as PGY[]).forEach((p) => {
         const s = loadSchedule(p);
         if (s && s.byFellow) {
-          Object.assign(total, s.byFellow);
+          // Only include schedules for fellows that exist in current setup
+          Object.entries(s.byFellow).forEach(([fellowId, fellowSchedule]) => {
+            if (activeFellowIds.has(fellowId)) {
+              total[fellowId] = fellowSchedule;
+              console.log(`✅ Including fellow ${fellowId} from ${p}`);
+            } else {
+              console.log(`❌ Excluding orphaned fellow ${fellowId} from ${p}`);
+            }
+          });
         }
       });
-      console.log("📊 Total displayByFellow:", total);
+      console.log("📊 Total displayByFellow (filtered):", total);
       return total;
     }
     const result = schedule?.byFellow ?? {};
     console.log("📊 Current displayByFellow:", result);
     return result;
-  }, [activePGY, schedule, schedule?.byFellow]);
+  }, [activePGY, schedule, schedule?.byFellow, setup?.fellows]);
   const counts = useMemo(() => countByBlock(displayByFellow), [displayByFellow]);
   const fellowValidations = useMemo(() => {
     return fellows.map((f) => {
