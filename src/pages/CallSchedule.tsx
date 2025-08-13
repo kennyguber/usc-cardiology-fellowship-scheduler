@@ -7,12 +7,25 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useSEO } from "@/lib/seo";
-import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, type CallSchedule } from "@/lib/call-engine";
+import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, applyDragAndDrop, type CallSchedule } from "@/lib/call-engine";
 import { loadSchedule, loadSetup, type PGY, type StoredSchedule } from "@/lib/schedule-engine";
 import { computeAcademicYearHolidays } from "@/lib/holidays";
 import { monthAbbrForIndex } from "@/lib/block-utils";
 import { parseISO } from "date-fns";
 import PrimaryCallEditDialog from "@/components/PrimaryCallEditDialog";
+import { DraggableBadge } from "@/components/DraggableBadge";
+import { DroppableCell } from "@/components/DroppableCell";
+import { DroppableCalendarDay } from "@/components/DroppableCalendarDay";
+import { 
+  DndContext, 
+  DragEndEvent, 
+  DragOverlay,
+  DragStartEvent,
+  PointerSensor,
+  useSensor,
+  useSensors
+} from "@dnd-kit/core";
+import { useToast } from "@/hooks/use-toast";
 
 export default function CallSchedule() {
   useSEO({
@@ -29,6 +42,14 @@ export default function CallSchedule() {
   const [success, setSuccess] = useState<boolean | null>(null);
   const [priorSeeds, setPriorSeeds] = useState<Record<string, string>>({});
   const [editISO, setEditISO] = useState<string | null>(null);
+  const [draggedItem, setDraggedItem] = useState<{iso: string; fellowId: string; fellowName: string} | null>(null);
+  
+  const { toast } = useToast();
+  const sensors = useSensors(useSensor(PointerSensor, {
+    activationConstraint: {
+      distance: 8,
+    },
+  }));
 
   const toISO = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
@@ -201,9 +222,50 @@ export default function CallSchedule() {
     } catch {}
   };
 
+  const handleDragStart = (event: DragStartEvent) => {
+    const { active } = event;
+    const [iso, fellowId] = (active.id as string).split('|');
+    const fellowName = fellowById[fellowId]?.name ?? fellowId;
+    setDraggedItem({ iso, fellowId, fellowName });
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    setDraggedItem(null);
+    
+    if (!over || !schedule) return;
+
+    const [sourceISO] = (active.id as string).split('|');
+    const targetISO = over.id as string;
+    
+    if (sourceISO === targetISO) return;
+
+    const result = applyDragAndDrop(schedule, sourceISO, targetISO);
+    
+    if (result.success && result.schedule) {
+      setSchedule(result.schedule);
+      saveCallSchedule(result.schedule);
+      toast({
+        title: "Assignment updated",
+        description: "Primary call assignment moved successfully.",
+      });
+    } else {
+      toast({
+        title: "Cannot move assignment",
+        description: result.error || "The assignment violates scheduling rules.",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
-    <main className="min-h-screen bg-background">
-      <section className="container mx-auto px-4 py-8">
+    <DndContext 
+      sensors={sensors}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+    >
+      <main className="min-h-screen bg-background">
+        <section className="container mx-auto px-4 py-8">
         <header className="flex items-center justify-between gap-4">
           <h1 className="text-2xl font-semibold font-display flex items-center gap-2">
             <HeartPulse className="h-6 w-6 text-primary" /> Primary Call Schedule
@@ -365,19 +427,23 @@ export default function CallSchedule() {
           <TableCell>{iso}</TableCell>
           <TableCell>{dow}</TableCell>
           <TableCell>{hol}</TableCell>
-          <TableCell>
+          <DroppableCell id={iso}>
             {schedule ? (
               fid ? (
-                <button onClick={() => setEditISO(iso)} aria-label={`Edit primary for ${iso}`} className="inline-flex">
-                  <Badge variant={fellowColorById[fid]}>{primaryName}</Badge>
-                </button>
+                <DraggableBadge
+                  id={`${iso}|${fid}`}
+                  variant={fellowColorById[fid]}
+                  onClick={() => setEditISO(iso)}
+                >
+                  {primaryName}
+                </DraggableBadge>
               ) : (
                 <Button variant="link" size="sm" onClick={() => setEditISO(iso)}>Assign</Button>
               )
             ) : (
               fid ? <Badge variant={fellowColorById[fid]}>{primaryName}</Badge> : "—"
             )}
-          </TableCell>
+          </DroppableCell>
           <TableCell>—</TableCell>
           <TableCell>—</TableCell>
           <TableCell>
@@ -433,29 +499,33 @@ export default function CallSchedule() {
   const cellBg = hol ? "bg-[hsl(var(--holiday))]" : weekend ? "bg-muted/70" : "bg-card";
   const rot = rotationOnDate(fid, new Date(m.year, m.month, day));
   return (
-    <div key={iso} className={`h-20 rounded-md border ${cellBg} p-2 text-xs`}>
-      <div className="flex items-center justify-between">
-        <span className="font-medium">{day}</span>
-        {hol ? <span className="px-1 py-0.5 rounded bg-muted text-muted-foreground">{hol}</span> : null}
-      </div>
-      <div className="mt-2 text-sm">
-        {fid ? (
-          schedule ? (
-            <button onClick={() => setEditISO(iso)} aria-label={`Edit primary for ${iso}`} className="inline-flex">
-              <Badge variant={fellowColorById[fid]}>
-                {`${last}${rot ? ` (${rot})` : ""}`}
-              </Badge>
-            </button>
-          ) : (
-            <Badge variant={fellowColorById[fid]}>
+    <DroppableCalendarDay key={iso} id={iso} className={`h-20 rounded-md border ${cellBg} p-2 text-xs`}>
+      <div className="font-medium">{day}</div>
+      {hol && <div className="text-[0.65rem] text-red-600 truncate">{hol}</div>}
+      {schedule && fid ? (
+        <div className="mt-1">
+          <DraggableBadge
+            id={`${iso}|${fid}`}
+            variant={fellowColorById[fid]}
+            onClick={() => setEditISO(iso)}
+          >
+            <span className="text-[0.6rem] px-1 py-0">
               {`${last}${rot ? ` (${rot})` : ""}`}
-            </Badge>
-          )
-        ) : (
-          "—"
-        )}
-      </div>
-    </div>
+            </span>
+          </DraggableBadge>
+        </div>
+      ) : schedule ? (
+        <Button variant="link" size="sm" className="mt-1 h-4 text-[0.6rem] p-0" onClick={() => setEditISO(iso)}>
+          Assign
+        </Button>
+      ) : (
+        fid && (
+          <Badge variant={fellowColorById[fid]} className="text-[0.6rem] px-1 py-0 mt-1">
+            {`${last}${rot ? ` (${rot})` : ""}`}
+          </Badge>
+        )
+      )}
+    </DroppableCalendarDay>
   );
 })}
                         </div>
@@ -484,7 +554,15 @@ export default function CallSchedule() {
           </CardContent>
         </Card>
 
+        <DragOverlay>
+          {draggedItem ? (
+            <Badge variant="default" className="opacity-90">
+              {draggedItem.fellowName}
+            </Badge>
+          ) : null}
+        </DragOverlay>
       </section>
     </main>
+    </DndContext>
   );
 }

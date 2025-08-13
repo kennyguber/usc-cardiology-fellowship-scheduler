@@ -657,3 +657,37 @@ export function listPrimarySwapSuggestions(
   return res.slice(0, limit);
 }
 
+/**
+ * Handle drag-and-drop operations (move or swap) for primary call assignments
+ */
+export function applyDragAndDrop(
+  schedule: CallSchedule,
+  sourceISO: string,
+  targetISO: string
+): { success: boolean; schedule?: CallSchedule; error?: string } {
+  const sourceFellowId = schedule.days[sourceISO];
+  const targetFellowId = schedule.days[targetISO];
+
+  if (!sourceFellowId) {
+    return { success: false, error: "No assignment to move from source date" };
+  }
+
+  if (!targetFellowId) {
+    // Simple move operation
+    const result = applyManualPrimaryAssignment(schedule, targetISO, sourceFellowId);
+    if (!result.ok) {
+      return { success: false, error: result.reasons?.join(", ") || "Assignment failed" };
+    }
+    // Clear the source after successful assignment to target
+    const finalResult = applyManualPrimaryAssignment(result.schedule!, sourceISO, null);
+    return { success: true, schedule: finalResult.schedule };
+  } else {
+    // Swap operation
+    const swapResult = applyPrimarySwap(schedule, sourceISO, targetISO);
+    if (!swapResult.ok) {
+      return { success: false, error: swapResult.reasons?.join(", ") || "Swap failed" };
+    }
+    return { success: true, schedule: swapResult.schedule };
+  }
+}
+
