@@ -3,14 +3,14 @@ import { monthAbbrForIndex } from "@/lib/block-utils";
 import { computeAcademicYearHolidays } from "@/lib/holidays";
 import { loadSchedule, loadSetup, type Fellow, type PGY, type StoredSchedule, type SetupState } from "@/lib/schedule-engine";
 
-export type CallSchedule = {
+type CallSchedule = {
   version: 1;
   yearStart: string; // ISO date (YYYY-MM-DD)
   days: Record<string, string>; // date ISO -> fellowId
   countsByFellow: Record<string, number>;
 };
 
-export const CALL_SCHEDULE_STORAGE_KEY = "cfsa_calls_v1" as const;
+const CALL_SCHEDULE_STORAGE_KEY = "cfsa_calls_v1" as const;
 
 const MAX_CALLS: Record<PGY, number> = {
   "PGY-4": 47,
@@ -172,13 +172,13 @@ function pickWeighted<T>(items: T[], getWeight: (t: T) => number): T | undefined
   return items[items.length - 1];
 }
 
-export type BuildCallResult = {
+type BuildCallResult = {
   schedule: CallSchedule;
   success: boolean;
   uncovered?: string[];
 };
 
-export function buildPrimaryCallSchedule(opts?: { priorPrimarySeeds?: Record<string, string> }): BuildCallResult {
+function buildPrimaryCallSchedule(opts?: { priorPrimarySeeds?: Record<string, string> }): BuildCallResult {
   const setup = loadSetup();
   if (!setup) {
     return {
@@ -386,7 +386,7 @@ export function buildPrimaryCallSchedule(opts?: { priorPrimarySeeds?: Record<str
   return { schedule, success: uncovered.length === 0, uncovered };
 }
 
-export function loadCallSchedule(): CallSchedule | null {
+function loadCallSchedule(): CallSchedule | null {
   try {
     const raw = localStorage.getItem(CALL_SCHEDULE_STORAGE_KEY);
     if (!raw) return null;
@@ -396,7 +396,7 @@ export function loadCallSchedule(): CallSchedule | null {
   }
 }
 
-export function saveCallSchedule(schedule: CallSchedule) {
+function saveCallSchedule(schedule: CallSchedule) {
   try {
     localStorage.setItem(CALL_SCHEDULE_STORAGE_KEY, JSON.stringify(schedule));
   } catch {
@@ -424,7 +424,7 @@ function computeStateForDate(schedule: CallSchedule, dateISO: string) {
   return { counts, lastByFellow, lastSaturdayByFellow };
 }
 
-export function validatePrimaryAssignment(schedule: CallSchedule, dateISO: string, fellowId: string): { ok: boolean; reasons?: string[] } {
+function validatePrimaryAssignment(schedule: CallSchedule, dateISO: string, fellowId: string): { ok: boolean; reasons?: string[] } {
   const setup = loadSetup();
   if (!setup) return { ok: false, reasons: ["Setup not completed"] };
   const schedByPGY: Record<PGY, StoredSchedule | null> = {
@@ -493,7 +493,7 @@ export function validatePrimaryAssignment(schedule: CallSchedule, dateISO: strin
   return { ok: reasons.length === 0, reasons: reasons.length ? reasons : undefined };
 }
 
-export function listEligiblePrimaryFellows(dateISO: string, schedule: CallSchedule): { id: string; name: string; pgy: PGY }[] {
+function listEligiblePrimaryFellows(dateISO: string, schedule: CallSchedule): { id: string; name: string; pgy: PGY }[] {
   const setup = loadSetup();
   if (!setup) return [];
   const schedByPGY: Record<PGY, StoredSchedule | null> = {
@@ -510,7 +510,7 @@ export function listEligiblePrimaryFellows(dateISO: string, schedule: CallSchedu
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function listIneligiblePrimaryFellows(dateISO: string, schedule: CallSchedule): { id: string; name: string; pgy: PGY; reasons: string[] }[] {
+function listIneligiblePrimaryFellows(dateISO: string, schedule: CallSchedule): { id: string; name: string; pgy: PGY; reasons: string[] }[] {
   const setup = loadSetup();
   if (!setup) return [];
   const items = setup.fellows.map((f) => {
@@ -520,7 +520,7 @@ export function listIneligiblePrimaryFellows(dateISO: string, schedule: CallSche
   return items.filter((i) => i.reasons.length > 0).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function applyManualPrimaryAssignment(
+function applyManualPrimaryAssignment(
   schedule: CallSchedule,
   dateISO: string,
   fellowId: string | null
@@ -557,7 +557,7 @@ export function applyManualPrimaryAssignment(
   return { ok: true, schedule: next };
 }
 
-export type SwapSuggestion = {
+type SwapSuggestion = {
   date: string;
   fellowAId: string;
   fellowBId: string;
@@ -565,7 +565,7 @@ export type SwapSuggestion = {
   notes?: string[];
 };
 
-export function isValidPrimarySwap(
+function isValidPrimarySwap(
   schedule: CallSchedule,
   dateAISO: string,
   dateBISO: string
@@ -601,7 +601,7 @@ export function isValidPrimarySwap(
   return { ok: false, reasons: reasons.length ? reasons : ["Swap invalid under scheduling rules"] };
 }
 
-export function applyPrimarySwap(
+function applyPrimarySwap(
   schedule: CallSchedule,
   dateAISO: string,
   dateBISO: string
@@ -617,7 +617,7 @@ export function applyPrimarySwap(
   return step2;
 }
 
-export function listPrimarySwapSuggestions(
+function listPrimarySwapSuggestions(
   schedule: CallSchedule,
   dateISO: string,
   limit = 10
@@ -660,7 +660,7 @@ export function listPrimarySwapSuggestions(
 /**
  * Handle drag-and-drop operations (move or swap) for primary call assignments
  */
-export function applyDragAndDrop(
+function applyDragAndDrop(
   schedule: CallSchedule,
   sourceISO: string,
   targetISO: string
@@ -690,4 +690,22 @@ export function applyDragAndDrop(
     return { success: true, schedule: swapResult.schedule };
   }
 }
+
+export {
+  type CallSchedule,
+  type BuildCallResult,
+  type SwapSuggestion,
+  CALL_SCHEDULE_STORAGE_KEY,
+  buildPrimaryCallSchedule,
+  loadCallSchedule,
+  saveCallSchedule,
+  validatePrimaryAssignment,
+  listEligiblePrimaryFellows,
+  listIneligiblePrimaryFellows,
+  applyManualPrimaryAssignment,
+  isValidPrimarySwap,
+  applyPrimarySwap,
+  listPrimarySwapSuggestions,
+  applyDragAndDrop,
+};
 
