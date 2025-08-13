@@ -25,16 +25,20 @@ export function DraggableBadge({ id, variant, children, onClick, disabled }: Dra
     <div 
       ref={setNodeRef} 
       className={`inline-flex items-center gap-1 ${isDragging ? 'opacity-50' : ''}`}
-      {...attributes}
-      {...listeners}
     >
       <Badge 
         variant={variant as any} 
         className="cursor-pointer flex items-center gap-1"
         onClick={onClick}
       >
-        <GripVertical className="h-3 w-3 text-muted-foreground" />
-        {children}
+        <div 
+          className="flex items-center cursor-grab active:cursor-grabbing"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="h-3 w-3 text-muted-foreground" />
+        </div>
+        <span>{children}</span>
       </Badge>
     </div>
   );

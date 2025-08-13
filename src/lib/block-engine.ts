@@ -76,13 +76,13 @@ export function validateBlockScheduleChange(
         ([fid, frow]) => fid !== fellowId && frow?.[vacKey] === "VAC"
       );
       if (conflictInBlock) {
-        return { success: false, error: "Another fellow already has vacation in this block" };
+        return { success: false, error: `Vacation conflict: Another fellow already has vacation in block ${vacKey}` };
       }
     }
     
     // Max 2 vacations per fellow
     if (vacKeys.length > 2) {
-      return { success: false, error: "A fellow can have at most two vacations" };
+      return { success: false, error: `Vacation limit: Fellow would have ${vacKeys.length} vacations (max 2 allowed)` };
     }
     
     // Vacation spacing (≥6 blocks apart)
@@ -209,7 +209,7 @@ export function validateBlockScheduleChange(
           if (!v || !cross.has(v as Rotation)) continue;
           for (const rf of Object.values(p4.byFellow)) {
             if (rf[k] === v) {
-              return { success: false, error: `${v} overlaps with PGY-4 at ${k}` };
+              return { success: false, error: `Cross-PGY overlap: ${v} block ${k} already assigned to PGY-4` };
             }
           }
         }
