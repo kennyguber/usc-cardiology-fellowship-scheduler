@@ -628,11 +628,22 @@ export function listPrimarySwapSuggestions(
   if (!setup) return [];
   const dateA = parseISO(dateISO);
   const catA = getEquityCategory(dateA, setup);
+
+  // Restrict suggestions to PGY-4 when the current date is Friday, weekend, or holiday
+  const restrictToPGY4 = isFriday(dateA) || catA === "wkndHol";
+  const pgyById = new Map(setup.fellows.map((f) => [f.id, f.pgy] as const));
+  if (restrictToPGY4 && pgyById.get(fidA) !== "PGY-4") {
+    // If the current assignment isn't PGY-4, no valid PGY-4-to-PGY-4 swaps exist for this rule
+    return [];
+  }
+
   const res: SwapSuggestion[] = [];
   for (const [isoB, fidB] of Object.entries(schedule.days)) {
     if (!fidB) continue;
     if (isoB === dateISO) continue;
     if (fidB === fidA) continue; // exclude same-fellow swaps
+    if (restrictToPGY4 && pgyById.get(fidB) !== "PGY-4") continue; // enforce PGY-4-only swaps
+
     const catB = getEquityCategory(parseISO(isoB), setup);
     const notes: string[] = [];
     if (catA !== catB) notes.push("different equity category");
