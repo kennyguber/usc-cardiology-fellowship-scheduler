@@ -318,7 +318,8 @@ export default function CallSchedule() {
             {!setup ? (
               <div className="text-muted-foreground">Please complete Setup first.</div>
             ) : (
-              <Tabs defaultValue="table">
+              <>
+                <Tabs defaultValue="table">
                 <TabsList>
                   <TabsTrigger value="table">Table</TabsTrigger>
                   <TabsTrigger value="calendar">Calendar</TabsTrigger>
@@ -478,6 +479,7 @@ export default function CallSchedule() {
                   }}
                 />
               )}
+              </>
             )}
           </CardContent>
         </Card>
