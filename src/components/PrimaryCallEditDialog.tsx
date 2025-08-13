@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
-import { listEligiblePrimaryFellows, listIneligiblePrimaryFellows, applyManualPrimaryAssignment, type CallSchedule } from "@/lib/call-engine";
+import { listEligiblePrimaryFellows, listIneligiblePrimaryFellows, applyManualPrimaryAssignment, listPrimarySwapSuggestions, applyPrimarySwap, type CallSchedule, type SwapSuggestion } from "@/lib/call-engine";
 import { loadSetup } from "@/lib/schedule-engine";
 import { useToast } from "@/hooks/use-toast";
 
@@ -31,7 +31,12 @@ export function PrimaryCallEditDialog({
   const eligible = React.useMemo(() => listEligiblePrimaryFellows(iso, schedule), [iso, schedule]);
   const ineligible = React.useMemo(() => listIneligiblePrimaryFellows(iso, schedule), [iso, schedule]);
   const [showIneligible, setShowIneligible] = React.useState(false);
+  const [swapOpen, setSwapOpen] = React.useState(false);
+  const [swapSuggestions, setSwapSuggestions] = React.useState<SwapSuggestion[]>([]);
 
+  React.useEffect(() => {
+    setSwapSuggestions(listPrimarySwapSuggestions(schedule, iso, 10));
+  }, [iso, schedule]);
   const handleAssign = (fid: string | null) => {
     const res = applyManualPrimaryAssignment(schedule, iso, fid);
     if (!res.ok || !res.schedule) {
@@ -44,6 +49,20 @@ export function PrimaryCallEditDialog({
     }
     onApply(res.schedule);
     toast({ title: fid ? "Primary call updated" : "Assignment cleared", description: iso });
+  };
+
+  const handleSwap = (otherISO: string) => {
+    const res = applyPrimarySwap(schedule, iso, otherISO);
+    if (!res.ok || !res.schedule) {
+      toast({
+        title: "Swap failed",
+        description: (res.reasons || ["That swap violates scheduling rules."]).join("; "),
+        variant: "destructive",
+      });
+      return;
+    }
+    onApply(res.schedule);
+    toast({ title: "Swap applied", description: `${iso} ↔ ${otherISO}` });
   };
 
   return (
@@ -106,6 +125,38 @@ export function PrimaryCallEditDialog({
                 </div>
               </CollapsibleContent>
             </Collapsible>
+          ) : null}
+
+          {currentId ? (
+            <div className="pt-2 border-t">
+              <Collapsible open={swapOpen} onOpenChange={setSwapOpen}>
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium">Swap suggestions</div>
+                  <CollapsibleTrigger asChild>
+                    <Button variant="ghost" size="sm">{swapOpen ? "Hide" : "Show"}</Button>
+                  </CollapsibleTrigger>
+                </div>
+                <CollapsibleContent>
+                  <div className="mt-2 pr-2 max-h-60 overflow-y-auto">
+                    {swapSuggestions.length ? (
+                      <div className="space-y-2">
+                        {swapSuggestions.map((s) => (
+                          <div key={s.date} className="rounded-md border p-2 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Badge variant="secondary">{s.date}</Badge>
+                              <span className="text-sm">with {fellowById[s.fellowBId]?.name ?? s.fellowBId}</span>
+                            </div>
+                            <Button size="sm" onClick={() => handleSwap(s.date)}>Swap</Button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-muted-foreground">No valid swaps found under current rules.</div>
+                    )}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            </div>
           ) : null}
 
           <div className="pt-2 border-t">

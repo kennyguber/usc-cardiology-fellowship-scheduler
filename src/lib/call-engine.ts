@@ -513,3 +513,75 @@ export function applyManualPrimaryAssignment(
   return { ok: true, schedule: next };
 }
 
+export type SwapSuggestion = {
+  date: string;
+  fellowAId: string;
+  fellowBId: string;
+  score: number;
+  notes?: string[];
+};
+
+export function isValidPrimarySwap(
+  schedule: CallSchedule,
+  dateAISO: string,
+  dateBISO: string
+): { ok: boolean; reasons?: string[] } {
+  const fidA = schedule.days[dateAISO];
+  const fidB = schedule.days[dateBISO];
+  if (!fidA || !fidB) return { ok: false, reasons: ["Both dates must be assigned to swap"] };
+  // Try applying the swap sequentially
+  const first = applyManualPrimaryAssignment(schedule, dateAISO, fidB);
+  if (!first.ok || !first.schedule) {
+    return { ok: false, reasons: first.reasons || ["Swap invalid for first assignment"] };
+  }
+  const second = applyManualPrimaryAssignment(first.schedule, dateBISO, fidA);
+  if (!second.ok) {
+    return { ok: false, reasons: second.reasons || ["Swap invalid for second assignment"] };
+  }
+  return { ok: true };
+}
+
+export function applyPrimarySwap(
+  schedule: CallSchedule,
+  dateAISO: string,
+  dateBISO: string
+): { ok: boolean; schedule?: CallSchedule; reasons?: string[] } {
+  const val = isValidPrimarySwap(schedule, dateAISO, dateBISO);
+  if (!val.ok) return val;
+  const fidA = schedule.days[dateAISO]!;
+  const fidB = schedule.days[dateBISO]!;
+  const step1 = applyManualPrimaryAssignment(schedule, dateAISO, fidB);
+  if (!step1.ok || !step1.schedule) return { ok: false, reasons: step1.reasons || ["Failed to apply first step"] };
+  const step2 = applyManualPrimaryAssignment(step1.schedule, dateBISO, fidA);
+  if (!step2.ok) return { ok: false, reasons: step2.reasons || ["Failed to apply second step"] };
+  return step2;
+}
+
+export function listPrimarySwapSuggestions(
+  schedule: CallSchedule,
+  dateISO: string,
+  limit = 10
+): SwapSuggestion[] {
+  const fidA = schedule.days[dateISO];
+  if (!fidA) return [];
+  const setup = loadSetup();
+  if (!setup) return [];
+  const dateA = parseISO(dateISO);
+  const catA = getEquityCategory(dateA, setup);
+  const res: SwapSuggestion[] = [];
+  for (const [isoB, fidB] of Object.entries(schedule.days)) {
+    if (!fidB) continue;
+    if (isoB === dateISO) continue;
+    const catB = getEquityCategory(parseISO(isoB), setup);
+    const notes: string[] = [];
+    if (catA !== catB) notes.push("different equity category");
+    const check = isValidPrimarySwap(schedule, dateISO, isoB);
+    if (!check.ok) continue;
+    const diffDays = Math.abs(differenceInCalendarDays(parseISO(isoB), dateA));
+    const score = (catA === catB ? 100 : 0) + Math.max(0, 50 - Math.min(50, diffDays));
+    res.push({ date: isoB, fellowAId: fidA, fellowBId: fidB, score, notes: notes.length ? notes : undefined });
+  }
+  res.sort((a, b) => b.score - a.score);
+  return res.slice(0, limit);
+}
+
