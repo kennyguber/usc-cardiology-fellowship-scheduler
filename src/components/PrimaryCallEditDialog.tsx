@@ -48,7 +48,7 @@ export function PrimaryCallEditDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent>
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit primary call</DialogTitle>
           <DialogDescription>
