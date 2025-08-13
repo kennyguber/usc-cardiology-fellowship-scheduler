@@ -529,16 +529,32 @@ export function isValidPrimarySwap(
   const fidA = schedule.days[dateAISO];
   const fidB = schedule.days[dateBISO];
   if (!fidA || !fidB) return { ok: false, reasons: ["Both dates must be assigned to swap"] };
-  // Try applying the swap sequentially
+  if (fidA === fidB) return { ok: false, reasons: ["Same fellow on both dates — swap has no effect"] };
+
+  // Try A -> B then B -> A to avoid order sensitivity
+  const reasons: string[] = [];
+
+  // Direction 1: assign B to A, then A to B
   const first = applyManualPrimaryAssignment(schedule, dateAISO, fidB);
-  if (!first.ok || !first.schedule) {
-    return { ok: false, reasons: first.reasons || ["Swap invalid for first assignment"] };
+  if (first.ok && first.schedule) {
+    const second = applyManualPrimaryAssignment(first.schedule, dateBISO, fidA);
+    if (second.ok) return { ok: true };
+    if (second.reasons) reasons.push(...second.reasons);
+  } else {
+    if (first.reasons) reasons.push(...first.reasons);
   }
-  const second = applyManualPrimaryAssignment(first.schedule, dateBISO, fidA);
-  if (!second.ok) {
-    return { ok: false, reasons: second.reasons || ["Swap invalid for second assignment"] };
+
+  // Direction 2: assign A to B, then B to A
+  const firstRev = applyManualPrimaryAssignment(schedule, dateBISO, fidA);
+  if (firstRev.ok && firstRev.schedule) {
+    const secondRev = applyManualPrimaryAssignment(firstRev.schedule, dateAISO, fidB);
+    if (secondRev.ok) return { ok: true };
+    if (secondRev.reasons) reasons.push(...secondRev.reasons);
+  } else {
+    if (firstRev.reasons) reasons.push(...firstRev.reasons);
   }
-  return { ok: true };
+
+  return { ok: false, reasons: reasons.length ? reasons : ["Swap invalid under scheduling rules"] };
 }
 
 export function applyPrimarySwap(
@@ -572,6 +588,7 @@ export function listPrimarySwapSuggestions(
   for (const [isoB, fidB] of Object.entries(schedule.days)) {
     if (!fidB) continue;
     if (isoB === dateISO) continue;
+    if (fidB === fidA) continue; // exclude same-fellow swaps
     const catB = getEquityCategory(parseISO(isoB), setup);
     const notes: string[] = [];
     if (catA !== catB) notes.push("different equity category");
