@@ -87,7 +87,7 @@ export function PrimaryCallEditDialog({
                 </CollapsibleTrigger>
               </div>
               <CollapsibleContent>
-                <ScrollArea className="max-h-60 mt-2 pr-2">
+                <div className="mt-2 pr-2 max-h-60 overflow-y-auto">
                   <div className="space-y-2">
                     {ineligible.map((f) => (
                       <div key={f.id} className="rounded-md border p-2">
@@ -103,7 +103,7 @@ export function PrimaryCallEditDialog({
                       </div>
                     ))}
                   </div>
-                </ScrollArea>
+                </div>
               </CollapsibleContent>
             </Collapsible>
           ) : null}
