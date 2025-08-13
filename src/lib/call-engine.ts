@@ -443,8 +443,52 @@ export function validatePrimaryAssignment(schedule: CallSchedule, dateISO: strin
 
   const { counts, lastByFellow, lastSaturdayByFellow } = computeStateForDate(schedule, dateISO);
   if (!withinCallLimit(fellow, counts)) reasons.push("Exceeds annual call cap for this PGY");
-  if (!hasSpacingOK(fellow, lastByFellow, date)) reasons.push(`Must be at least ${MIN_SPACING_DAYS} days from last call`);
-  if (!okNoConsecutiveSaturday(fellow, date, lastSaturdayByFellow)) reasons.push("Cannot take consecutive Saturdays");
+
+  // Enforce bidirectional spacing (both previous and next assignments for this fellow)
+  const entries = Object.entries(schedule.days)
+    .filter(([_, fid]) => fid === fellowId)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+
+  let prevISO: string | undefined;
+  let nextISO: string | undefined;
+  for (const [iso] of entries) {
+    if (iso < dateISO) prevISO = iso;
+    if (iso > dateISO) { nextISO = iso; break; }
+  }
+
+  if (prevISO) {
+    const prevDate = parseISO(prevISO);
+    if (differenceInCalendarDays(date, prevDate) < MIN_SPACING_DAYS) {
+      reasons.push(`Must be at least ${MIN_SPACING_DAYS} days from previous call (${prevISO})`);
+    }
+  } else {
+    // Fallback to computed last state if available (covers cases where current date is being reassigned)
+    const lastISO = lastByFellow[fellow.id];
+    if (lastISO) {
+      const lastDate = parseISO(lastISO);
+      if (differenceInCalendarDays(date, lastDate) < MIN_SPACING_DAYS) {
+        reasons.push(`Must be at least ${MIN_SPACING_DAYS} days from previous call (${lastISO})`);
+      }
+    }
+  }
+
+  if (nextISO) {
+    const nextDate = parseISO(nextISO);
+    if (differenceInCalendarDays(nextDate, date) < MIN_SPACING_DAYS) {
+      reasons.push(`Must be at least ${MIN_SPACING_DAYS} days before next call (${nextISO})`);
+    }
+  }
+
+  // Consecutive Saturday rule in both directions
+  if (!okNoConsecutiveSaturday(fellow, date, lastSaturdayByFellow)) {
+    reasons.push("Cannot take consecutive Saturdays");
+  }
+  if (date.getDay() === 6) {
+    const nextSatISO = toISODate(addDays(date, 7));
+    if (schedule.days[nextSatISO] === fellowId) {
+      reasons.push("Cannot take consecutive Saturdays");
+    }
+  }
 
   return { ok: reasons.length === 0, reasons: reasons.length ? reasons : undefined };
 }
