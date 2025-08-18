@@ -7,11 +7,28 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 import { useToast } from "@/hooks/use-toast";
 import { useSEO } from "@/lib/seo";
 import { BlockInfo, generateAcademicYearBlocks } from "@/lib/block-utils";
-import { HeartPulse } from "lucide-react";
+import { HeartPulse, GripVertical } from "lucide-react";
 import { computeAcademicYearHolidays } from "@/lib/holidays";
 
 export type PGY = "PGY-4" | "PGY-5" | "PGY-6";
@@ -63,6 +80,14 @@ function FellowRow({
   onChange: (f: Fellow) => void;
   onRemove: () => void;
 }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: fellow.id });
   
   const monthsJulDec = ["JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
   const monthsJanJun = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN"];
@@ -90,7 +115,24 @@ function FellowRow({
       ? "bg-[hsl(var(--pgy5))] hover:bg-[hsl(var(--pgy5))]"
       : "bg-[hsl(var(--pgy6))] hover:bg-[hsl(var(--pgy6))]";
   return (
-    <TableRow className={`animate-fade-in ${rowTone}`}>
+    <TableRow 
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
+      className={`animate-fade-in ${rowTone} ${isDragging ? 'opacity-60' : ''}`}
+    >
+      <TableCell className="w-8">
+        <div 
+          className="cursor-grab active:cursor-grabbing inline-flex items-center justify-center p-1 rounded hover:bg-background/20"
+          {...attributes}
+          {...listeners}
+          aria-label="Drag to reorder row"
+        >
+          <GripVertical className="h-4 w-4 text-muted-foreground" />
+        </div>
+      </TableCell>
       <TableCell className="min-w-[260px]">
         <Input
           className="h-10"
@@ -160,6 +202,17 @@ export default function VacationPreferences() {
   const [setup, save] = useSetupState();
   const blocks = useMemo(() => generateAcademicYearBlocks(setup.yearStart), [setup.yearStart]);
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
   // Auto-generate the 13 holidays whenever the start date changes
   useEffect(() => {
     const defaults = computeAcademicYearHolidays(setup.yearStart);
@@ -187,6 +240,20 @@ export default function VacationPreferences() {
 
   const removeFellow = (id: string) => {
     save({ ...setup, fellows: setup.fellows.filter((f) => f.id !== id) });
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    const oldIndex = setup.fellows.findIndex((f) => f.id === active.id);
+    const newIndex = setup.fellows.findIndex((f) => f.id === over.id);
+
+    const reorderedFellows = arrayMove(setup.fellows, oldIndex, newIndex);
+    save({ ...setup, fellows: reorderedFellows });
   };
 
 
@@ -297,6 +364,7 @@ export default function VacationPreferences() {
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="w-8"></TableHead>
                         <TableHead className="w-[260px]">Name</TableHead>
                         <TableHead>PGY</TableHead>
                         <TableHead>Pref 1 (Jul–Dec)</TableHead>
@@ -309,20 +377,31 @@ export default function VacationPreferences() {
                     <TableBody>
                       {setup.fellows.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center text-muted-foreground">
+                          <TableCell colSpan={8} className="text-center text-muted-foreground">
                             No fellows yet. Click "Add Fellow" to begin.
                           </TableCell>
                         </TableRow>
                       ) : (
-                        setup.fellows.map((f) => (
-                          <FellowRow
-                            key={f.id}
-                            fellow={f}
-                            blocks={blocks}
-                            onChange={(next) => updateFellow(f.id, next)}
-                            onRemove={() => removeFellow(f.id)}
-                          />
-                        ))
+                        <DndContext
+                          sensors={sensors}
+                          collisionDetection={closestCenter}
+                          onDragEnd={handleDragEnd}
+                        >
+                          <SortableContext
+                            items={setup.fellows.map((f) => f.id)}
+                            strategy={verticalListSortingStrategy}
+                          >
+                            {setup.fellows.map((f) => (
+                              <FellowRow
+                                key={f.id}
+                                fellow={f}
+                                blocks={blocks}
+                                onChange={(next) => updateFellow(f.id, next)}
+                                onRemove={() => removeFellow(f.id)}
+                              />
+                            ))}
+                          </SortableContext>
+                        </DndContext>
                       )}
                     </TableBody>
                   </Table>
