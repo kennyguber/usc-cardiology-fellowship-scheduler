@@ -1045,52 +1045,58 @@ const handlePlaceRotations = () => {
                 <div className="space-y-2">
                   <div className="text-xs font-medium text-muted-foreground">Per-fellow status</div>
                   <div className="overflow-x-auto">
-                    <div className="min-w-max space-y-1">
+                    <div
+                      className="grid gap-y-1"
+                      style={{ gridTemplateColumns: `160px repeat(${rotationsInUseCombined.length}, minmax(88px,auto))` }}
+                    >
                       {fellows.map((f) => {
                         const counts = perFellowCounts[f.id] || {};
-                        const items = rotationsInUse.filter((rot) => (counts[rot] || 0) > 0);
                         return (
-                          <div key={f.id} className="flex items-center gap-2">
+                          <div key={f.id} className="contents">
                             <div className="w-40 truncate text-xs text-muted-foreground">
                               {f.name || "Unnamed fellow"}
                             </div>
-                            <div className="flex flex-wrap gap-1">
-                              {items.map((rot) => {
-                                const c = counts[rot] || 0;
-                                const variant =
-                                  rot === "VAC"
-                                    ? "destructive"
-                                    : rot === "LAC_CATH"
-                                    ? "rot-lac-cath"
-                                    : rot === "CCU"
-                                    ? "rot-ccu"
-                                    : rot === "LAC_CONSULT"
-                                    ? "rot-lac-consult"
-                                    : rot === "HF"
-                                    ? "rot-hf"
-                                    : rot === "KECK_CONSULT"
-                                    ? "rot-keck-consult"
-                                    : rot === "ECHO1"
-                                    ? "rot-echo1"
-                                    : rot === "ECHO2"
-                                    ? "rot-echo2"
-                                    : rot === "EP"
-                                    ? "rot-ep"
-                                    : rot === "NUCLEAR"
-                                    ? "rot-nuclear"
-                                    : rot === "NONINVASIVE"
-                                    ? "rot-noninvasive"
-                                    : "rot-elective";
-                                const baseLabel = rot === "VAC" ? "VACATION" : rot === "ELECTIVE" ? "ELECTIVE" : rot;
-                                const plural = c === 1 ? "" : baseLabel.endsWith("S") ? "" : "S";
-                                return (
-                                  <Badge key={rot} variant={variant as any} className="text-[10px] px-2 py-0.5">
-                                    {c} {baseLabel}
-                                    {plural}
-                                  </Badge>
-                                );
-                              })}
-                            </div>
+                            {rotationsInUseCombined.map((rot) => {
+                              const c = counts[rot] || 0;
+                              const variant =
+                                rot === "VAC"
+                                  ? "destructive"
+                                  : rot === "LAC_CATH"
+                                  ? "rot-lac-cath"
+                                  : rot === "CCU"
+                                  ? "rot-ccu"
+                                  : rot === "LAC_CONSULT"
+                                  ? "rot-lac-consult"
+                                  : rot === "HF"
+                                  ? "rot-hf"
+                                  : rot === "KECK_CONSULT"
+                                  ? "rot-keck-consult"
+                                  : rot === "ECHO1"
+                                  ? "rot-echo1"
+                                  : rot === "ECHO2"
+                                  ? "rot-echo2"
+                                  : rot === "EP"
+                                  ? "rot-ep"
+                                  : rot === "NUCLEAR"
+                                  ? "rot-nuclear"
+                                  : rot === "NONINVASIVE"
+                                  ? "rot-noninvasive"
+                                  : "rot-elective";
+                              const baseLabel = rot === "VAC" ? "VACATION" : rot === "ELECTIVE" ? "ELECTIVE" : rot;
+                              const plural = c === 1 ? "" : baseLabel.endsWith("S") ? "" : "S";
+                              return (
+                                <div key={rot} className="flex items-center justify-center">
+                                  {c > 0 ? (
+                                    <Badge variant={variant as any} className="text-[10px] px-2 py-0.5">
+                                      {c} {baseLabel}
+                                      {plural}
+                                    </Badge>
+                                  ) : (
+                                    <span className="invisible text-[10px] px-2 py-0.5">0</span>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         );
                       })}
