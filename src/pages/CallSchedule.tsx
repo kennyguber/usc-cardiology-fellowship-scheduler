@@ -8,6 +8,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Badge } from "@/components/ui/badge";
 import { useSEO } from "@/lib/seo";
 import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, applyDragAndDrop, type CallSchedule } from "@/lib/call-engine";
+import { buildHFSchedule, loadHFSchedule, saveHFSchedule, clearHFSchedule, type HFSchedule } from "@/lib/hf-engine";
 import { loadSchedule, loadSetup, type PGY, type StoredSchedule } from "@/lib/schedule-engine";
 import { computeAcademicYearHolidays } from "@/lib/holidays";
 import { monthAbbrForIndex } from "@/lib/block-utils";
@@ -44,6 +45,12 @@ export default function CallSchedule() {
   const [editISO, setEditISO] = useState<string | null>(null);
   const [draggedItem, setDraggedItem] = useState<{iso: string; fellowId: string; fellowName: string} | null>(null);
   
+  // HF Schedule state
+  const [hfSchedule, setHFSchedule] = useState<HFSchedule | null>(null);
+  const [hfLoading, setHFLoading] = useState(false);
+  const [hfUncovered, setHFUncovered] = useState<string[]>([]);
+  const [hfSuccess, setHFSuccess] = useState<boolean | null>(null);
+  
   const { toast } = useToast();
   const sensors = useSensors(useSensor(PointerSensor, {
     activationConstraint: {
@@ -70,6 +77,9 @@ export default function CallSchedule() {
   useEffect(() => {
     const existing = loadCallSchedule();
     if (existing) setSchedule(existing);
+    
+    const existingHF = loadHFSchedule();
+    if (existingHF) setHFSchedule(existingHF);
   }, []);
 
   useEffect(() => {
@@ -222,6 +232,37 @@ export default function CallSchedule() {
     } catch {}
   };
 
+  const handleGenerateHF = async () => {
+    setHFLoading(true);
+    try {
+      const result = buildHFSchedule();
+      setHFSchedule(result.schedule);
+      setHFUncovered(result.uncovered ?? []);
+      setHFSuccess(result.success);
+      saveHFSchedule(result.schedule);
+      toast({
+        title: result.success ? "HF schedule generated" : "HF schedule partially generated",
+        description: result.success 
+          ? "Heart failure coverage assigned for all weekends." 
+          : `${result.uncovered.length} weekends could not be covered.`,
+        variant: result.success ? "default" : "destructive",
+      });
+    } finally {
+      setHFLoading(false);
+    }
+  };
+
+  const handleClearHF = () => {
+    setHFSchedule(null);
+    setHFUncovered([]);
+    setHFSuccess(null);
+    clearHFSchedule();
+    toast({
+      title: "HF schedule cleared",
+      description: "Heart failure coverage has been reset.",
+    });
+  };
+
   const handleDragStart = (event: DragStartEvent) => {
     const { active } = event;
     const [iso, fellowId] = (active.id as string).split('|');
@@ -276,6 +317,12 @@ export default function CallSchedule() {
             </Button>
             <Button variant="outline" onClick={handleClear} disabled={loading}>
               <Trash2 className="h-4 w-4" /> Clear
+            </Button>
+            <Button onClick={handleGenerateHF} disabled={hfLoading || !setup || !schedule} variant="secondary">
+              {hfLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <HeartPulse className="h-4 w-4" />} Generate HF
+            </Button>
+            <Button variant="outline" onClick={handleClearHF} disabled={hfLoading} size="sm">
+              Clear HF
             </Button>
           </div>
         </header>
@@ -416,6 +463,17 @@ export default function CallSchedule() {
         : "";
       const primaryName = fid ? `${fellowById[fid]?.name ?? fid}${rot ? ` (${rot})` : ""}` : "—";
       const blockKey = blockKeyForDate(d);
+      // Get HF assignment for this weekend (if it's a weekend)
+      const getWeekendStart = (date: Date): string => {
+        const day = date.getDay();
+        if (day === 6) return toISO(date); // Saturday
+        if (day === 0) return toISO(new Date(date.getTime() - 24 * 60 * 60 * 1000)); // Sunday -> previous Saturday
+        return ""; // Not a weekend
+      };
+      
+      const weekendStartISO = getWeekendStart(d);
+      const hfAssignedId = weekendStartISO && hfSchedule?.weekends?.[weekendStartISO];
+      
       const hfIds = fellows
         .filter((f) => schedByPGY[f.pgy]?.byFellow?.[f.id]?.[blockKey] === "HF")
         .map((f) => f.id);
@@ -445,7 +503,13 @@ export default function CallSchedule() {
             )}
           </DroppableCell>
           <TableCell>—</TableCell>
-          <TableCell>—</TableCell>
+          <TableCell>
+            {hfAssignedId ? (
+              <Badge variant={fellowColorById[hfAssignedId]} className="bg-orange-100 text-orange-800 border-orange-300">
+                {fellowById[hfAssignedId]?.name ?? hfAssignedId}
+              </Badge>
+            ) : (weekend ? "—" : "")}
+          </TableCell>
           <TableCell>
             {hfIds.length ? (
               <div className="flex flex-wrap gap-1">
