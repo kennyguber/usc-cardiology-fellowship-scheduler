@@ -48,7 +48,7 @@ export default function CallSchedule() {
   // HF Schedule state
   const [hfSchedule, setHFSchedule] = useState<HFSchedule | null>(null);
   const [hfLoading, setHFLoading] = useState(false);
-  const [hfUncovered, setHFUncovered] = useState<string[]>([]);
+  const [uncoveredHF, setUncoveredHF] = useState<string[]>([]);
   const [hfSuccess, setHFSuccess] = useState<boolean | null>(null);
   
   const { toast } = useToast();
@@ -237,16 +237,31 @@ export default function CallSchedule() {
     try {
       const result = buildHFSchedule();
       setHFSchedule(result.schedule);
-      setHFUncovered(result.uncovered ?? []);
+      setUncoveredHF(result.uncovered ?? []);
       setHFSuccess(result.success);
       saveHFSchedule(result.schedule);
+      
+      let errorMessage = "";
+      if (result.uncovered.length > 0) {
+        errorMessage += `${result.uncovered.length} uncovered weekends`;
+      }
+      if (result.mandatoryMissed?.length > 0) {
+        if (errorMessage) errorMessage += ", ";
+        errorMessage += `${result.mandatoryMissed.length} mandatory assignments missed`;
+      }
+      
       toast({
         title: result.success ? "HF schedule generated" : "HF schedule partially generated",
         description: result.success 
           ? "Heart failure coverage assigned for all weekends." 
-          : `${result.uncovered.length} weekends could not be covered.`,
+          : `Issues: ${errorMessage}`,
         variant: result.success ? "default" : "destructive",
       });
+      
+      // Log mandatory misses for debugging
+      if (result.mandatoryMissed?.length > 0) {
+        console.warn("Mandatory HF assignments missed:", result.mandatoryMissed);
+      }
     } finally {
       setHFLoading(false);
     }
@@ -254,7 +269,7 @@ export default function CallSchedule() {
 
   const handleClearHF = () => {
     setHFSchedule(null);
-    setHFUncovered([]);
+    setUncoveredHF([]);
     setHFSuccess(null);
     clearHFSchedule();
     toast({

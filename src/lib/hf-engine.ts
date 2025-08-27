@@ -38,10 +38,82 @@ function getWeekendStart(d: Date): Date {
 }
 
 function dateToBlockKey(d: Date): string {
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
   const abbr = months[d.getMonth()];
   const half = d.getDate() <= 15 ? 1 : 2;
   return `${abbr}${half}`;
+}
+
+function getHFRotationWeekends(fellow: Fellow, schedByPGY: Record<PGY, StoredSchedule | null>, yearStartISO: string): Date[] {
+  const sched = schedByPGY[fellow.pgy];
+  if (!sched?.byFellow?.[fellow.id]) return [];
+  
+  const fellowBlocks = sched.byFellow[fellow.id];
+  const hfBlocks = Object.entries(fellowBlocks).filter(([_, rotation]) => rotation === "HF");
+  
+  if (hfBlocks.length === 0) return [];
+  
+  // Parse academic year start to get proper year calculation
+  const academicYearStart = parseISO(yearStartISO);
+  const rotationWeekends: Date[] = [];
+  
+  for (const [blockKey, _] of hfBlocks) {
+    // Parse block key like "JUL1" or "JUL2"
+    const monthName = blockKey.slice(0, 3);
+    const half = parseInt(blockKey.slice(3));
+    const monthIndex = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"].indexOf(monthName);
+    
+    if (monthIndex === -1) continue;
+    
+    // Calculate proper year for this block based on academic year start
+    const academicYearStartMonth = academicYearStart.getMonth();
+    const academicYearStartYear = academicYearStart.getFullYear();
+    
+    let blockYear: number;
+    if (monthIndex >= academicYearStartMonth) {
+      // Same academic year
+      blockYear = academicYearStartYear;
+    } else {
+      // Next calendar year
+      blockYear = academicYearStartYear + 1;
+    }
+    
+    if (half === 1) {
+      // First half: 1st to 15th
+      const start = new Date(blockYear, monthIndex, 1);
+      const end = new Date(blockYear, monthIndex, 15);
+      
+      // Find weekends in this range
+      let current = start;
+      while (current <= end) {
+        if (isWeekendDate(current)) {
+          const weekendStart = getWeekendStart(current);
+          if (weekendStart >= start && weekendStart <= end) {
+            rotationWeekends.push(new Date(weekendStart));
+          }
+        }
+        current = addDays(current, 1);
+      }
+    } else {
+      // Second half: 16th to end of month
+      const start = new Date(blockYear, monthIndex, 16);
+      const end = new Date(blockYear, monthIndex + 1, 0); // Last day of month
+      
+      // Find weekends in this range
+      let current = start;
+      while (current <= end) {
+        if (isWeekendDate(current)) {
+          const weekendStart = getWeekendStart(current);
+          if (weekendStart >= start && weekendStart <= end) {
+            rotationWeekends.push(new Date(weekendStart));
+          }
+        }
+        current = addDays(current, 1);
+      }
+    }
+  }
+  
+  return rotationWeekends.sort((a, b) => a.getTime() - b.getTime());
 }
 
 function getRotationOnDate(fellow: Fellow, date: Date, schedByPGY: Record<PGY, StoredSchedule | null>): string | undefined {
@@ -207,14 +279,16 @@ function getHolidayWeekends(setup: SetupState): Date[] {
 export function buildHFSchedule(): { 
   schedule: HFSchedule; 
   uncovered: string[]; 
-  success: boolean 
+  success: boolean;
+  mandatoryMissed: string[];
 } {
   const setup = loadSetup();
   if (!setup) {
     return { 
       schedule: { version: 1, yearStart: "", weekends: {}, countsByFellow: {} }, 
       uncovered: [], 
-      success: false 
+      success: false,
+      mandatoryMissed: []
     };
   }
 
@@ -241,39 +315,105 @@ export function buildHFSchedule(): {
   }
 
   const allWeekends = getAllWeekends(setup.yearStart);
-  const holidayWeekends = getHolidayWeekends(setup);
   const uncovered: string[] = [];
+  const mandatoryMissed: string[] = [];
   const lastHFAssignment: Record<string, string | undefined> = {};
 
-  // Phase 1: Assign HF rotation weekends (first weekend of each fellow's HF rotation)
+  // Phase 1: Mandatory HF rotation assignments
   for (const fellow of fellows) {
-    const sched = schedByPGY[fellow.pgy];
-    if (!sched?.byFellow?.[fellow.id]) continue;
+    const rotationWeekends = getHFRotationWeekends(fellow, schedByPGY, setup.yearStart);
     
-    const fellowBlocks = sched.byFellow[fellow.id];
-    const hfBlocks = Object.entries(fellowBlocks).filter(([_, rotation]) => rotation === "HF");
+    if (rotationWeekends.length === 0) continue;
     
-    if (hfBlocks.length > 0) {
-      // Find first weekend during HF rotation
-      for (const weekend of allWeekends) {
-        const rotation = getRotationOnDate(fellow, weekend, schedByPGY);
-        if (rotation === "HF") {
+    if (fellow.pgy === "PGY-4") {
+      // PGY-4: Must cover 1st and 3rd weekends (or fallback options)
+      const targetWeekends = [0, 2]; // 1st and 3rd
+      const fallbackWeekends = [1, 3]; // 2nd and 4th
+      
+      let assigned = 0;
+      
+      // Try target weekends first
+      for (const weekendIndex of targetWeekends) {
+        if (weekendIndex < rotationWeekends.length && assigned < 2) {
+          const weekend = rotationWeekends[weekendIndex];
           const weekendISO = toISODate(weekend);
-          const isHolidayWeekend = holidayWeekends.some(hw => toISODate(hw) === weekendISO);
           
-          // Prefer non-holiday weekends for rotation assignments
-          if (!isHolidayWeekend && !schedule.weekends[weekendISO]) {
+          // Check if eligible (no primary call conflicts)
+          const eligibilityCheck = isEligibleForHF(
+            fellow, weekend, setup, schedByPGY, primarySchedule, schedule.countsByFellow, lastHFAssignment
+          );
+          
+          if (eligibilityCheck.eligible && !schedule.weekends[weekendISO]) {
             schedule.weekends[weekendISO] = fellow.id;
             schedule.countsByFellow[fellow.id]++;
             lastHFAssignment[fellow.id] = weekendISO;
-            break;
+            assigned++;
+          }
+        }
+      }
+      
+      // Try fallback weekends if needed
+      for (const weekendIndex of fallbackWeekends) {
+        if (weekendIndex < rotationWeekends.length && assigned < 2) {
+          const weekend = rotationWeekends[weekendIndex];
+          const weekendISO = toISODate(weekend);
+          
+          const eligibilityCheck = isEligibleForHF(
+            fellow, weekend, setup, schedByPGY, primarySchedule, schedule.countsByFellow, lastHFAssignment
+          );
+          
+          if (eligibilityCheck.eligible && !schedule.weekends[weekendISO]) {
+            schedule.weekends[weekendISO] = fellow.id;
+            schedule.countsByFellow[fellow.id]++;
+            lastHFAssignment[fellow.id] = weekendISO;
+            assigned++;
+          }
+        }
+      }
+      
+      if (assigned < 2) {
+        mandatoryMissed.push(`${fellow.name} (PGY-4): Only assigned ${assigned}/2 mandatory HF weekends`);
+      }
+      
+    } else if (fellow.pgy === "PGY-5" || fellow.pgy === "PGY-6") {
+      // PGY-5/6: Must cover first weekend in their 2-week block
+      const firstWeekend = rotationWeekends[0];
+      if (firstWeekend) {
+        const weekendISO = toISODate(firstWeekend);
+        
+        const eligibilityCheck = isEligibleForHF(
+          fellow, firstWeekend, setup, schedByPGY, primarySchedule, schedule.countsByFellow, lastHFAssignment
+        );
+        
+        if (eligibilityCheck.eligible && !schedule.weekends[weekendISO]) {
+          schedule.weekends[weekendISO] = fellow.id;
+          schedule.countsByFellow[fellow.id]++;
+          lastHFAssignment[fellow.id] = weekendISO;
+        } else {
+          // Try second weekend as fallback
+          const secondWeekend = rotationWeekends[1];
+          if (secondWeekend) {
+            const secondWeekendISO = toISODate(secondWeekend);
+            const secondEligibilityCheck = isEligibleForHF(
+              fellow, secondWeekend, setup, schedByPGY, primarySchedule, schedule.countsByFellow, lastHFAssignment
+            );
+            
+            if (secondEligibilityCheck.eligible && !schedule.weekends[secondWeekendISO]) {
+              schedule.weekends[secondWeekendISO] = fellow.id;
+              schedule.countsByFellow[fellow.id]++;
+              lastHFAssignment[fellow.id] = secondWeekendISO;
+            } else {
+              mandatoryMissed.push(`${fellow.name} (${fellow.pgy}): Could not assign mandatory HF weekend`);
+            }
+          } else {
+            mandatoryMissed.push(`${fellow.name} (${fellow.pgy}): Could not assign mandatory HF weekend`);
           }
         }
       }
     }
   }
 
-  // Phase 2: Assign remaining weekends
+  // Phase 2: Distribute remaining weekends based on quota
   for (const weekend of allWeekends) {
     const weekendISO = toISODate(weekend);
     
@@ -317,7 +457,8 @@ export function buildHFSchedule(): {
   return {
     schedule,
     uncovered,
-    success: uncovered.length === 0,
+    success: uncovered.length === 0 && mandatoryMissed.length === 0,
+    mandatoryMissed,
   };
 }
 
