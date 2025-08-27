@@ -86,10 +86,14 @@ function isFriday(d: Date): boolean {
 
 function getEquityCategory(date: Date, setup: SetupState): "weekday" | "wkndHol" {
   const dow = date.getDay();
-  if (dow === 5) return "weekday"; // Fridays count as weekdays for equity
   const iso = toISODate(date);
   const holiday = isHoliday(iso, setup);
   const weekend = isWeekendDate(date);
+  
+  // Friday holidays count as wkndHol for equity (bug fix)
+  if (dow === 5 && holiday) return "wkndHol";
+  if (dow === 5) return "weekday"; // Regular Fridays count as weekdays
+  
   return weekend || holiday ? "wkndHol" : "weekday";
 }
 
@@ -226,6 +230,13 @@ function buildPrimaryCallSchedule(opts?: { priorPrimarySeeds?: Record<string, st
       if (candidates.length === 0) continue;
 
       const picked = pickWeighted(candidates, (f) => {
+        // Special PGY-4 weekend/holiday equity optimization after Aug 15
+        if (pgy === "PGY-4" && cat === "wkndHol" && afterAug15(date, setup.yearStart)) {
+          const wkndHolCount = wkndHolCatCounts[f.id] ?? 0;
+          // Strongly prefer fellows with lowest weekend/holiday count
+          return 1 / (wkndHolCount * 10 + 1);
+        }
+        
         const catCounts = cat === "wkndHol" ? wkndHolCatCounts : weekdayCatCounts;
         return 1 / ((catCounts[f.id] ?? 0) + 1);
       });
@@ -251,6 +262,12 @@ function buildPrimaryCallSchedule(opts?: { priorPrimarySeeds?: Record<string, st
 
     if (allCandidates.length) {
       const picked = pickWeighted(allCandidates, (f) => {
+        // Apply PGY-4 weekend/holiday equity optimization in fallback too
+        if (f.pgy === "PGY-4" && cat === "wkndHol" && afterAug15(date, setup.yearStart)) {
+          const wkndHolCount = wkndHolCatCounts[f.id] ?? 0;
+          return 1 / (wkndHolCount * 10 + 1);
+        }
+        
         const catCounts = cat === "wkndHol" ? wkndHolCatCounts : weekdayCatCounts;
         return 1 / ((catCounts[f.id] ?? 0) + 1);
       });
@@ -384,6 +401,108 @@ function buildPrimaryCallSchedule(opts?: { priorPrimarySeeds?: Record<string, st
   };
 
   return { schedule, success: uncovered.length === 0, uncovered };
+}
+
+/**
+ * Optimize PGY-4 weekend/holiday equity by performing rule-compliant swaps
+ */
+function optimizePGY4WkndHolEquity(schedule: CallSchedule): { 
+  schedule: CallSchedule; 
+  swapsApplied: number; 
+  pgy4Stats: Array<{ id: string; name: string; wkndHolCount: number }> 
+} {
+  const setup = loadSetup();
+  if (!setup) return { schedule, swapsApplied: 0, pgy4Stats: [] };
+
+  const pgy4Fellows = setup.fellows.filter(f => f.pgy === "PGY-4");
+  let workingSchedule = { ...schedule, days: { ...schedule.days }, countsByFellow: { ...schedule.countsByFellow } };
+  let swapsApplied = 0;
+
+  // Calculate current PGY-4 weekend/holiday counts
+  function calculatePGY4WkndHolCounts(sched: CallSchedule) {
+    const counts: Record<string, number> = {};
+    pgy4Fellows.forEach(f => counts[f.id] = 0);
+
+    for (const [dateISO, fellowId] of Object.entries(sched.days)) {
+      if (!fellowId || !pgy4Fellows.find(f => f.id === fellowId)) continue;
+      const date = parseISO(dateISO);
+      const cat = getEquityCategory(date, setup);
+      if (cat === "wkndHol") {
+        counts[fellowId] = (counts[fellowId] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }
+
+  // Perform optimization rounds
+  for (let round = 0; round < 5; round++) {
+    const wkndHolCounts = calculatePGY4WkndHolCounts(workingSchedule);
+    const minCount = Math.min(...Object.values(wkndHolCounts));
+    const maxCount = Math.max(...Object.values(wkndHolCounts));
+    
+    if (maxCount - minCount <= 1) break; // Good enough equity
+
+    // Find beneficial swaps
+    const overloadedFellows = pgy4Fellows.filter(f => wkndHolCounts[f.id] > minCount + 1);
+    const underloadedFellows = pgy4Fellows.filter(f => wkndHolCounts[f.id] === minCount);
+
+    let swapFound = false;
+    
+    for (const overloaded of overloadedFellows) {
+      if (swapFound) break;
+      
+      // Find their weekend/holiday assignments
+      const overloadedWkndHolDates = Object.entries(workingSchedule.days)
+        .filter(([dateISO, fellowId]) => {
+          if (fellowId !== overloaded.id) return false;
+          const date = parseISO(dateISO);
+          return getEquityCategory(date, setup) === "wkndHol";
+        })
+        .map(([dateISO]) => dateISO);
+
+      for (const underloaded of underloadedFellows) {
+        if (swapFound) break;
+        
+        // Find their weekday assignments
+        const underloadedWeekdayDates = Object.entries(workingSchedule.days)
+          .filter(([dateISO, fellowId]) => {
+            if (fellowId !== underloaded.id) return false;
+            const date = parseISO(dateISO);
+            return getEquityCategory(date, setup) === "weekday";
+          })
+          .map(([dateISO]) => dateISO);
+
+        // Try swapping weekend/holiday from overloaded with weekday from underloaded
+        for (const wkndHolDate of overloadedWkndHolDates) {
+          if (swapFound) break;
+          for (const weekdayDate of underloadedWeekdayDates) {
+            const swapResult = isValidPrimarySwap(workingSchedule, wkndHolDate, weekdayDate);
+            if (swapResult.ok) {
+              const appliedSwap = applyPrimarySwap(workingSchedule, wkndHolDate, weekdayDate);
+              if (appliedSwap.ok && appliedSwap.schedule) {
+                workingSchedule = appliedSwap.schedule;
+                swapsApplied++;
+                swapFound = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (!swapFound) break; // No more beneficial swaps possible
+  }
+
+  // Calculate final stats
+  const finalCounts = calculatePGY4WkndHolCounts(workingSchedule);
+  const pgy4Stats = pgy4Fellows.map(f => ({
+    id: f.id,
+    name: f.name,
+    wkndHolCount: finalCounts[f.id] ?? 0
+  })).sort((a, b) => a.name.localeCompare(b.name));
+
+  return { schedule: workingSchedule, swapsApplied, pgy4Stats };
 }
 
 function loadCallSchedule(): CallSchedule | null {
@@ -773,5 +892,6 @@ export {
   applyPrimarySwap,
   listPrimarySwapSuggestions,
   applyDragAndDrop,
+  optimizePGY4WkndHolEquity,
 };
 
