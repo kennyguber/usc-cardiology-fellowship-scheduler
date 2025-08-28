@@ -49,6 +49,7 @@ export default function CallSchedule() {
   const [hfSchedule, setHFSchedule] = useState<HFSchedule | null>(null);
   const [hfLoading, setHFLoading] = useState(false);
   const [uncoveredHF, setUncoveredHF] = useState<string[]>([]);
+  const [uncoveredHolidays, setUncoveredHolidays] = useState<string[]>([]);
   const [hfSuccess, setHFSuccess] = useState<boolean | null>(null);
   
   const { toast } = useToast();
@@ -238,12 +239,17 @@ export default function CallSchedule() {
       const result = buildHFSchedule();
       setHFSchedule(result.schedule);
       setUncoveredHF(result.uncovered ?? []);
+      setUncoveredHolidays(result.uncoveredHolidays ?? []);
       setHFSuccess(result.success);
       saveHFSchedule(result.schedule);
       
       let errorMessage = "";
       if (result.uncovered.length > 0) {
         errorMessage += `${result.uncovered.length} uncovered weekends`;
+      }
+      if (result.uncoveredHolidays?.length > 0) {
+        if (errorMessage) errorMessage += ", ";
+        errorMessage += `${result.uncoveredHolidays.length} uncovered holidays`;
       }
       if (result.mandatoryMissed?.length > 0) {
         if (errorMessage) errorMessage += ", ";
@@ -270,6 +276,7 @@ export default function CallSchedule() {
   const handleClearHF = () => {
     setHFSchedule(null);
     setUncoveredHF([]);
+    setUncoveredHolidays([]);
     setHFSuccess(null);
     clearHFSchedule();
     toast({
@@ -372,6 +379,32 @@ export default function CallSchedule() {
                     </div>
                   </div>
                 </div>
+                
+                {/* HF Schedule Summary */}
+                {hfSchedule && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4 border-t">
+                    <div>
+                      <div className="text-xs text-muted-foreground">HF weekends</div>
+                      <div className="font-medium">{Object.keys(hfSchedule.weekends).length}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">HF holidays</div>
+                      <div className="font-medium">{Object.keys(hfSchedule.holidays || {}).length}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Uncovered weekends</div>
+                      <div className={`font-medium ${uncoveredHF.length ? "text-destructive" : "text-primary"}`}>
+                        {uncoveredHF.length}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Uncovered holidays</div>
+                      <div className={`font-medium ${uncoveredHolidays.length ? "text-destructive" : "text-primary"}`}>
+                        {uncoveredHolidays.length}
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {typeof success === "boolean" && (
                   <div className={`text-sm ${success ? "text-primary" : "text-destructive"}`}>
                     {success ? "Complete coverage achieved." : "Some days could not be assigned under strict rules."}
@@ -519,11 +552,32 @@ export default function CallSchedule() {
           </DroppableCell>
           <TableCell>—</TableCell>
           <TableCell>
-            {hfAssignedId ? (
-              <Badge variant={fellowColorById[hfAssignedId]} className="bg-orange-100 text-orange-800 border-orange-300">
-                {fellowById[hfAssignedId]?.name ?? hfAssignedId}
-              </Badge>
-            ) : (weekend ? "—" : "")}
+            {(() => {
+              // Check for holiday HF assignment
+              if (hfSchedule?.holidays) {
+                for (const [blockStart, blockData] of Object.entries(hfSchedule.holidays)) {
+                  const [fellowId, ...dates] = blockData;
+                  if (dates.includes(iso)) {
+                    return (
+                      <Badge variant={fellowColorById[fellowId]} className="bg-red-100 text-red-800 border-red-300">
+                        {fellowById[fellowId]?.name ?? fellowId} (Holiday)
+                      </Badge>
+                    );
+                  }
+                }
+              }
+              
+              // Check for weekend HF assignment
+              if (hfAssignedId) {
+                return (
+                  <Badge variant={fellowColorById[hfAssignedId]} className="bg-orange-100 text-orange-800 border-orange-300">
+                    {fellowById[hfAssignedId]?.name ?? hfAssignedId}
+                  </Badge>
+                );
+              }
+              
+              return weekend ? "—" : "";
+            })()}
           </TableCell>
           <TableCell>
             {hfIds.length ? (
