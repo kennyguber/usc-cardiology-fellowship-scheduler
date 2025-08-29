@@ -174,6 +174,22 @@ function isHolidayWeekend(weekend: Date, allHolidayBlocks: { startDate: Date; da
   );
 }
 
+// Helper function to check if a weekend is consecutive with the previous assignment
+function isConsecutiveWithPreviousWeekend(
+  weekendStart: Date,
+  lastWeekendAssignment: Record<string, string | undefined>,
+  fellowId: string
+): boolean {
+  const lastAssignmentISO = lastWeekendAssignment[fellowId];
+  if (!lastAssignmentISO) return false;
+  
+  const lastAssignmentDate = parseISO(lastAssignmentISO);
+  const daysBetween = differenceInCalendarDays(weekendStart, lastAssignmentDate);
+  
+  // Consecutive weekends are exactly 7 days apart
+  return daysBetween === 7;
+}
+
 function isEligibleForHF(
   fellow: Fellow,
   weekendStart: Date,
@@ -190,6 +206,7 @@ function isEligibleForHF(
     allowPGY6HolidayForThisBlock?: boolean;
     ignoreSpacingAgainstHoliday?: boolean;
     relaxQuota?: boolean;
+    relaxSpacing?: boolean;
   } = {}
 ): { eligible: boolean; reason?: string } {
   
@@ -198,7 +215,8 @@ function isEligibleForHF(
     isHolidayWeekendOption = false, 
     allowPGY6HolidayForThisBlock = false,
     ignoreSpacingAgainstHoliday = false,
-    relaxQuota = false 
+    relaxQuota = false,
+    relaxSpacing = false
   } = options;
 
   // Determine if this weekend is actually a holiday weekend
@@ -267,17 +285,24 @@ function isEligibleForHF(
     }
   }
   
-  // Check 14-day spacing between HF assignments
-  // For mandatory assignments, only check spacing against weekend assignments, not holiday assignments
-  const relevantLastISO = isMandatory && ignoreSpacingAgainstHoliday 
-    ? lastWeekendAssignment[fellow.id] 
-    : lastWeekendAssignment[fellow.id];
-    
-  if (relevantLastISO) {
-    const lastDate = parseISO(relevantLastISO);
-    const daysBetween = differenceInCalendarDays(weekendStart, lastDate);
-    if (daysBetween < 14) {
-      return { eligible: false, reason: `Too soon after last HF assignment (${daysBetween} days, need 14)` };
+  // Check for consecutive weekends (hard rule - never allow)
+  if (isConsecutiveWithPreviousWeekend(weekendStart, lastWeekendAssignment, fellow.id)) {
+    return { eligible: false, reason: "Cannot assign consecutive weekends" };
+  }
+  
+  // Check 14-day spacing between HF assignments (can be relaxed in emergency pass)
+  if (!relaxSpacing) {
+    // For mandatory assignments, only check spacing against weekend assignments, not holiday assignments
+    const relevantLastISO = isMandatory && ignoreSpacingAgainstHoliday 
+      ? lastWeekendAssignment[fellow.id] 
+      : lastWeekendAssignment[fellow.id];
+      
+    if (relevantLastISO) {
+      const lastDate = parseISO(relevantLastISO);
+      const daysBetween = differenceInCalendarDays(weekendStart, lastDate);
+      if (daysBetween < 14) {
+        return { eligible: false, reason: `Too soon after last HF assignment (${daysBetween} days, need 14)` };
+      }
     }
   }
   
@@ -705,13 +730,14 @@ export function buildHFSchedule(): {
           schedByPGY, 
           primarySchedule, 
           schedule.countsByFellow, 
-          relaxSpacing ? {} : lastWeekendAssignment, // Relax spacing in emergency pass
+          lastWeekendAssignment, // Always use actual assignments for consecutive check
           lastHolidayAssignment,
           allHolidayBlocks,
           {
             isMandatory: false,
             isHolidayWeekendOption: false,
-            relaxQuota: relaxQuota
+            relaxQuota: relaxQuota,
+            relaxSpacing: relaxSpacing
           }
         );
         if (check.eligible) {
