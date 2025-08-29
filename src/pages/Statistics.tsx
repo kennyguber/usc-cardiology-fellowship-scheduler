@@ -7,6 +7,7 @@ import { loadSetup } from "@/lib/schedule-engine";
 import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, optimizePGY4WkndHolEquity, type CallSchedule } from "@/lib/call-engine";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import PrimaryCallStatsTable from "@/components/PrimaryCallStatsTable";
+import HFCoverageStatsTable from "@/components/HFCoverageStatsTable";
 
 export default function Statistics() {
   useSEO({
@@ -173,10 +174,10 @@ export default function Statistics() {
           <TabsContent value="jeopardy">
             <Card>
               <CardHeader>
-                <CardTitle>Jeopardy Statistics</CardTitle>
+                <CardTitle>HF Coverage Statistics</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-muted-foreground">Coming soon.</div>
+                <HFCoverageStatsTable fellows={fellows} />
               </CardContent>
             </Card>
           </TabsContent>
