@@ -167,6 +167,13 @@ function getHolidayBlock(startDate: Date, setup: SetupState): Date[] {
   return [startDate];
 }
 
+function isHolidayWeekend(weekend: Date, allHolidayBlocks: { startDate: Date; dates: Date[]; isJuly4Weekend: boolean }[]): boolean {
+  const weekendISO = toISODate(weekend);
+  return allHolidayBlocks.some(block => 
+    toISODate(getWeekendStart(block.startDate)) === weekendISO
+  );
+}
+
 function isEligibleForHF(
   fellow: Fellow,
   weekendStart: Date,
@@ -174,15 +181,46 @@ function isEligibleForHF(
   schedByPGY: Record<PGY, StoredSchedule | null>,
   primarySchedule: CallSchedule | null,
   hfCounts: Record<string, number>,
-  lastHFAssignment: Record<string, string | undefined>,
-  isJuly4Weekend: boolean = false,
-  relaxQuota: boolean = false
+  lastWeekendAssignment: Record<string, string | undefined>,
+  lastHolidayAssignment: Record<string, string | undefined>,
+  allHolidayBlocks: { startDate: Date; dates: Date[]; isJuly4Weekend: boolean }[],
+  options: {
+    isMandatory?: boolean;
+    isHolidayWeekendOption?: boolean;
+    allowPGY6HolidayForThisBlock?: boolean;
+    ignoreSpacingAgainstHoliday?: boolean;
+    relaxQuota?: boolean;
+  } = {}
 ): { eligible: boolean; reason?: string } {
   
-  // PGY-6 rules: Only eligible for July 4th weekend or specific edge cases
+  const { 
+    isMandatory = false, 
+    isHolidayWeekendOption = false, 
+    allowPGY6HolidayForThisBlock = false,
+    ignoreSpacingAgainstHoliday = false,
+    relaxQuota = false 
+  } = options;
+
+  // Determine if this weekend is actually a holiday weekend
+  const actuallyIsHolidayWeekend = isHolidayWeekendOption || isHolidayWeekend(weekendStart, allHolidayBlocks);
+  
+  // PGY-6 rules: Only eligible in specific cases
   if (fellow.pgy === "PGY-6") {
-    if (!isJuly4Weekend) {
-      return { eligible: false, reason: "PGY-6 not eligible for non-holiday HF assignments" };
+    if (actuallyIsHolidayWeekend) {
+      // For holiday weekends, only allow if explicitly permitted for this block
+      if (!allowPGY6HolidayForThisBlock) {
+        return { eligible: false, reason: "PGY-6 not eligible for this holiday weekend" };
+      }
+    } else {
+      // For non-holiday weekends, only allow during mandatory HF assignment
+      if (!isMandatory) {
+        return { eligible: false, reason: "PGY-6 not eligible for non-holiday HF assignments" };
+      }
+      // Check if on HF rotation
+      const rotation = getRotationOnDate(fellow, weekendStart, schedByPGY);
+      if (rotation !== "HF") {
+        return { eligible: false, reason: "PGY-6 not on HF rotation" };
+      }
     }
   }
   
@@ -200,11 +238,11 @@ function isEligibleForHF(
     }
   }
   
-  // Check if at quota limit (unless relaxing for coverage)
-  if (!relaxQuota) {
+  // Check if at quota limit (unless mandatory or relaxing for coverage)
+  if (!isMandatory && !relaxQuota) {
     const currentCount = hfCounts[fellow.id] || 0;
     const quota = HF_QUOTAS[fellow.pgy];
-    if (currentCount >= quota && !(fellow.pgy === "PGY-6" && isJuly4Weekend)) {
+    if (currentCount >= quota) {
       return { eligible: false, reason: `Already at quota (${currentCount}/${quota})` };
     }
   }
@@ -230,9 +268,13 @@ function isEligibleForHF(
   }
   
   // Check 14-day spacing between HF assignments
-  const lastISO = lastHFAssignment[fellow.id];
-  if (lastISO) {
-    const lastDate = parseISO(lastISO);
+  // For mandatory assignments, only check spacing against weekend assignments, not holiday assignments
+  const relevantLastISO = isMandatory && ignoreSpacingAgainstHoliday 
+    ? lastWeekendAssignment[fellow.id] 
+    : lastWeekendAssignment[fellow.id];
+    
+  if (relevantLastISO) {
+    const lastDate = parseISO(relevantLastISO);
     const daysBetween = differenceInCalendarDays(weekendStart, lastDate);
     if (daysBetween < 14) {
       return { eligible: false, reason: `Too soon after last HF assignment (${daysBetween} days, need 14)` };
@@ -426,7 +468,8 @@ export function buildHFSchedule(): {
   const uncovered: string[] = [];
   const uncoveredHolidays: string[] = [];
   const mandatoryMissed: string[] = [];
-  const lastHFAssignment: Record<string, string | undefined> = {};
+  const lastWeekendAssignment: Record<string, string | undefined> = {};
+  const lastHolidayAssignment: Record<string, string | undefined> = {};
 
   // Phase 1: Assign holiday blocks (prioritize PGY-5s, then PGY-4s on HF, then PGY-6s for edge cases)
   for (const holidayBlock of allHolidayBlocks) {
@@ -441,7 +484,7 @@ export function buildHFSchedule(): {
         setup, 
         schedByPGY, 
         primarySchedule, 
-        lastHFAssignment,
+        lastHolidayAssignment,
         true
       );
       return check.eligible;
@@ -459,7 +502,7 @@ export function buildHFSchedule(): {
         setup, 
         schedByPGY, 
         primarySchedule, 
-        lastHFAssignment,
+        lastHolidayAssignment,
         pgy5Available
       );
       if (check.eligible) {
@@ -505,15 +548,16 @@ export function buildHFSchedule(): {
     
     schedule.holidays[blockStartISO] = [selectedFellow.id, ...blockDates];
     schedule.holidayCountsByFellow[selectedFellow.id] += blockDates.length;
-    lastHFAssignment[selectedFellow.id] = blockStartISO;
+    
+    // Track holiday assignment separately to avoid blocking mandatory weekend assignments
+    lastHolidayAssignment[selectedFellow.id] = blockStartISO;
   }
 
   // Phase 2: Mandatory HF rotation assignments (ensure every fellow on HF gets exactly 1 weekend per half-block)
-  const hfAssignmentTracker: Record<string, { assigned: boolean; blockKey: string; weekends: Date[] }> = {};
+  const hfAssignmentTracker: Record<string, { assigned: boolean; blockKey: string; weekends: Date[]; fellow: Fellow }> = {};
   
-  // Build tracker for all fellows on HF rotation
+  // Build tracker for all fellows on HF rotation (including PGY-6)
   for (const fellow of fellows) {
-    if (fellow.pgy === "PGY-6") continue; // PGY-6 handled separately
     
     const sched = schedByPGY[fellow.pgy];
     if (!sched?.byFellow?.[fellow.id]) continue;
@@ -532,31 +576,25 @@ export function buildHFSchedule(): {
       hfAssignmentTracker[`${fellow.id}-${blockKey}`] = {
         assigned: false,
         blockKey,
-        weekends: blockWeekends
+        weekends: blockWeekends,
+        fellow
       };
     }
   }
   
   // Assign one weekend per HF half-block
   for (const [trackerId, tracker] of Object.entries(hfAssignmentTracker)) {
-    const fellowId = trackerId.split('-')[0];
-    const fellow = fellows.find(f => f.id === fellowId);
-    if (!fellow || tracker.weekends.length === 0) continue;
+    const fellow = tracker.fellow;
+    if (tracker.weekends.length === 0) continue;
     
-    // Prioritize non-holiday weekends first
-    const nonHolidayWeekends = tracker.weekends.filter(weekend => {
-      const weekendISO = toISODate(weekend);
-      return !allHolidayBlocks.some(block => 
-        block.dates.some(d => toISODate(getWeekendStart(d)) === weekendISO)
-      );
-    });
+    // Correct holiday weekend detection using helper function
+    const nonHolidayWeekends = tracker.weekends.filter(weekend => 
+      !isHolidayWeekend(weekend, allHolidayBlocks)
+    );
     
-    const holidayWeekends = tracker.weekends.filter(weekend => {
-      const weekendISO = toISODate(weekend);
-      return allHolidayBlocks.some(block => 
-        block.dates.some(d => toISODate(getWeekendStart(d)) === weekendISO)
-      );
-    });
+    const holidayWeekends = tracker.weekends.filter(weekend => 
+      isHolidayWeekend(weekend, allHolidayBlocks)
+    );
     
     let assigned = false;
     
@@ -566,34 +604,62 @@ export function buildHFSchedule(): {
       if (schedule.weekends[weekendISO]) continue; // Already assigned
       
       const eligibilityCheck = isEligibleForHF(
-        fellow, weekend, setup, schedByPGY, primarySchedule, schedule.countsByFellow, lastHFAssignment
+        fellow, 
+        weekend, 
+        setup, 
+        schedByPGY, 
+        primarySchedule, 
+        schedule.countsByFellow, 
+        lastWeekendAssignment,
+        lastHolidayAssignment,
+        allHolidayBlocks,
+        { 
+          isMandatory: true, 
+          isHolidayWeekendOption: false,
+          ignoreSpacingAgainstHoliday: true
+        }
       );
       
       if (eligibilityCheck.eligible) {
         schedule.weekends[weekendISO] = fellow.id;
         schedule.countsByFellow[fellow.id]++;
-        lastHFAssignment[fellow.id] = weekendISO;
+        lastWeekendAssignment[fellow.id] = weekendISO;
         tracker.assigned = true;
         assigned = true;
         break;
       }
     }
     
-    // If no non-holiday weekend available, try holiday weekends for PGY-6 edge case
-    if (!assigned && fellow.pgy === "PGY-6" && holidayWeekends.length > 0) {
+    // If no non-holiday weekend available, try holiday weekends (for PGY-6 or when block has only holiday weekends)
+    if (!assigned && holidayWeekends.length > 0) {
+      const allowPGY6Holiday = fellow.pgy === "PGY-6" && nonHolidayWeekends.length === 0;
+      
       for (const weekend of holidayWeekends) {
         const weekendISO = toISODate(weekend);
         if (schedule.weekends[weekendISO]) continue;
         
-        // For PGY-6, only assign holiday weekends if this is their only option
         const eligibilityCheck = isEligibleForHF(
-          fellow, weekend, setup, schedByPGY, primarySchedule, schedule.countsByFellow, lastHFAssignment, true
+          fellow, 
+          weekend, 
+          setup, 
+          schedByPGY, 
+          primarySchedule, 
+          schedule.countsByFellow, 
+          lastWeekendAssignment,
+          lastHolidayAssignment,
+          allHolidayBlocks,
+          { 
+            isMandatory: true, 
+            isHolidayWeekendOption: true,
+            allowPGY6HolidayForThisBlock: allowPGY6Holiday,
+            ignoreSpacingAgainstHoliday: true
+          }
         );
         
         if (eligibilityCheck.eligible) {
           schedule.weekends[weekendISO] = fellow.id;
           schedule.countsByFellow[fellow.id]++;
-          lastHFAssignment[fellow.id] = weekendISO;
+          lastWeekendAssignment[fellow.id] = weekendISO;
           tracker.assigned = true;
           assigned = true;
           break;
@@ -611,17 +677,15 @@ export function buildHFSchedule(): {
     const weekendISO = toISODate(weekend);
     if (schedule.weekends[weekendISO]) return false; // Already assigned
     
-    // Only include non-holiday weekends in this phase
-    const isHolidayWeekend = allHolidayBlocks.some(block => 
-      block.dates.some(d => toISODate(getWeekendStart(d)) === weekendISO)
-    );
-    return !isHolidayWeekend;
+    // Only include non-holiday weekends in this phase (using corrected detection)
+    return !isHolidayWeekend(weekend, allHolidayBlocks);
   });
   
   // Multiple passes to ensure all non-holiday weekends are covered
   let relaxQuota = false;
+  let relaxSpacing = false;
   let passCount = 0;
-  const maxPasses = 3;
+  const maxPasses = 4;
   
   while (passCount < maxPasses) {
     let assignedInPass = 0;
@@ -641,9 +705,14 @@ export function buildHFSchedule(): {
           schedByPGY, 
           primarySchedule, 
           schedule.countsByFellow, 
-          lastHFAssignment,
-          false, // Not July 4th weekend
-          relaxQuota
+          relaxSpacing ? {} : lastWeekendAssignment, // Relax spacing in emergency pass
+          lastHolidayAssignment,
+          allHolidayBlocks,
+          {
+            isMandatory: false,
+            isHolidayWeekendOption: false,
+            relaxQuota: relaxQuota
+          }
         );
         if (check.eligible) {
           eligible.push(fellow);
@@ -672,7 +741,7 @@ export function buildHFSchedule(): {
       const selectedFellow = eligible[0];
       schedule.weekends[weekendISO] = selectedFellow.id;
       schedule.countsByFellow[selectedFellow.id]++;
-      lastHFAssignment[selectedFellow.id] = weekendISO;
+      lastWeekendAssignment[selectedFellow.id] = weekendISO;
       assignedInPass++;
     }
     
@@ -690,7 +759,11 @@ export function buildHFSchedule(): {
     
     // If no assignments made in this pass, relax constraints for next pass
     if (assignedInPass === 0) {
-      relaxQuota = true;
+      if (!relaxQuota) {
+        relaxQuota = true;
+      } else if (!relaxSpacing) {
+        relaxSpacing = true; // Emergency pass: relax spacing for PGY-5s
+      }
     }
   }
   
