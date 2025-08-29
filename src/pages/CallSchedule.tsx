@@ -8,12 +8,13 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Badge } from "@/components/ui/badge";
 import { useSEO } from "@/lib/seo";
 import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, applyDragAndDrop, type CallSchedule } from "@/lib/call-engine";
-import { buildHFSchedule, loadHFSchedule, saveHFSchedule, clearHFSchedule, type HFSchedule } from "@/lib/hf-engine";
+import { buildHFSchedule, loadHFSchedule, saveHFSchedule, clearHFSchedule, getEffectiveHFAssignment, type HFSchedule } from "@/lib/hf-engine";
 import { loadSchedule, loadSetup, type PGY, type StoredSchedule } from "@/lib/schedule-engine";
 import { computeAcademicYearHolidays } from "@/lib/holidays";
 import { monthAbbrForIndex } from "@/lib/block-utils";
 import { parseISO } from "date-fns";
 import PrimaryCallEditDialog from "@/components/PrimaryCallEditDialog";
+import HFEditDialog from "@/components/HFEditDialog";
 import { DraggableBadge } from "@/components/DraggableBadge";
 import { DroppableCell } from "@/components/DroppableCell";
 import { DroppableCalendarDay } from "@/components/DroppableCalendarDay";
@@ -44,6 +45,9 @@ export default function CallSchedule() {
   const [priorSeeds, setPriorSeeds] = useState<Record<string, string>>({});
   const [editISO, setEditISO] = useState<string | null>(null);
   const [draggedItem, setDraggedItem] = useState<{iso: string; fellowId: string; fellowName: string} | null>(null);
+  
+  // HF Edit Dialog state
+  const [hfEditISO, setHFEditISO] = useState<string | null>(null);
   
   // HF Schedule state
   const [hfSchedule, setHFSchedule] = useState<HFSchedule | null>(null);
@@ -304,6 +308,15 @@ export default function CallSchedule() {
     toast({
       title: "HF schedule cleared",
       description: "Heart failure coverage has been reset.",
+    });
+  };
+
+  const handleHFScheduleUpdate = (newSchedule: HFSchedule) => {
+    setHFSchedule(newSchedule);
+    saveHFSchedule(newSchedule);
+    toast({
+      title: "HF assignment updated",
+      description: "Heart failure coverage assignment has been updated.",
     });
   };
 
@@ -575,30 +588,48 @@ export default function CallSchedule() {
           <TableCell>—</TableCell>
           <TableCell>
             {(() => {
-              // Check for holiday HF assignment
-              if (hfSchedule?.holidays) {
-                for (const [blockStart, blockData] of Object.entries(hfSchedule.holidays)) {
-                  const [fellowId, ...dates] = blockData;
-                  if (dates.includes(iso)) {
-                    return (
-                      <Badge variant={fellowColorById[fellowId]} className="bg-red-100 text-red-800 border-red-300">
-                        {fellowById[fellowId]?.name ?? fellowId} (Holiday)
-                      </Badge>
-                    );
-                  }
-                }
-              }
+              // Get effective HF assignment (considering day overrides)
+              const effectiveAssignment = getEffectiveHFAssignment(iso, hfSchedule);
               
-              // Check for weekend HF assignment
-              if (hfAssignedId) {
+              if (effectiveAssignment) {
+                const isHoliday = (() => {
+                  if (hfSchedule?.holidays) {
+                    for (const [blockStart, blockData] of Object.entries(hfSchedule.holidays)) {
+                      const [fellowId, ...dates] = blockData;
+                      if (dates.includes(iso) && fellowId === effectiveAssignment) {
+                        return true;
+                      }
+                    }
+                  }
+                  return false;
+                })();
+                
                 return (
-                  <Badge variant={fellowColorById[hfAssignedId]} className="bg-orange-100 text-orange-800 border-orange-300">
-                    {fellowById[hfAssignedId]?.name ?? hfAssignedId}
+                  <Badge 
+                    variant={fellowColorById[effectiveAssignment]} 
+                    className={`cursor-pointer hover:opacity-80 ${isHoliday ? "bg-red-100 text-red-800 border-red-300" : "bg-orange-100 text-orange-800 border-orange-300"}`}
+                    onClick={() => setHFEditISO(iso)}
+                  >
+                    {fellowById[effectiveAssignment]?.name ?? effectiveAssignment} {isHoliday ? "(Holiday)" : ""}
                   </Badge>
                 );
               }
               
-              return weekend ? "—" : "";
+              // Show "Assign HF" link for weekends or holidays without coverage
+              if (weekend || holidayMap[iso]) {
+                return (
+                  <Button 
+                    variant="link" 
+                    size="sm" 
+                    className="text-xs h-auto p-0"
+                    onClick={() => setHFEditISO(iso)}
+                  >
+                    Assign HF
+                  </Button>
+                );
+              }
+              
+              return "";
             })()}
           </TableCell>
           <TableCell>
@@ -702,6 +733,17 @@ export default function CallSchedule() {
                     setSuccess(newUncovered.length === 0);
                     setEditISO(null);
                   }}
+                />
+              )}
+              
+              {hfEditISO && hfSchedule && (
+                <HFEditDialog
+                  open={true}
+                  onOpenChange={(open) => !open && setHFEditISO(null)}
+                  dateISO={hfEditISO}
+                  fellows={fellows}
+                  schedule={hfSchedule}
+                  onUpdate={handleHFScheduleUpdate}
                 />
               )}
               </>

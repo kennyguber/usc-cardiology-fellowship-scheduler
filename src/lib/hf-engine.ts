@@ -10,6 +10,7 @@ export type HFSchedule = {
   holidays: Record<string, string[]>; // holiday block start ISO -> [fellowId, ...dates in block]
   countsByFellow: Record<string, number>; // weekend counts
   holidayCountsByFellow: Record<string, number>; // holiday day counts
+  dayOverrides?: Record<string, string | null>; // individual day ISO -> fellowId (null = clear assignment)
 };
 
 const HF_SCHEDULE_STORAGE_KEY = "cfsa_hf_v2" as const;
@@ -884,4 +885,197 @@ export function clearHFSchedule(): void {
   try {
     localStorage.removeItem(HF_SCHEDULE_STORAGE_KEY);
   } catch {}
+}
+
+// Helper functions for manual HF assignment management
+export function getEffectiveHFAssignment(dateISO: string, schedule: HFSchedule | null): string | null {
+  if (!schedule) return null;
+  
+  // Check day override first
+  if (schedule.dayOverrides?.[dateISO] !== undefined) {
+    return schedule.dayOverrides[dateISO];
+  }
+  
+  const date = parseISO(dateISO);
+  
+  // Check if it's a weekend assignment
+  if (isWeekendDate(date)) {
+    const weekendStart = getWeekendStart(date);
+    const weekendStartISO = toISODate(weekendStart);
+    return schedule.weekends[weekendStartISO] || null;
+  }
+  
+  // Check if it's part of a holiday block
+  for (const [blockStartISO, fellowAndDates] of Object.entries(schedule.holidays)) {
+    if (Array.isArray(fellowAndDates) && fellowAndDates.length > 1) {
+      const [fellowId, ...blockDates] = fellowAndDates;
+      if (blockDates.includes(dateISO)) {
+        return fellowId;
+      }
+    }
+  }
+  
+  return null;
+}
+
+export function getBlockDatesForDate(dateISO: string, setup: SetupState): string[] {
+  const date = parseISO(dateISO);
+  
+  // If it's a weekend date, return the weekend block
+  if (isWeekendDate(date)) {
+    const weekendStart = getWeekendStart(date);
+    return [toISODate(weekendStart), toISODate(addDays(weekendStart, 1))];
+  }
+  
+  // If it's a holiday, return the full holiday block
+  if (isHoliday(dateISO, setup)) {
+    const holidayBlock = getHolidayBlock(date, setup);
+    return holidayBlock.map(d => toISODate(d));
+  }
+  
+  // Single day
+  return [dateISO];
+}
+
+export function assignHFCoverage(
+  dateISO: string, 
+  fellowId: string | null, 
+  targetScope: 'day' | 'block',
+  schedule: HFSchedule,
+  setup: SetupState
+): HFSchedule {
+  const newSchedule = { ...schedule };
+  if (!newSchedule.dayOverrides) {
+    newSchedule.dayOverrides = {};
+  }
+  
+  const date = parseISO(dateISO);
+  const targetDates = targetScope === 'block' 
+    ? getBlockDatesForDate(dateISO, setup)
+    : [dateISO];
+  
+  for (const targetDateISO of targetDates) {
+    newSchedule.dayOverrides[targetDateISO] = fellowId;
+  }
+  
+  return newSchedule;
+}
+
+export function clearHFCoverage(
+  dateISO: string,
+  targetScope: 'day' | 'block',
+  schedule: HFSchedule,
+  setup: SetupState
+): HFSchedule {
+  return assignHFCoverage(dateISO, null, targetScope, schedule, setup);
+}
+
+export function analyzeHFSchedule(schedule: HFSchedule, fellows: Fellow[], setup: SetupState): {
+  fellowStats: Record<string, {
+    weekendCount: number;
+    holidayDayCount: number;
+    effectiveWeekendCount: number; // includes fractional weekends from day overrides
+  }>;
+  uncoveredWeekends: string[];
+  uncoveredHolidays: string[];
+} {
+  const fellowStats: Record<string, {
+    weekendCount: number;
+    holidayDayCount: number;
+    effectiveWeekendCount: number;
+  }> = {};
+  
+  // Initialize stats
+  for (const fellow of fellows) {
+    fellowStats[fellow.id] = {
+      weekendCount: 0,
+      holidayDayCount: 0,
+      effectiveWeekendCount: 0
+    };
+  }
+  
+  const weekendTracker: Record<string, Set<string>> = {}; // weekendStartISO -> Set of fellowIds assigned to days
+  const uncoveredWeekends: string[] = [];
+  const uncoveredHolidays: string[] = [];
+  const allWeekends = getAllWeekends(setup.yearStart);
+  const allHolidayBlocks = getAllHolidayBlocks(setup);
+  
+  // Analyze all dates in the academic year
+  const start = parseISO(setup.yearStart);
+  const end = new Date(start.getFullYear() + 1, 5, 30); // June 30 next year
+  let current = start;
+  
+  while (current <= end) {
+    const currentISO = toISODate(current);
+    const assignedFellowId = getEffectiveHFAssignment(currentISO, schedule);
+    
+    if (isWeekendDate(current)) {
+      const weekendStart = getWeekendStart(current);
+      const weekendStartISO = toISODate(weekendStart);
+      
+      if (!weekendTracker[weekendStartISO]) {
+        weekendTracker[weekendStartISO] = new Set();
+      }
+      
+      if (assignedFellowId) {
+        weekendTracker[weekendStartISO].add(assignedFellowId);
+      }
+    }
+    
+    // Count holiday days
+    if (isHoliday(currentISO, setup) && assignedFellowId) {
+      fellowStats[assignedFellowId].holidayDayCount++;
+    }
+    
+    current = addDays(current, 1);
+  }
+  
+  // Calculate weekend counts and coverage
+  for (const weekend of allWeekends) {
+    const weekendStartISO = toISODate(weekend);
+    const assignedFellows = weekendTracker[weekendStartISO] || new Set();
+    
+    if (assignedFellows.size === 0) {
+      uncoveredWeekends.push(weekendStartISO);
+    } else {
+      // Count effective weekend coverage
+      for (const fellowId of assignedFellows) {
+        if (fellowStats[fellowId]) {
+          // If fellow covers both days, count as 1 weekend
+          // If fellow covers only 1 day, count as 0.5 weekend
+          const weekendDays = [weekend, addDays(weekend, 1)];
+          const daysCovered = weekendDays.filter(day => {
+            const dayISO = toISODate(day);
+            return getEffectiveHFAssignment(dayISO, schedule) === fellowId;
+          }).length;
+          
+          if (daysCovered === 2) {
+            fellowStats[fellowId].weekendCount++;
+            fellowStats[fellowId].effectiveWeekendCount++;
+          } else if (daysCovered === 1) {
+            fellowStats[fellowId].effectiveWeekendCount += 0.5;
+          }
+        }
+      }
+    }
+  }
+  
+  // Check holiday block coverage
+  for (const holidayBlock of allHolidayBlocks) {
+    const blockStartISO = toISODate(holidayBlock.startDate);
+    const hasAnyCoverage = holidayBlock.dates.some(date => {
+      const dateISO = toISODate(date);
+      return getEffectiveHFAssignment(dateISO, schedule) !== null;
+    });
+    
+    if (!hasAnyCoverage) {
+      uncoveredHolidays.push(blockStartISO);
+    }
+  }
+  
+  return {
+    fellowStats,
+    uncoveredWeekends,
+    uncoveredHolidays
+  };
 }
