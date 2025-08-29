@@ -80,8 +80,8 @@ export default function Statistics() {
         <Tabs defaultValue="primary" className="mt-4">
           <TabsList>
             <TabsTrigger value="primary">Primary Call Statistics</TabsTrigger>
-            <TabsTrigger value="jeopardy">Jeopardy Statistics</TabsTrigger>
-            <TabsTrigger value="hf">Heart Failure Coverage Statistics</TabsTrigger>
+            <TabsTrigger value="jeopardy">Heart Failure Coverage Statistics</TabsTrigger>
+            <TabsTrigger value="hf">Jeopardy Statistics</TabsTrigger>
             <TabsTrigger value="clinic">Clinic Statistics</TabsTrigger>
           </TabsList>
           <TabsContent value="primary" className="space-y-6">
