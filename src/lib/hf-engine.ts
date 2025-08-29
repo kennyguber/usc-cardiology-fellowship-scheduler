@@ -18,7 +18,7 @@ const HF_SCHEDULE_STORAGE_KEY = "cfsa_hf_v2" as const;
 const HF_QUOTAS: Record<PGY, number> = {
   "PGY-4": 2, // Only during HF rotation
   "PGY-5": 6, // 1 during HF + 5 distributed
-  "PGY-6": 0, // No regular HF assignments (except July 4th weekend last resort)
+  "PGY-6": 2, // 1 weekend per HF rotation block (2 blocks total)
 };
 
 function toISODate(d: Date) {
@@ -230,11 +230,7 @@ function isEligibleForHF(
         return { eligible: false, reason: "PGY-6 not eligible for this holiday weekend" };
       }
     } else {
-      // For non-holiday weekends, only allow during mandatory HF assignment
-      if (!isMandatory) {
-        return { eligible: false, reason: "PGY-6 not eligible for non-holiday HF assignments" };
-      }
-      // Check if on HF rotation
+      // For non-holiday weekends, allow if on HF rotation (mandatory or distributed)
       const rotation = getRotationOnDate(fellow, weekendStart, schedByPGY);
       if (rotation !== "HF") {
         return { eligible: false, reason: "PGY-6 not on HF rotation" };
