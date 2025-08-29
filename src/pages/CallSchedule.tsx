@@ -235,8 +235,29 @@ export default function CallSchedule() {
 
   const handleGenerateHF = async () => {
     setHFLoading(true);
+    
+    // Clear existing schedule to enable reshuffle
+    setHFSchedule(null);
+    setUncoveredHF([]);
+    setUncoveredHolidays([]);
+    setHFSuccess(null);
+    clearHFSchedule();
+    
     try {
-      const result = buildHFSchedule();
+      // Get or initialize run counter for this academic year
+      const yearKey = `hf_run_counter_${setup?.yearStart || new Date().getFullYear()}`;
+      const currentRun = parseInt(localStorage.getItem(yearKey) || "0") + 1;
+      localStorage.setItem(yearKey, currentRun.toString());
+      
+      // Use run counter as seed for randomization on subsequent generations
+      const isReshuffle = currentRun > 1;
+      
+      const result = buildHFSchedule({
+        seed: currentRun,
+        randomize: isReshuffle,
+        attempts: 1
+      });
+      
       setHFSchedule(result.schedule);
       setUncoveredHF(result.uncovered ?? []);
       setUncoveredHolidays(result.uncoveredHolidays ?? []);
@@ -256,10 +277,11 @@ export default function CallSchedule() {
         errorMessage += `${result.mandatoryMissed.length} mandatory assignments missed`;
       }
       
+      const actionText = isReshuffle ? "reshuffled" : "generated";
       toast({
-        title: result.success ? "HF schedule generated" : "HF schedule partially generated",
+        title: result.success ? `HF schedule ${actionText}` : `HF schedule partially ${actionText}`,
         description: result.success 
-          ? "Heart failure coverage assigned for all weekends." 
+          ? `Heart failure coverage ${actionText} for all weekends.` 
           : `Issues: ${errorMessage}`,
         variant: result.success ? "default" : "destructive",
       });

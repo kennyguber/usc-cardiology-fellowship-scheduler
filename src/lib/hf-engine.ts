@@ -434,13 +434,36 @@ function getAllHolidayBlocks(setup: SetupState): { startDate: Date; dates: Date[
   return holidayBlocks.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
 }
 
-export function buildHFSchedule(): { 
+export function buildHFSchedule(options: {
+  seed?: number;
+  randomize?: boolean;
+  attempts?: number;
+} = {}): { 
   schedule: HFSchedule; 
   uncovered: string[]; 
   uncoveredHolidays: string[];
   success: boolean;
   mandatoryMissed: string[];
 } {
+  const { seed = Date.now(), randomize = false, attempts = 1 } = options;
+  
+  // Simple seeded random number generator
+  let rngSeed = seed;
+  const rng = () => {
+    rngSeed = (rngSeed * 9301 + 49297) % 233280;
+    return rngSeed / 233280;
+  };
+
+  const shuffle = <T>(array: T[]): T[] => {
+    if (!randomize) return array;
+    const result = [...array];
+    for (let i = result.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [result[i], result[j]] = [result[j], result[i]];
+    }
+    return result;
+  };
+
   const setup = loadSetup();
   if (!setup) {
     return { 
@@ -560,11 +583,17 @@ export function buildHFSchedule(): {
       const bCount = schedule.holidayCountsByFellow[b.id] || 0;
       if (aCount !== bCount) return aCount - bCount;
       
-      // Secondary sort by name for consistency
+      // If randomizing and counts are equal, use random order, otherwise sort by name
+      if (randomize && aCount === bCount) {
+        return rng() - 0.5;
+      }
       return a.name.localeCompare(b.name);
     });
     
-    selectedFellow = eligiblePool[0];
+    selectedFellow = shuffle(eligiblePool.filter(f => {
+      const minCount = Math.min(...eligiblePool.map(fellow => schedule.holidayCountsByFellow[fellow.id] || 0));
+      return (schedule.holidayCountsByFellow[f.id] || 0) === minCount;
+    }))[0] || eligiblePool[0];
     const blockDates = holidayBlock.dates.map(d => toISODate(d));
     
     schedule.holidays[blockStartISO] = [selectedFellow.id, ...blockDates];
@@ -619,8 +648,8 @@ export function buildHFSchedule(): {
     
     let assigned = false;
     
-    // Try non-holiday weekends first
-    for (const weekend of nonHolidayWeekends) {
+    // Try non-holiday weekends first (shuffled for randomization)
+    for (const weekend of shuffle([...nonHolidayWeekends])) {
       const weekendISO = toISODate(weekend);
       if (schedule.weekends[weekendISO]) continue; // Already assigned
       
@@ -655,7 +684,7 @@ export function buildHFSchedule(): {
     if (!assigned && holidayWeekends.length > 0) {
       const allowPGY6Holiday = fellow.pgy === "PGY-6" && nonHolidayWeekends.length === 0;
       
-      for (const weekend of holidayWeekends) {
+      for (const weekend of shuffle([...holidayWeekends])) {
         const weekendISO = toISODate(weekend);
         if (schedule.weekends[weekendISO]) continue;
         
@@ -753,14 +782,28 @@ export function buildHFSchedule(): {
         const bPercent = (schedule.countsByFellow[b.id] || 0) / bQuota;
         
         if (Math.abs(aPercent - bPercent) < 0.01) {
-          // If utilization is similar, sort by name for consistency
+          // If randomizing and percentages are similar, use random order
+          if (randomize) {
+            return rng() - 0.5;
+          }
           return a.name.localeCompare(b.name);
         }
         
         return aPercent - bPercent;
       });
       
-      const selectedFellow = eligible[0];
+      // For randomization, select from fellows with minimum utilization
+      const minPercent = Math.min(...eligible.map(f => {
+        const quota = HF_QUOTAS[f.pgy] || 1;
+        return (schedule.countsByFellow[f.id] || 0) / quota;
+      }));
+      const bestCandidates = eligible.filter(f => {
+        const quota = HF_QUOTAS[f.pgy] || 1;
+        const percent = (schedule.countsByFellow[f.id] || 0) / quota;
+        return Math.abs(percent - minPercent) < 0.01;
+      });
+      
+      const selectedFellow = shuffle(bestCandidates)[0] || eligible[0];
       schedule.weekends[weekendISO] = selectedFellow.id;
       schedule.countsByFellow[selectedFellow.id]++;
       lastWeekendAssignment[selectedFellow.id] = weekendISO;
