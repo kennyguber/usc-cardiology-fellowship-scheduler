@@ -257,12 +257,18 @@ function isEligibleForHF(
     }
   }
   
-  // Check if at quota limit (unless mandatory or relaxing for coverage)
-  // For PGY-5, allow up to 7 assignments for fair distribution
-  if (!isMandatory && !relaxQuota) {
+  // Check if at quota limit - PGY-5 has a hard cap that cannot be exceeded
+  if (!isMandatory) {
     const currentCount = hfCounts[fellow.id] || 0;
     const quota = HF_QUOTAS[fellow.pgy];
-    if (currentCount >= quota) {
+    
+    // Hard cap for PGY-5 - never allow more than 7
+    if (fellow.pgy === "PGY-5" && currentCount >= quota) {
+      return { eligible: false, reason: `PGY-5 hard cap reached (${currentCount}/${quota})` };
+    }
+    
+    // For other PGYs, allow quota relaxation if specified
+    if (fellow.pgy !== "PGY-5" && !relaxQuota && currentCount >= quota) {
       return { eligible: false, reason: `Already at quota (${currentCount}/${quota})` };
     }
   }
@@ -641,7 +647,7 @@ export function buildHFSchedule(options: {
           {
             isMandatory: false,
             isHolidayWeekendOption: false,
-            relaxQuota: relaxQuota,
+            relaxQuota: relaxQuota && fellow.pgy !== "PGY-5", // Never relax quota for PGY-5
             relaxSpacing: relaxSpacing
           }
         );
@@ -709,9 +715,9 @@ export function buildHFSchedule(options: {
     // If no assignments made in this pass, relax constraints for next pass
     if (assignedInPass === 0) {
       if (!relaxQuota) {
-        relaxQuota = true;
+        relaxQuota = true; // Allow quota relaxation for PGY-4 and PGY-6 only
       } else if (!relaxSpacing) {
-        relaxSpacing = true; // Emergency pass: relax spacing for PGY-5s
+        relaxSpacing = true; // Emergency pass: relax spacing constraints
       }
     }
   }
@@ -741,7 +747,7 @@ export function buildHFSchedule(options: {
         {
           isMandatory: false,
           isHolidayWeekendOption: false,
-          relaxQuota: true,
+          relaxQuota: fellow.pgy !== "PGY-5", // Allow quota relaxation except for PGY-5
           relaxSpacing: true
         }
       );
