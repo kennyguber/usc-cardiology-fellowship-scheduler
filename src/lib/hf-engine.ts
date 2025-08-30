@@ -169,10 +169,15 @@ function getHolidayBlock(startDate: Date, setup: SetupState): Date[] {
 }
 
 function isHolidayWeekend(weekend: Date, allHolidayBlocks: { startDate: Date; dates: Date[]; isJuly4Weekend: boolean }[]): boolean {
-  const weekendISO = toISODate(weekend);
-  return allHolidayBlocks.some(block => 
-    toISODate(getWeekendStart(block.startDate)) === weekendISO
-  );
+  // Check if this weekend (Saturday-Sunday) overlaps with any holiday block
+  const satISO = toISODate(weekend);
+  const sunISO = toISODate(addDays(weekend, 1));
+  
+  return allHolidayBlocks.some(block => {
+    const blockDateISOs = block.dates.map(d => toISODate(d));
+    // Weekend is a holiday weekend if either Saturday or Sunday is in a holiday block
+    return blockDateISOs.includes(satISO) || blockDateISOs.includes(sunISO);
+  });
 }
 
 // Helper function to check if a weekend is consecutive with the previous assignment
@@ -650,36 +655,40 @@ export function buildHFSchedule(options: {
         continue; // Try in next pass with relaxed constraints
       }
       
-      // Prioritize by quota utilization (assign to fellow with lowest percentage of quota used)
+      // Fair distribution algorithm: prioritize fellows with lowest count, then longest time since last assignment
       eligible.sort((a, b) => {
-        const aQuota = HF_QUOTAS[a.pgy] || 1;
-        const bQuota = HF_QUOTAS[b.pgy] || 1;
-        const aPercent = (schedule.countsByFellow[a.id] || 0) / aQuota;
-        const bPercent = (schedule.countsByFellow[b.id] || 0) / bQuota;
+        const aCount = schedule.countsByFellow[a.id] || 0;
+        const bCount = schedule.countsByFellow[b.id] || 0;
         
-        if (Math.abs(aPercent - bPercent) < 0.01) {
-          // If randomizing and percentages are similar, use random order
-          if (randomize) {
-            return rng() - 0.5;
-          }
-          return a.name.localeCompare(b.name);
+        // Primary sort: lowest count
+        if (aCount !== bCount) {
+          return aCount - bCount;
         }
         
-        return aPercent - bPercent;
+        // Secondary sort: longest time since last assignment (for PGY-5 equity)
+        if (a.pgy === "PGY-5" && b.pgy === "PGY-5") {
+          const aLastISO = lastWeekendAssignment[a.id];
+          const bLastISO = lastWeekendAssignment[b.id];
+          
+          if (!aLastISO && !bLastISO) {
+            return a.name.localeCompare(b.name);
+          }
+          if (!aLastISO) return -1; // Never assigned goes first
+          if (!bLastISO) return 1;
+          
+          const aLastDate = parseISO(aLastISO);
+          const bLastDate = parseISO(bLastISO);
+          const aDaysSince = differenceInCalendarDays(weekend, aLastDate);
+          const bDaysSince = differenceInCalendarDays(weekend, bLastDate);
+          
+          return bDaysSince - aDaysSince; // Longest time since last assignment goes first
+        }
+        
+        // Tertiary sort: name for consistency
+        return a.name.localeCompare(b.name);
       });
       
-      // For randomization, select from fellows with minimum utilization
-      const minPercent = Math.min(...eligible.map(f => {
-        const quota = HF_QUOTAS[f.pgy] || 1;
-        return (schedule.countsByFellow[f.id] || 0) / quota;
-      }));
-      const bestCandidates = eligible.filter(f => {
-        const quota = HF_QUOTAS[f.pgy] || 1;
-        const percent = (schedule.countsByFellow[f.id] || 0) / quota;
-        return Math.abs(percent - minPercent) < 0.01;
-      });
-      
-      const selectedFellow = shuffle(bestCandidates)[0] || eligible[0];
+      const selectedFellow = eligible[0];
       schedule.weekends[weekendISO] = selectedFellow.id;
       schedule.countsByFellow[selectedFellow.id]++;
       lastWeekendAssignment[selectedFellow.id] = weekendISO;
@@ -708,11 +717,54 @@ export function buildHFSchedule(options: {
     }
   }
   
-  // Record any remaining uncovered weekends
+  // Final pass: assign any remaining uncovered non-holiday weekends to any available fellow
+  const finalUncovered = remainingWeekends.filter(weekend => {
+    const weekendISO = toISODate(weekend);
+    return !schedule.weekends[weekendISO];
+  });
+  
+  for (const weekend of finalUncovered) {
+    const weekendISO = toISODate(weekend);
+    console.log(`🔍 Final pass: trying to assign uncovered weekend ${weekendISO}`);
+    
+    // Find ANY eligible fellow, ignoring quotas and spacing
+    for (const fellow of fellows) {
+      const check = isEligibleForHF(
+        fellow, 
+        weekend, 
+        setup, 
+        schedByPGY, 
+        primarySchedule, 
+        schedule.countsByFellow, 
+        lastWeekendAssignment,
+        {},
+        allHolidayBlocks,
+        {
+          isMandatory: false,
+          isHolidayWeekendOption: false,
+          relaxQuota: true,
+          relaxSpacing: true
+        }
+      );
+      
+      if (check.eligible) {
+        console.log(`✅ Final pass: assigned weekend ${weekendISO} to ${fellow.name}`);
+        schedule.weekends[weekendISO] = fellow.id;
+        schedule.countsByFellow[fellow.id]++;
+        lastWeekendAssignment[fellow.id] = weekendISO;
+        break;
+      } else {
+        console.log(`❌ Final pass: ${fellow.name} not eligible for ${weekendISO}: ${check.reason}`);
+      }
+    }
+  }
+  
+  // Record any still remaining uncovered weekends
   for (const weekend of remainingWeekends) {
     const weekendISO = toISODate(weekend);
     if (!schedule.weekends[weekendISO]) {
       uncovered.push(weekendISO);
+      console.log(`⚠️ Weekend ${weekendISO} remains uncovered after all passes`);
     }
   }
 
@@ -897,9 +949,16 @@ export function analyzeHFSchedule(schedule: HFSchedule, fellows: Fellow[], setup
       }
     }
     
-    // Count holiday days
-    if (isHoliday(currentISO, setup) && assignedFellowId) {
-      fellowStats[assignedFellowId].holidayDayCount++;
+    // Count holiday days - count all days within a holiday block as covered by the assigned fellow
+    if (assignedFellowId) {
+      // Check if this date is within any holiday block
+      for (const holidayBlock of allHolidayBlocks) {
+        const blockDateISOs = holidayBlock.dates.map(d => toISODate(d));
+        if (blockDateISOs.includes(currentISO)) {
+          fellowStats[assignedFellowId].holidayDayCount++;
+          break; // Only count once per date
+        }
+      }
     }
     
     current = addDays(current, 1);
