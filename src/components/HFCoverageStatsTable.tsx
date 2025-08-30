@@ -21,7 +21,6 @@ export default function HFCoverageStatsTable({ fellows }: Props) {
       fellow: Fellow;
       nonHolidayWeekends: number;
       holidayDays: number;
-      effectiveWeekends: number;
       avgGap: number | null;
       shortestGap: number | null;
     }> = [];
@@ -88,7 +87,6 @@ export default function HFCoverageStatsTable({ fellows }: Props) {
         fellow,
         nonHolidayWeekends: fellowStats.weekendCount,
         holidayDays: fellowStats.holidayDayCount,
-        effectiveWeekends: fellowStats.effectiveWeekendCount,
         avgGap,
         shortestGap
       });
@@ -119,8 +117,7 @@ export default function HFCoverageStatsTable({ fellows }: Props) {
             <TableHead className="font-medium">Fellow</TableHead>
             <TableHead className="font-medium">PGY</TableHead>
             <TableHead className="font-medium">HF Non-Holiday Weekends</TableHead>
-            <TableHead className="font-medium">HF Effective Weekends</TableHead>
-            <TableHead className="font-medium">HF Holidays/Holiday Weekends</TableHead>
+            <TableHead className="font-medium">HF Holidays (Total Days Covered)</TableHead>
             <TableHead className="font-medium">Average Gap Between HF Weekends</TableHead>
             <TableHead className="font-medium">Shortest Gap Between HF Weekends</TableHead>
           </TableRow>
@@ -131,7 +128,6 @@ export default function HFCoverageStatsTable({ fellows }: Props) {
               <TableCell className="font-medium">{row.fellow.name}</TableCell>
               <TableCell>{row.fellow.pgy}</TableCell>
               <TableCell>{row.nonHolidayWeekends}</TableCell>
-              <TableCell>{row.effectiveWeekends === Math.floor(row.effectiveWeekends) ? row.effectiveWeekends : row.effectiveWeekends.toFixed(1)}</TableCell>
               <TableCell>{row.holidayDays}</TableCell>
               <TableCell>{row.avgGap !== null ? `${row.avgGap} days` : "N/A"}</TableCell>
               <TableCell>{row.shortestGap !== null ? `${row.shortestGap} days` : "N/A"}</TableCell>
