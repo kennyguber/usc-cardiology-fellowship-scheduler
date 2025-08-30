@@ -1,7 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { loadHFSchedule, analyzeHFSchedule } from "@/lib/hf-engine";
+import { Button } from "@/components/ui/button";
+import { loadHFSchedule, analyzeHFSchedule, buildHFSchedule, saveHFSchedule } from "@/lib/hf-engine";
 import { loadSetup } from "@/lib/schedule-engine";
+import { useToast } from "@/hooks/use-toast";
 import type { Fellow } from "@/lib/schedule-engine";
 
 interface Props {
@@ -9,8 +11,10 @@ interface Props {
 }
 
 export default function HFCoverageStatsTable({ fellows }: Props) {
+  const { toast } = useToast();
+  const [isGenerating, setIsGenerating] = useState(false);
   const setup = loadSetup();
-  const hfSchedule = loadHFSchedule();
+  const [hfSchedule, setHfSchedule] = useState(() => loadHFSchedule());
 
   const stats = useMemo(() => {
     if (!hfSchedule || !setup) return [];
@@ -101,16 +105,89 @@ export default function HFCoverageStatsTable({ fellows }: Props) {
     });
   }, [fellows, hfSchedule, setup]);
 
+  const handleGenerateHF = async () => {
+    if (!setup) {
+      toast({
+        title: "Error",
+        description: "Setup data not found. Please configure settings first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsGenerating(true);
+    
+    try {
+      const result = buildHFSchedule({ 
+        randomize: true, 
+        attempts: 3,
+        seed: Date.now() 
+      });
+      
+      if (result.success) {
+        saveHFSchedule(result.schedule);
+        setHfSchedule(result.schedule);
+        toast({
+          title: "HF Schedule Generated",
+          description: `Successfully assigned ${Object.keys(result.schedule.weekends).length} non-holiday weekends. ${result.uncoveredHolidays.length} holiday blocks need manual assignment.`,
+        });
+      } else {
+        saveHFSchedule(result.schedule);
+        setHfSchedule(result.schedule);
+        const issues = [
+          ...(result.uncovered.length > 0 ? [`${result.uncovered.length} non-holiday weekends uncovered`] : []),
+          ...(result.mandatoryMissed.length > 0 ? [`${result.mandatoryMissed.length} mandatory assignments missed`] : [])
+        ];
+        toast({
+          title: "HF Schedule Generated with Issues",
+          description: `Partial success: ${issues.join(", ")}. Holiday blocks (${result.uncoveredHolidays.length}) need manual assignment.`,
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Generation Failed",
+        description: "Failed to generate HF schedule. Please try again.",
+        variant: "destructive",
+      });
+    }
+    
+    setIsGenerating(false);
+  };
+
   if (!hfSchedule) {
     return (
-      <div className="text-center text-muted-foreground py-8">
-        No HF schedule found. Please generate an HF schedule first.
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h3 className="text-lg font-medium">HF Coverage Statistics</h3>
+          <Button 
+            onClick={handleGenerateHF} 
+            disabled={isGenerating}
+            className="bg-primary text-primary-foreground hover:bg-primary/90"
+          >
+            {isGenerating ? "Generating..." : "Generate HF"}
+          </Button>
+        </div>
+        <div className="text-center text-muted-foreground py-8">
+          No HF schedule found. Click "Generate HF" to create non-holiday weekend assignments.
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="relative">
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h3 className="text-lg font-medium">HF Coverage Statistics</h3>
+        <Button 
+          onClick={handleGenerateHF} 
+          disabled={isGenerating}
+          className="bg-primary text-primary-foreground hover:bg-primary/90"
+        >
+          {isGenerating ? "Regenerating..." : "Generate HF"}
+        </Button>
+      </div>
+      <div className="relative">
       <Table>
         <TableHeader className="sticky top-0 bg-background/95 backdrop-blur-sm">
           <TableRow>
@@ -135,6 +212,7 @@ export default function HFCoverageStatsTable({ fellows }: Props) {
           ))}
         </TableBody>
       </Table>
+      </div>
     </div>
   );
 }

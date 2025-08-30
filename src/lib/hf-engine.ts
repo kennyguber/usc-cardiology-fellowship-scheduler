@@ -15,10 +15,9 @@ export type HFSchedule = {
 
 const HF_SCHEDULE_STORAGE_KEY = "cfsa_hf_v2" as const;
 
-// HF Coverage quotas by PGY level (weekends only)
 const HF_QUOTAS: Record<PGY, number> = {
   "PGY-4": 2, // Only during HF rotation
-  "PGY-5": 5, // Minimum 5 non-holiday weekends (unlimited max for fairness)
+  "PGY-5": 7, // Minimum 5, maximum 7 non-holiday weekends for fair distribution
   "PGY-6": 2, // 1 weekend per HF rotation block (2 blocks total)
 };
 
@@ -259,8 +258,8 @@ function isEligibleForHF(
   }
   
   // Check if at quota limit (unless mandatory or relaxing for coverage)
-  // For PGY-5, allow unlimited assignments for fairness (no hard cap)
-  if (!isMandatory && !relaxQuota && fellow.pgy !== "PGY-5") {
+  // For PGY-5, allow up to 7 assignments for fair distribution
+  if (!isMandatory && !relaxQuota) {
     const currentCount = hfCounts[fellow.id] || 0;
     const quota = HF_QUOTAS[fellow.pgy];
     if (currentCount >= quota) {
