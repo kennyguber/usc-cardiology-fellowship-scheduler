@@ -285,8 +285,8 @@ export default function CallSchedule() {
       toast({
         title: result.success ? `HF schedule ${actionText}` : `HF schedule partially ${actionText}`,
         description: result.success 
-          ? `Heart failure coverage ${actionText} for all weekends.` 
-          : `Issues: ${errorMessage}`,
+          ? `Non-holiday weekend coverage ${actionText} successfully. Holiday coverage requires manual assignment.` 
+          : `Issues: ${errorMessage}. Holiday coverage requires manual assignment.`,
         variant: result.success ? "default" : "destructive",
       });
       
