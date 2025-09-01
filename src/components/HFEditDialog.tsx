@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -10,6 +10,7 @@ import {
   getBlockDatesForDate, 
   assignHFCoverage, 
   clearHFCoverage,
+  analyzeHFSchedule,
   type HFSchedule 
 } from "@/lib/hf-engine";
 import { loadSetup, type Fellow, type SetupState } from "@/lib/schedule-engine";
@@ -48,6 +49,19 @@ export default function HFEditDialog({
   const currentFellow = currentAssignment 
     ? fellows.find(f => f.id === currentAssignment)
     : null;
+  
+  const fellowStats = useMemo(() => {
+    const analysis = analyzeHFSchedule(schedule, fellows, setup);
+    return Object.fromEntries(
+      Object.entries(analysis.fellowStats).map(([fellowId, stat]) => [
+        fellowId,
+        {
+          nonHolidayWeekends: stat.weekendCount,
+          holidayDays: stat.holidayDayCount
+        }
+      ])
+    );
+  }, [schedule, fellows, setup]);
   
   const handleAssign = () => {
     if (!selectedFellowId) return;
@@ -140,11 +154,19 @@ export default function HFEditDialog({
                 <SelectValue placeholder="Select a fellow..." />
               </SelectTrigger>
               <SelectContent>
-                {fellows.map(fellow => (
-                  <SelectItem key={fellow.id} value={fellow.id}>
-                    {fellow.name} ({fellow.pgy})
-                  </SelectItem>
-                ))}
+                {fellows.map(fellow => {
+                  const stats = fellowStats[fellow.id] || { nonHolidayWeekends: 0, holidayDays: 0 };
+                  return (
+                    <SelectItem key={fellow.id} value={fellow.id}>
+                      <div className="flex justify-between items-center w-full">
+                        <span>{fellow.name} ({fellow.pgy})</span>
+                        <span className="text-xs text-muted-foreground ml-2">
+                          {stats.nonHolidayWeekends} HF / {stats.holidayDays} Holiday
+                        </span>
+                      </div>
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           </div>
