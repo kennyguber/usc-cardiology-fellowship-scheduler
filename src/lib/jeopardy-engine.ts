@@ -244,6 +244,13 @@ function isEligibleForBlock(fellow: Fellow, block: JeopardyBlock, setup: SetupSt
     return false;
   }
   
+  // Check same-day primary call exclusion for all dates in the block
+  for (const dateISO of block.dates) {
+    if (primarySchedule.days[dateISO] === fellow.id) {
+      return false;
+    }
+  }
+  
   // Check rotation exclusions for all dates in the block
   for (const dateISO of block.dates) {
     const date = parseISO(dateISO);
@@ -612,6 +619,11 @@ export function getIneligibleJeopardyReasons(dateISO: string): Array<{ fellow: F
     // Check PGY-6 holiday restriction
     if (fellow.pgy === "PGY-6" && block.type === "holiday") {
       reasons.push("PGY-6 cannot take holiday assignments");
+    }
+    
+    // Check same-day primary call exclusion
+    if (primarySchedule.days[dateISO] === fellow.id) {
+      reasons.push("Same day as primary call");
     }
     
     // Check rotation exclusions
