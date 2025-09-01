@@ -66,12 +66,12 @@ function getRotationOnDate(fellow: Fellow, date: Date, schedByPGY: Record<PGY, S
   return row[key];
 }
 
-// Check if fellow has post-call spacing conflict (3-day rule AFTER primary call)
+// Check if fellow has post-call spacing conflict (2-day rule AFTER primary call)
 function hasPostCallConflict(fellow: Fellow, date: Date, primarySchedule: CallSchedule): boolean {
   if (!primarySchedule) return false;
   
-  // Check if fellow has primary call in the 3 days before this jeopardy date
-  for (let i = 1; i <= 3; i++) {
+  // Check if fellow has primary call in the 2 days before this jeopardy date
+  for (let i = 1; i <= 2; i++) {
     const checkDate = addDays(date, -i);
     const checkISO = toISODate(checkDate);
     if (primarySchedule.days[checkISO] === fellow.id) {
@@ -638,7 +638,7 @@ export function getIneligibleJeopardyReasons(dateISO: string): Array<{ fellow: F
     
     // Check post-call spacing
     if (hasPostCallConflict(fellow, date, primarySchedule)) {
-      reasons.push("Within 3 days of primary call");
+      reasons.push("Within 2 days of primary call");
     }
     
     // Check HF weekend conflicts

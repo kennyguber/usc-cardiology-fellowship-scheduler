@@ -328,6 +328,22 @@ export default function CallSchedule() {
   const handleHFScheduleUpdate = (newSchedule: HFSchedule) => {
     setHFSchedule(newSchedule);
     saveHFSchedule(newSchedule);
+    
+    // Update coverage summary
+    const weekendKeys = Object.keys(newSchedule.weekends);
+    const holidayKeys = Object.keys(newSchedule.holidays || {});
+    const allWeekends = allDays.filter(d => {
+      const date = parseISO(d);
+      return date.getDay() === 0 || date.getDay() === 6; // Sunday or Saturday
+    });
+    const allHolidays = computeAcademicYearHolidays(setup?.yearStart || "");
+    const uncoveredWeekends = allWeekends.filter(d => !newSchedule.weekends[d]);
+    const uncoveredHols = allHolidays.filter(h => !newSchedule.holidays?.[h.date]).map(h => h.date);
+    
+    setUncoveredHF(uncoveredWeekends);
+    setUncoveredHolidays(uncoveredHols);
+    setHFSuccess(uncoveredWeekends.length === 0 && uncoveredHols.length === 0);
+    
     toast({
       title: "HF assignment updated",
       description: "Heart failure coverage assignment has been updated.",
@@ -369,6 +385,13 @@ export default function CallSchedule() {
   const handleJeopardyScheduleUpdate = (newSchedule: JeopardySchedule) => {
     setJeopardySchedule(newSchedule);
     saveJeopardySchedule(newSchedule);
+    
+    // Update coverage summary
+    const assignedDays = Object.keys(newSchedule.days);
+    const uncoveredJeopardyDays = allDays.filter(d => !newSchedule.days[d]);
+    setUncoveredJeopardy(uncoveredJeopardyDays);
+    setJeopardySuccess(uncoveredJeopardyDays.length === 0);
+    
     toast({
       title: "Jeopardy assignment updated",
       description: "Jeopardy assignment has been updated.",
