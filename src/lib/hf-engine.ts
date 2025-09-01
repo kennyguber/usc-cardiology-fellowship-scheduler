@@ -939,8 +939,15 @@ export function validateManualHFAssignment(
   fellowId: string,
   targetScope: 'day' | 'block',
   setup: SetupState,
-  callSchedule: any // CallSchedule from call-engine
+  callSchedule: any, // CallSchedule from call-engine
+  schedByPGY: Record<PGY, StoredSchedule | null>,
+  fellows: Fellow[]
 ): { isValid: boolean; reason?: string } {
+  const fellow = fellows.find(f => f.id === fellowId);
+  if (!fellow) {
+    return { isValid: false, reason: "Fellow not found" };
+  }
+
   if (!callSchedule) {
     return { isValid: true }; // If no call schedule, allow assignment
   }
@@ -951,21 +958,32 @@ export function validateManualHFAssignment(
 
   // Check all dates in the assignment block
   for (const targetDateISO of targetDates) {
+    const targetDate = parseISO(targetDateISO);
+    
+    // Check if fellow is on vacation during this date
+    const rotation = getRotationOnDate(fellow, targetDate, schedByPGY);
+    if (rotation === "VAC") {
+      return { 
+        isValid: false, 
+        reason: `Fellow is on vacation on ${format(targetDate, "MMM d")}`
+      };
+    }
+
     // Check if fellow is on primary call on this date
     if (callSchedule.days[targetDateISO] === fellowId) {
       return { 
         isValid: false, 
-        reason: `Fellow is on primary call on ${format(parseISO(targetDateISO), "MMM d")}`
+        reason: `Fellow is on primary call on ${format(targetDate, "MMM d")}`
       };
     }
 
     // Check if fellow is on primary call the day before
-    const dayBefore = addDays(parseISO(targetDateISO), -1);
+    const dayBefore = addDays(targetDate, -1);
     const dayBeforeISO = toISODate(dayBefore);
     if (callSchedule.days[dayBeforeISO] === fellowId) {
       return { 
         isValid: false, 
-        reason: `Fellow is on primary call the day before ${format(parseISO(targetDateISO), "MMM d")}`
+        reason: `Fellow is on primary call the day before ${format(targetDate, "MMM d")}`
       };
     }
   }

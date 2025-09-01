@@ -14,7 +14,7 @@ import {
   validateManualHFAssignment,
   type HFSchedule 
 } from "@/lib/hf-engine";
-import { loadSetup, type Fellow, type SetupState } from "@/lib/schedule-engine";
+import { loadSetup, loadSchedule, type Fellow, type SetupState, type PGY } from "@/lib/schedule-engine";
 import { loadCallSchedule } from "@/lib/call-engine";
 import { useToast } from "@/hooks/use-toast";
 
@@ -40,6 +40,11 @@ export default function HFEditDialog({
   
   const setup = loadSetup();
   const callSchedule = loadCallSchedule();
+  const schedByPGY = {
+    "PGY-4": loadSchedule("PGY-4"),
+    "PGY-5": loadSchedule("PGY-5"), 
+    "PGY-6": loadSchedule("PGY-6")
+  };
   const { toast } = useToast();
   
   if (!dateISO || !schedule || !setup) {
@@ -77,7 +82,9 @@ export default function HFEditDialog({
       selectedFellowId,
       actionScope,
       setup,
-      callSchedule
+      callSchedule,
+      schedByPGY,
+      fellows
     );
     
     if (!validation.isValid) {
