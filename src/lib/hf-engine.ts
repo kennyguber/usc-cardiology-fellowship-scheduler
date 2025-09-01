@@ -205,6 +205,7 @@ function isEligibleForHF(
   lastWeekendAssignment: Record<string, string | undefined>,
   lastHolidayAssignment: Record<string, string | undefined>,
   allHolidayBlocks: { startDate: Date; dates: Date[]; isJuly4Weekend: boolean }[],
+  schedule: HFSchedule,
   options: {
     isMandatory?: boolean;
     isHolidayWeekendOption?: boolean;
@@ -293,6 +294,34 @@ function isEligibleForHF(
   // Check for consecutive weekends (hard rule - never allow)
   if (isConsecutiveWithPreviousWeekend(weekendStart, lastWeekendAssignment, fellow.id)) {
     return { eligible: false, reason: "Cannot assign consecutive weekends" };
+  }
+  
+  // Also check if fellow has holiday coverage on consecutive weekends
+  const prevWeekend = new Date(weekendStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const nextWeekend = new Date(weekendStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const prevWeekendISO = toISODate(prevWeekend);
+  const nextWeekendISO = toISODate(nextWeekend);
+  
+  // Check if fellow is assigned to previous or next weekend via holiday assignments
+  for (const [blockStartISO, fellowAndDates] of Object.entries(schedule.holidays)) {
+    if (Array.isArray(fellowAndDates) && fellowAndDates.length > 1) {
+      const [holidayFellowId, ...blockDates] = fellowAndDates;
+      if (holidayFellowId === fellow.id) {
+        // Check if any dates in this holiday block fall on consecutive weekends
+        const blockHasConsecutiveWeekend = blockDates.some(dateISO => {
+          const date = parseISO(dateISO);
+          if (isWeekendDate(date)) {
+            const weekendStartDate = getWeekendStart(date);
+            const weekendStartDateISO = toISODate(weekendStartDate);
+            return weekendStartDateISO === prevWeekendISO || weekendStartDateISO === nextWeekendISO;
+          }
+          return false;
+        });
+        if (blockHasConsecutiveWeekend) {
+          return { eligible: false, reason: "Would create consecutive weeks with existing holiday assignment" };
+        }
+      }
+    }
   }
   
   // Check 14-day spacing between HF assignments (can be relaxed in emergency pass)
@@ -586,6 +615,7 @@ export function buildHFSchedule(options: {
         lastWeekendAssignment,
         {},  // No holiday assignments to consider since we're not auto-assigning them
         allHolidayBlocks,
+        schedule,
         { 
           isMandatory: true, 
           isHolidayWeekendOption: false
@@ -644,6 +674,7 @@ export function buildHFSchedule(options: {
           lastWeekendAssignment, // Always use actual assignments for consecutive check
           {},  // No holiday assignments to consider since we're not auto-assigning them
           allHolidayBlocks,
+          schedule,
           {
             isMandatory: false,
             isHolidayWeekendOption: false,
@@ -744,6 +775,7 @@ export function buildHFSchedule(options: {
         lastWeekendAssignment,
         {},
         allHolidayBlocks,
+        schedule,
         {
           isMandatory: false,
           isHolidayWeekendOption: false,
@@ -907,6 +939,8 @@ export function analyzeHFSchedule(schedule: HFSchedule, fellows: Fellow[], setup
     weekendCount: number;
     holidayDayCount: number;
     effectiveWeekendCount: number; // includes fractional weekends from day overrides
+    avgGapDays: number | null;
+    minGapDays: number | null;
   }>;
   uncoveredWeekends: string[];
   uncoveredHolidays: string[];
@@ -915,6 +949,8 @@ export function analyzeHFSchedule(schedule: HFSchedule, fellows: Fellow[], setup
     weekendCount: number;
     holidayDayCount: number;
     effectiveWeekendCount: number;
+    avgGapDays: number | null;
+    minGapDays: number | null;
   }> = {};
   
   // Initialize stats
@@ -922,7 +958,9 @@ export function analyzeHFSchedule(schedule: HFSchedule, fellows: Fellow[], setup
     fellowStats[fellow.id] = {
       weekendCount: 0,
       holidayDayCount: 0,
-      effectiveWeekendCount: 0
+      effectiveWeekendCount: 0,
+      avgGapDays: null,
+      minGapDays: null
     };
   }
   
@@ -969,10 +1007,17 @@ export function analyzeHFSchedule(schedule: HFSchedule, fellows: Fellow[], setup
     current = addDays(current, 1);
   }
   
+  // Track fellow weekend assignments for gap calculation
+  const fellowWeekendAssignments: Record<string, Date[]> = {};
+  for (const fellow of fellows) {
+    fellowWeekendAssignments[fellow.id] = [];
+  }
+  
   // Calculate weekend counts and coverage
   for (const weekend of allWeekends) {
     const weekendStartISO = toISODate(weekend);
     const assignedFellows = weekendTracker[weekendStartISO] || new Set();
+    const isHolidayWeekendFlag = isHolidayWeekend(weekend, allHolidayBlocks);
     
     if (assignedFellows.size === 0) {
       uncoveredWeekends.push(weekendStartISO);
@@ -989,12 +1034,35 @@ export function analyzeHFSchedule(schedule: HFSchedule, fellows: Fellow[], setup
           }).length;
           
           if (daysCovered === 2) {
-            fellowStats[fellowId].weekendCount++;
+            // Only count as non-holiday weekend if it's not a holiday weekend
+            if (!isHolidayWeekendFlag) {
+              fellowStats[fellowId].weekendCount++;
+              fellowWeekendAssignments[fellowId].push(weekend);
+            }
             fellowStats[fellowId].effectiveWeekendCount++;
           } else if (daysCovered === 1) {
             fellowStats[fellowId].effectiveWeekendCount += 0.5;
           }
         }
+      }
+    }
+  }
+  
+  // Calculate gap statistics for each fellow based on non-holiday weekends only
+  for (const fellow of fellows) {
+    const weekends = fellowWeekendAssignments[fellow.id];
+    if (weekends.length > 1) {
+      weekends.sort((a, b) => a.getTime() - b.getTime());
+      const gaps: number[] = [];
+      
+      for (let i = 1; i < weekends.length; i++) {
+        const gapDays = Math.floor((weekends[i].getTime() - weekends[i-1].getTime()) / (1000 * 60 * 60 * 24));
+        gaps.push(gapDays);
+      }
+      
+      if (gaps.length > 0) {
+        fellowStats[fellow.id].avgGapDays = Math.round(gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length);
+        fellowStats[fellow.id].minGapDays = Math.min(...gaps);
       }
     }
   }
