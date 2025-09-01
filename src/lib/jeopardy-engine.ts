@@ -587,6 +587,185 @@ export function getEligibleJeopardyFellows(dateISO: string): Fellow[] {
 }
 
 // Get reasons why fellows are ineligible
+// Get the jeopardy block for a specific date
+export function getJeopardyBlockForDate(dateISO: string): JeopardyBlock | null {
+  const setup = loadSetup();
+  if (!setup) return null;
+  
+  const blocks = generateJeopardyBlocks(setup.yearStart, setup);
+  return blocks.find(block => block.dates.includes(dateISO)) || null;
+}
+
+// Get eligible fellows for a jeopardy block (all dates in the block)
+export function getEligibleJeopardyFellowsForBlock(block: JeopardyBlock): Fellow[] {
+  const setup = loadSetup();
+  const primarySchedule = loadCallSchedule();
+  
+  if (!setup || !primarySchedule) return [];
+  
+  const schedByPGY: Record<PGY, StoredSchedule | null> = {
+    "PGY-4": loadSchedule("PGY-4"),
+    "PGY-5": loadSchedule("PGY-5"),
+    "PGY-6": loadSchedule("PGY-6"),
+  };
+  
+  return setup.fellows.filter(fellow => 
+    isEligibleForBlock(fellow, block, setup, schedByPGY, primarySchedule)
+  );
+}
+
+// Get ineligible reasons for a jeopardy block
+export function getIneligibleJeopardyReasonsForBlock(block: JeopardyBlock): Array<{ fellow: Fellow; reasons: string[] }> {
+  const setup = loadSetup();
+  const primarySchedule = loadCallSchedule();
+  
+  if (!setup || !primarySchedule) return [];
+  
+  const schedByPGY: Record<PGY, StoredSchedule | null> = {
+    "PGY-4": loadSchedule("PGY-4"),
+    "PGY-5": loadSchedule("PGY-5"),
+    "PGY-6": loadSchedule("PGY-6"),
+  };
+  
+  const result: Array<{ fellow: Fellow; reasons: string[] }> = [];
+  
+  for (const fellow of setup.fellows) {
+    const reasons: string[] = [];
+    
+    // Check each date in the block
+    for (const dateISO of block.dates) {
+      const date = parseISO(dateISO);
+      
+      // Check PGY restrictions
+      if (block.type === "holiday" && fellow.pgy === "PGY-4") {
+        reasons.push("PGY-4s cannot be assigned holiday jeopardy");
+        break; // Only need to add this reason once
+      }
+      
+      // Check rotation eligibility
+      const rotation = getRotationOnDate(fellow, date, schedByPGY);
+      if (rotation && !["Ward", "ICU", "CCU", "CVICU"].includes(rotation)) {
+        reasons.push(`On ${rotation} rotation on ${dateISO}`);
+      }
+      
+      // Check post-call spacing
+      if (hasPostCallConflict(fellow, date, primarySchedule)) {
+        reasons.push(`Within 2 days of primary call on ${dateISO}`);
+      }
+      
+      // Check HF weekend conflicts
+      if (hasHFWeekendConflict(fellow, [dateISO])) {
+        reasons.push(`HF weekend conflict on ${dateISO}`);
+      }
+    }
+    
+    if (reasons.length > 0) {
+      result.push({ fellow, reasons });
+    }
+  }
+  
+  return result;
+}
+
+// Extended apply function that can handle scoped assignments
+export function applyJeopardyAssignmentScoped(
+  schedule: JeopardySchedule, 
+  dateISO: string, 
+  fellowId: string | null, 
+  scope: "single" | "block" = "single"
+): { success: boolean; schedule?: JeopardySchedule; error?: string } {
+  if (scope === "single") {
+    return applyJeopardyAssignment(schedule, dateISO, fellowId);
+  }
+  
+  const block = getJeopardyBlockForDate(dateISO);
+  if (!block) {
+    return { success: false, error: "No block found for this date" };
+  }
+  
+  const setup = loadSetup();
+  const primarySchedule = loadCallSchedule();
+  
+  if (!setup || !primarySchedule) {
+    return { success: false, error: "Setup or primary schedule not available" };
+  }
+  
+  const newSchedule = {
+    ...schedule,
+    days: { ...schedule.days },
+    countsByFellow: { ...schedule.countsByFellow },
+    weekdayCountsByFellow: { ...schedule.weekdayCountsByFellow },
+    weekendCountsByFellow: { ...schedule.weekendCountsByFellow },
+    holidayCountsByFellow: { ...schedule.holidayCountsByFellow },
+  };
+  
+  // Remove old assignments for all dates in the block
+  for (const blockDateISO of block.dates) {
+    const oldFellowId = schedule.days[blockDateISO];
+    if (oldFellowId) {
+      newSchedule.countsByFellow[oldFellowId] = Math.max(0, (newSchedule.countsByFellow[oldFellowId] || 0) - 1);
+      
+      const date = parseISO(blockDateISO);
+      const isWeekend = isWeekendDate(date);
+      const isHoliday = isHolidayDate(blockDateISO, setup);
+      
+      if (isHoliday) {
+        newSchedule.holidayCountsByFellow[oldFellowId] = Math.max(0, (newSchedule.holidayCountsByFellow[oldFellowId] || 0) - 1);
+      } else if (isWeekend) {
+        newSchedule.weekendCountsByFellow[oldFellowId] = Math.max(0, (newSchedule.weekendCountsByFellow[oldFellowId] || 0) - 1);
+      } else {
+        newSchedule.weekdayCountsByFellow[oldFellowId] = Math.max(0, (newSchedule.weekdayCountsByFellow[oldFellowId] || 0) - 1);
+      }
+      
+      delete newSchedule.days[blockDateISO];
+    }
+  }
+  
+  if (fellowId === null) {
+    // Clear all assignments in the block
+    return { success: true, schedule: newSchedule };
+  }
+  
+  // Add new assignments for all dates in the block
+  const fellow = setup.fellows.find(f => f.id === fellowId);
+  if (!fellow) {
+    return { success: false, error: "Fellow not found" };
+  }
+  
+  // Validate assignment for the entire block
+  const schedByPGY: Record<PGY, StoredSchedule | null> = {
+    "PGY-4": loadSchedule("PGY-4"),
+    "PGY-5": loadSchedule("PGY-5"),
+    "PGY-6": loadSchedule("PGY-6"),
+  };
+  
+  if (!isEligibleForBlock(fellow, block, setup, schedByPGY, primarySchedule)) {
+    return { success: false, error: "Fellow not eligible for this block" };
+  }
+  
+  if (wouldCreateConsecutiveConflict(fellow, block, newSchedule.days)) {
+    return { success: false, error: "Would create consecutive jeopardy assignment" };
+  }
+  
+  // Apply assignments for all dates in the block
+  for (const blockDateISO of block.dates) {
+    newSchedule.days[blockDateISO] = fellowId;
+  }
+  
+  // Update counts based on block type and size
+  newSchedule.countsByFellow[fellowId] = (newSchedule.countsByFellow[fellowId] || 0) + block.dayCount;
+  
+  if (block.type === "holiday") {
+    newSchedule.holidayCountsByFellow[fellowId] = (newSchedule.holidayCountsByFellow[fellowId] || 0) + block.dayCount;
+  } else if (block.type === "weekend") {
+    newSchedule.weekendCountsByFellow[fellowId] = (newSchedule.weekendCountsByFellow[fellowId] || 0) + block.dayCount;
+  } else {
+    newSchedule.weekdayCountsByFellow[fellowId] = (newSchedule.weekdayCountsByFellow[fellowId] || 0) + block.dayCount;
+  }
+  
+  return { success: true, schedule: newSchedule };
+}
+
 export function getIneligibleJeopardyReasons(dateISO: string): Array<{ fellow: Fellow; reasons: string[] }> {
   const setup = loadSetup();
   const primarySchedule = loadCallSchedule();

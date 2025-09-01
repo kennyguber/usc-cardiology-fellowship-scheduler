@@ -697,13 +697,14 @@ export default function CallSchedule() {
             {(() => {
               const jeopardyId = jeopardySchedule?.days?.[iso];
               if (jeopardyId) {
+                const jeopardyRot = rotationOnDate(jeopardyId, d);
                 return (
                   <Badge 
                     variant={fellowColorById[jeopardyId]} 
                     className="cursor-pointer hover:opacity-80"
                     onClick={() => setJeopardyEditISO(iso)}
                   >
-                    {fellowById[jeopardyId]?.name ?? jeopardyId}
+                    {fellowById[jeopardyId]?.name ?? jeopardyId}{jeopardyRot ? ` (${jeopardyRot})` : ""}
                   </Badge>
                 );
               }
@@ -737,13 +738,14 @@ export default function CallSchedule() {
                   return false;
                 })();
                 
+                const hfRot = rotationOnDate(effectiveAssignment, d);
                 return (
                   <Badge 
                     variant={fellowColorById[effectiveAssignment]} 
                     className={`cursor-pointer hover:opacity-80 ${isHoliday ? "bg-red-100 text-red-800 border-red-300" : "bg-orange-100 text-orange-800 border-orange-300"}`}
                     onClick={() => setHFEditISO(iso)}
                   >
-                    {fellowById[effectiveAssignment]?.name ?? effectiveAssignment} {isHoliday ? "(Holiday)" : ""}
+                    {fellowById[effectiveAssignment]?.name ?? effectiveAssignment}{hfRot ? ` (${hfRot})` : ""} {isHoliday ? "(Holiday)" : ""}
                   </Badge>
                 );
               }

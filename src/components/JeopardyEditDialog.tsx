@@ -3,10 +3,20 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { loadSetup } from "@/lib/schedule-engine";
-import { applyJeopardyAssignment, getEligibleJeopardyFellows, getIneligibleJeopardyReasons, type JeopardySchedule } from "@/lib/jeopardy-engine";
+import { 
+  applyJeopardyAssignmentScoped, 
+  getEligibleJeopardyFellows, 
+  getEligibleJeopardyFellowsForBlock,
+  getIneligibleJeopardyReasons, 
+  getIneligibleJeopardyReasonsForBlock,
+  getJeopardyBlockForDate,
+  type JeopardySchedule 
+} from "@/lib/jeopardy-engine";
 
 type JeopardyEditDialogProps = {
   iso: string | null;
@@ -18,13 +28,22 @@ type JeopardyEditDialogProps = {
 
 export default function JeopardyEditDialog({ iso, schedule, open, onClose, onApply }: JeopardyEditDialogProps) {
   const [showIneligible, setShowIneligible] = useState(false);
+  const [actionScope, setActionScope] = useState<"single" | "block">("single");
   const { toast } = useToast();
   
   const setup = loadSetup();
   const fellowById = setup ? Object.fromEntries(setup.fellows.map(f => [f.id, f])) : {};
   
-  const eligible = iso ? getEligibleJeopardyFellows(iso) : [];
-  const ineligible = iso ? getIneligibleJeopardyReasons(iso) : [];
+  const jeopardyBlock = iso ? getJeopardyBlockForDate(iso) : null;
+  const blockLabel = jeopardyBlock ? 
+    (jeopardyBlock.type === "holiday" ? `Holiday Block (${jeopardyBlock.dayCount} days)` :
+     jeopardyBlock.type === "weekend" ? `Weekend Block (${jeopardyBlock.dayCount} days)` :
+     "Single Day") : "Single Day";
+  
+  const eligible = iso ? 
+    (actionScope === "block" && jeopardyBlock ? getEligibleJeopardyFellowsForBlock(jeopardyBlock) : getEligibleJeopardyFellows(iso)) : [];
+  const ineligible = iso ? 
+    (actionScope === "block" && jeopardyBlock ? getIneligibleJeopardyReasonsForBlock(jeopardyBlock) : getIneligibleJeopardyReasons(iso)) : [];
   
   const currentAssignment = iso && schedule ? schedule.days[iso] : null;
   const currentFellow = currentAssignment ? fellowById[currentAssignment] : null;
@@ -32,14 +51,15 @@ export default function JeopardyEditDialog({ iso, schedule, open, onClose, onApp
   const handleAssign = (fid: string | null) => {
     if (!iso || !schedule) return;
     
-    const result = applyJeopardyAssignment(schedule, iso, fid);
+    const result = applyJeopardyAssignmentScoped(schedule, iso, fid, actionScope);
     if (result.success && result.schedule) {
       onApply(result.schedule);
+      const scopeText = actionScope === "block" && jeopardyBlock ? ` (${blockLabel})` : "";
       toast({
         title: fid ? "Jeopardy assignment updated" : "Jeopardy assignment cleared",
         description: fid 
-          ? `${fellowById[fid]?.name} assigned to jeopardy on ${iso}`
-          : `Jeopardy assignment cleared for ${iso}`,
+          ? `${fellowById[fid]?.name} assigned to jeopardy on ${iso}${scopeText}`
+          : `Jeopardy assignment cleared for ${iso}${scopeText}`,
       });
     } else {
       toast({
@@ -70,6 +90,23 @@ export default function JeopardyEditDialog({ iso, schedule, open, onClose, onApp
         </DialogHeader>
         
         <div className="space-y-6">
+          {/* Action Scope */}
+          {jeopardyBlock && jeopardyBlock.dayCount > 1 && (
+            <div>
+              <h3 className="font-medium mb-3">Action Scope</h3>
+              <RadioGroup value={actionScope} onValueChange={(value) => setActionScope(value as "single" | "block")}>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="single" id="single" />
+                  <Label htmlFor="single">Single Day Only</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="block" id="block" />
+                  <Label htmlFor="block">{blockLabel}</Label>
+                </div>
+              </RadioGroup>
+            </div>
+          )}
+
           {/* Current Assignment */}
           <div>
             <h3 className="font-medium mb-2">Current Assignment</h3>
