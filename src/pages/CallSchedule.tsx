@@ -684,10 +684,45 @@ export default function CallSchedule() {
   const weekend = isWeekend(new Date(m.year, m.month, day));
   const cellBg = hol ? "bg-[hsl(var(--holiday))]" : weekend ? "bg-muted/70" : "bg-card";
   const rot = rotationOnDate(fid, new Date(m.year, m.month, day));
+  
+  // Get HF assignment for this date
+  const hfAssignment = hfSchedule ? getEffectiveHFAssignment(iso, hfSchedule) : null;
+  const hfFellow = hfAssignment ? fellowById[hfAssignment] : null;
+  const hfLastName = hfFellow ? lastNameOf(hfFellow.name) : null;
+  
+  // Show HF assignment on weekends and holidays
+  const showHF = (weekend || hol) && hfSchedule;
+  
   return (
-    <DroppableCalendarDay key={iso} id={iso} className={`h-20 rounded-md border ${cellBg} p-2 text-xs`}>
+    <DroppableCalendarDay key={iso} id={iso} className={`h-20 rounded-md border ${cellBg} p-2 text-xs relative`}>
       <div className="font-medium">{day}</div>
       {hol && <div className="text-[0.65rem] text-red-600 truncate">{hol}</div>}
+      
+      {/* HF designation in top-right corner */}
+      {showHF && (
+        <div className="absolute top-1 right-1">
+          {hfAssignment ? (
+            <Badge 
+              variant="outline" 
+              className="text-[0.5rem] px-1 py-0 h-4 cursor-pointer hover:bg-primary/10" 
+              onClick={() => setHFEditISO(iso)}
+            >
+              HF:{hfLastName}
+            </Badge>
+          ) : (
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="text-[0.5rem] h-4 px-1 py-0 text-muted-foreground hover:text-primary" 
+              onClick={() => setHFEditISO(iso)}
+            >
+              HF:?
+            </Button>
+          )}
+        </div>
+      )}
+      
+      {/* Primary call assignment */}
       {schedule && fid ? (
         <div className="mt-1">
           <DraggableBadge
