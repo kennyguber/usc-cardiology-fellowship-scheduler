@@ -9,12 +9,14 @@ import { Badge } from "@/components/ui/badge";
 import { useSEO } from "@/lib/seo";
 import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, applyDragAndDrop, type CallSchedule } from "@/lib/call-engine";
 import { buildHFSchedule, loadHFSchedule, saveHFSchedule, clearHFSchedule, getEffectiveHFAssignment, type HFSchedule } from "@/lib/hf-engine";
+import { buildJeopardySchedule, loadJeopardySchedule, saveJeopardySchedule, clearJeopardySchedule, type JeopardySchedule } from "@/lib/jeopardy-engine";
 import { loadSchedule, loadSetup, type PGY, type StoredSchedule } from "@/lib/schedule-engine";
 import { computeAcademicYearHolidays } from "@/lib/holidays";
 import { monthAbbrForIndex } from "@/lib/block-utils";
 import { parseISO } from "date-fns";
 import PrimaryCallEditDialog from "@/components/PrimaryCallEditDialog";
 import HFEditDialog from "@/components/HFEditDialog";
+import JeopardyEditDialog from "@/components/JeopardyEditDialog";
 import { DraggableBadge } from "@/components/DraggableBadge";
 import { DroppableCell } from "@/components/DroppableCell";
 import { DroppableCalendarDay } from "@/components/DroppableCalendarDay";
@@ -56,6 +58,15 @@ export default function CallSchedule() {
   const [uncoveredHolidays, setUncoveredHolidays] = useState<string[]>([]);
   const [hfSuccess, setHFSuccess] = useState<boolean | null>(null);
   
+  // Jeopardy Edit Dialog state
+  const [jeopardyEditISO, setJeopardyEditISO] = useState<string | null>(null);
+  
+  // Jeopardy Schedule state
+  const [jeopardySchedule, setJeopardySchedule] = useState<JeopardySchedule | null>(null);
+  const [jeopardyLoading, setJeopardyLoading] = useState(false);
+  const [uncoveredJeopardy, setUncoveredJeopardy] = useState<string[]>([]);
+  const [jeopardySuccess, setJeopardySuccess] = useState<boolean | null>(null);
+  
   const { toast } = useToast();
   const sensors = useSensors(useSensor(PointerSensor, {
     activationConstraint: {
@@ -85,6 +96,9 @@ export default function CallSchedule() {
     
     const existingHF = loadHFSchedule();
     if (existingHF) setHFSchedule(existingHF);
+    
+    const existingJeopardy = loadJeopardySchedule();
+    if (existingJeopardy) setJeopardySchedule(existingJeopardy);
   }, []);
 
   useEffect(() => {
@@ -320,6 +334,47 @@ export default function CallSchedule() {
     });
   };
 
+  const handleGenerateJeopardy = async () => {
+    setJeopardyLoading(true);
+    try {
+      const result = buildJeopardySchedule();
+      setJeopardySchedule(result.schedule);
+      setUncoveredJeopardy(result.uncovered);
+      setJeopardySuccess(result.success);
+      saveJeopardySchedule(result.schedule);
+      
+      toast({
+        title: result.success ? "Jeopardy schedule generated" : "Jeopardy schedule partially generated",
+        description: result.success 
+          ? "All jeopardy assignments completed successfully." 
+          : `${result.uncovered.length} days could not be assigned. Check constraints.`,
+        variant: result.success ? "default" : "destructive",
+      });
+    } finally {
+      setJeopardyLoading(false);
+    }
+  };
+
+  const handleClearJeopardy = () => {
+    setJeopardySchedule(null);
+    setUncoveredJeopardy([]);
+    setJeopardySuccess(null);
+    clearJeopardySchedule();
+    toast({
+      title: "Jeopardy schedule cleared",
+      description: "All jeopardy assignments have been reset.",
+    });
+  };
+
+  const handleJeopardyScheduleUpdate = (newSchedule: JeopardySchedule) => {
+    setJeopardySchedule(newSchedule);
+    saveJeopardySchedule(newSchedule);
+    toast({
+      title: "Jeopardy assignment updated",
+      description: "Jeopardy assignment has been updated.",
+    });
+  };
+
   const handleDragStart = (event: DragStartEvent) => {
     const { active } = event;
     const [iso, fellowId] = (active.id as string).split('|');
@@ -381,6 +436,12 @@ export default function CallSchedule() {
             <Button variant="outline" onClick={handleClearHF} disabled={hfLoading} size="sm">
               Clear HF
             </Button>
+            <Button onClick={handleGenerateJeopardy} disabled={jeopardyLoading || !setup || !schedule} variant="secondary">
+              {jeopardyLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />} Generate Jeopardy
+            </Button>
+            <Button variant="outline" onClick={handleClearJeopardy} disabled={jeopardyLoading} size="sm">
+              Clear Jeopardy
+            </Button>
           </div>
         </header>
         <div className="ecg-trace-static mt-2 mb-6" />
@@ -436,6 +497,30 @@ export default function CallSchedule() {
                       <div className="text-xs text-muted-foreground">Uncovered holidays</div>
                       <div className={`font-medium ${uncoveredHolidays.length ? "text-destructive" : "text-primary"}`}>
                         {uncoveredHolidays.length}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Jeopardy Schedule Summary */}
+                {jeopardySchedule && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4 border-t">
+                    <div>
+                      <div className="text-xs text-muted-foreground">Jeopardy days</div>
+                      <div className="font-medium">{Object.keys(jeopardySchedule.days).length}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Weekdays</div>
+                      <div className="font-medium">{Object.values(jeopardySchedule.weekdayCountsByFellow).reduce((a, b) => a + b, 0)}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Weekends</div>
+                      <div className="font-medium">{Object.values(jeopardySchedule.weekendCountsByFellow).reduce((a, b) => a + b, 0)}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Uncovered</div>
+                      <div className={`font-medium ${uncoveredJeopardy.length ? "text-destructive" : "text-primary"}`}>
+                        {uncoveredJeopardy.length}
                       </div>
                     </div>
                   </div>
@@ -585,7 +670,32 @@ export default function CallSchedule() {
               fid ? <Badge variant={fellowColorById[fid]}>{primaryName}</Badge> : "—"
             )}
           </DroppableCell>
-          <TableCell>—</TableCell>
+          <TableCell>
+            {(() => {
+              const jeopardyId = jeopardySchedule?.days?.[iso];
+              if (jeopardyId) {
+                return (
+                  <Badge 
+                    variant={fellowColorById[jeopardyId]} 
+                    className="cursor-pointer hover:opacity-80"
+                    onClick={() => setJeopardyEditISO(iso)}
+                  >
+                    {fellowById[jeopardyId]?.name ?? jeopardyId}
+                  </Badge>
+                );
+              }
+              return (
+                <Button 
+                  variant="link" 
+                  size="sm" 
+                  className="text-xs h-auto p-0"
+                  onClick={() => setJeopardyEditISO(iso)}
+                >
+                  Assign
+                </Button>
+              );
+            })()}
+          </TableCell>
           <TableCell>
             {(() => {
               // Get effective HF assignment (considering day overrides)
@@ -779,6 +889,16 @@ export default function CallSchedule() {
                   fellows={fellows}
                   schedule={hfSchedule}
                   onUpdate={handleHFScheduleUpdate}
+                />
+              )}
+              
+              {jeopardyEditISO && (
+                <JeopardyEditDialog
+                  iso={jeopardyEditISO}
+                  schedule={jeopardySchedule}
+                  open={true}
+                  onClose={() => setJeopardyEditISO(null)}
+                  onApply={handleJeopardyScheduleUpdate}
                 />
               )}
               </>
