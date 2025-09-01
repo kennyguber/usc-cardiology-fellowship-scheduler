@@ -11,9 +11,12 @@ import {
   assignHFCoverage, 
   clearHFCoverage,
   analyzeHFSchedule,
+  validateManualHFAssignment,
   type HFSchedule 
 } from "@/lib/hf-engine";
 import { loadSetup, type Fellow, type SetupState } from "@/lib/schedule-engine";
+import { loadCallSchedule } from "@/lib/call-engine";
+import { useToast } from "@/hooks/use-toast";
 
 interface Props {
   open: boolean;
@@ -36,6 +39,8 @@ export default function HFEditDialog({
   const [actionScope, setActionScope] = useState<'day' | 'block'>('block');
   
   const setup = loadSetup();
+  const callSchedule = loadCallSchedule();
+  const { toast } = useToast();
   
   if (!dateISO || !schedule || !setup) {
     return null;
@@ -65,6 +70,24 @@ export default function HFEditDialog({
   
   const handleAssign = () => {
     if (!selectedFellowId) return;
+    
+    // Validate the assignment
+    const validation = validateManualHFAssignment(
+      dateISO,
+      selectedFellowId,
+      actionScope,
+      setup,
+      callSchedule
+    );
+    
+    if (!validation.isValid) {
+      toast({
+        variant: "destructive",
+        title: "Invalid Assignment",
+        description: validation.reason,
+      });
+      return;
+    }
     
     const newSchedule = assignHFCoverage(
       dateISO, 

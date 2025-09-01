@@ -934,6 +934,45 @@ export function clearHFCoverage(
   return assignHFCoverage(dateISO, null, targetScope, schedule, setup);
 }
 
+export function validateManualHFAssignment(
+  dateISO: string,
+  fellowId: string,
+  targetScope: 'day' | 'block',
+  setup: SetupState,
+  callSchedule: any // CallSchedule from call-engine
+): { isValid: boolean; reason?: string } {
+  if (!callSchedule) {
+    return { isValid: true }; // If no call schedule, allow assignment
+  }
+
+  const targetDates = targetScope === 'block' 
+    ? getBlockDatesForDate(dateISO, setup)
+    : [dateISO];
+
+  // Check all dates in the assignment block
+  for (const targetDateISO of targetDates) {
+    // Check if fellow is on primary call on this date
+    if (callSchedule.days[targetDateISO] === fellowId) {
+      return { 
+        isValid: false, 
+        reason: `Fellow is on primary call on ${format(parseISO(targetDateISO), "MMM d")}`
+      };
+    }
+
+    // Check if fellow is on primary call the day before
+    const dayBefore = addDays(parseISO(targetDateISO), -1);
+    const dayBeforeISO = toISODate(dayBefore);
+    if (callSchedule.days[dayBeforeISO] === fellowId) {
+      return { 
+        isValid: false, 
+        reason: `Fellow is on primary call the day before ${format(parseISO(targetDateISO), "MMM d")}`
+      };
+    }
+  }
+
+  return { isValid: true };
+}
+
 export function analyzeHFSchedule(schedule: HFSchedule, fellows: Fellow[], setup: SetupState): {
   fellowStats: Record<string, {
     weekendCount: number;
