@@ -24,12 +24,40 @@ export type JeopardyBlock = {
 
 const JEOPARDY_STORAGE_KEY = "cfsa_jeopardy_v1" as const;
 
-// Annual quota limits by PGY
+// Annual quota limits by PGY (base quotas)
 const JEOPARDY_QUOTAS: Record<PGY, { weekday: number; weekend: number; holiday: number; total: number }> = {
   "PGY-4": { weekday: 5, weekend: 2, holiday: 0, total: 7 },
   "PGY-5": { weekday: 15, weekend: 13, holiday: 0, total: 28 },
   "PGY-6": { weekday: 32, weekend: 8, holiday: 0, total: 40 },
 };
+
+// Calculate dynamic quotas based on total holiday coverage needed
+function calculateDynamicQuotas(yearStartISO: string, setup: SetupState): Record<PGY, { weekday: number; weekend: number; holiday: number; total: number }> {
+  const baseQuotas = { ...JEOPARDY_QUOTAS };
+  
+  // Count total holiday days that need coverage
+  const holidays = setup.holidays?.length ? setup.holidays : computeAcademicYearHolidays(yearStartISO);
+  const holidayBlocks = generateHolidayBlocks(holidays);
+  const totalHolidayDays = holidayBlocks.reduce((sum, block) => sum + block.dayCount, 0);
+  
+  // Count PGY-5 fellows (only they can cover holidays)
+  const pgy5Fellows = setup.fellows.filter(f => f.pgy === "PGY-5");
+  const numPGY5 = pgy5Fellows.length;
+  
+  if (numPGY5 > 0 && totalHolidayDays > 0) {
+    // Calculate fair distribution: each PGY-5 should get roughly equal holiday coverage
+    const holidayQuotaPerPGY5 = Math.ceil(totalHolidayDays / numPGY5);
+    
+    // Update PGY-5 quotas to ensure all holidays can be covered
+    baseQuotas["PGY-5"] = {
+      ...baseQuotas["PGY-5"],
+      holiday: holidayQuotaPerPGY5,
+      total: baseQuotas["PGY-5"].weekday + baseQuotas["PGY-5"].weekend + holidayQuotaPerPGY5
+    };
+  }
+  
+  return baseQuotas;
+}
 
 function toISODate(d: Date): string {
   return format(d, "yyyy-MM-dd");
@@ -305,9 +333,9 @@ function wouldCreateConsecutiveConflict(fellow: Fellow, block: JeopardyBlock, cu
   return false;
 }
 
-// Check quota limits
-function isWithinQuotaLimits(fellow: Fellow, block: JeopardyBlock, currentCounts: Record<string, { weekday: number; weekend: number; holiday: number; total: number }>): boolean {
-  const quota = JEOPARDY_QUOTAS[fellow.pgy];
+// Check quota limits with dynamic quotas
+function isWithinQuotaLimits(fellow: Fellow, block: JeopardyBlock, currentCounts: Record<string, { weekday: number; weekend: number; holiday: number; total: number }>, dynamicQuotas: Record<PGY, { weekday: number; weekend: number; holiday: number; total: number }>): boolean {
+  const quota = dynamicQuotas[fellow.pgy];
   const counts = currentCounts[fellow.id] || { weekday: 0, weekend: 0, holiday: 0, total: 0 };
   
   if (block.type === "weekday") {
@@ -319,26 +347,38 @@ function isWithinQuotaLimits(fellow: Fellow, block: JeopardyBlock, currentCounts
   }
 }
 
-// Weighted selection based on current assignment counts
-function selectFellowWeighted(fellows: Fellow[], currentCounts: Record<string, { weekday: number; weekend: number; holiday: number; total: number }>): Fellow | null {
+// Fairness-aware selection algorithm that considers normalized utilization and distribution
+function selectFellowFair(
+  fellows: Fellow[], 
+  currentCounts: Record<string, { weekday: number; weekend: number; holiday: number; total: number }>,
+  dynamicQuotas: Record<PGY, { weekday: number; weekend: number; holiday: number; total: number }>,
+  lastAssignedDate: Record<string, string>
+): Fellow | null {
   if (fellows.length === 0) return null;
   
-  const weights = fellows.map(fellow => {
+  // Calculate scores for each fellow based on fairness metrics
+  const fellowScores = fellows.map(fellow => {
     const counts = currentCounts[fellow.id] || { weekday: 0, weekend: 0, holiday: 0, total: 0 };
-    // Prefer fellows with fewer total assignments
-    return 1 / (counts.total + 1);
+    const quota = dynamicQuotas[fellow.pgy];
+    const lastAssigned = lastAssignedDate[fellow.id];
+    
+    // Normalize utilization by PGY quota to ensure fairness across different PGY levels
+    const normalizedUtilization = quota.total > 0 ? counts.total / quota.total : 0;
+    
+    // Calculate days since last assignment (higher = better)
+    const daysSinceLastAssignment = lastAssigned ? 
+      Math.max(0, differenceInCalendarDays(new Date(), parseISO(lastAssigned))) : 999;
+    
+    // Score: lower normalized utilization and longer time since last assignment = higher score
+    const score = (1 - normalizedUtilization) * 100 + daysSinceLastAssignment;
+    
+    return { fellow, score, normalizedUtilization, daysSinceLastAssignment };
   });
   
-  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
-  if (totalWeight === 0) return fellows[0];
+  // Sort by score (highest first) and select the best candidate
+  fellowScores.sort((a, b) => b.score - a.score);
   
-  let random = Math.random() * totalWeight;
-  for (let i = 0; i < fellows.length; i++) {
-    random -= weights[i];
-    if (random <= 0) return fellows[i];
-  }
-  
-  return fellows[fellows.length - 1];
+  return fellowScores[0].fellow;
 }
 
 export function buildJeopardySchedule(): { schedule: JeopardySchedule; success: boolean; uncovered: string[]; errors: string[] } {
@@ -368,6 +408,9 @@ export function buildJeopardySchedule(): { schedule: JeopardySchedule; success: 
     "PGY-6": loadSchedule("PGY-6"),
   };
   
+  // Calculate dynamic quotas based on holiday coverage needs
+  const dynamicQuotas = calculateDynamicQuotas(setup.yearStart, setup);
+  
   // Generate all jeopardy blocks
   const blocks = generateJeopardyBlocks(setup.yearStart, setup);
   
@@ -383,6 +426,7 @@ export function buildJeopardySchedule(): { schedule: JeopardySchedule; success: 
   
   const assignments: Record<string, string> = {};
   const currentCounts: Record<string, { weekday: number; weekend: number; holiday: number; total: number }> = {};
+  const lastAssignedDate: Record<string, string> = {};
   const uncovered: string[] = [];
   const errors: string[] = [];
   
@@ -395,17 +439,20 @@ export function buildJeopardySchedule(): { schedule: JeopardySchedule; success: 
   for (const block of sortedBlocks) {
     const eligibleFellows = setup.fellows.filter(fellow => 
       isEligibleForBlock(fellow, block, setup, schedByPGY, primarySchedule) &&
-      isWithinQuotaLimits(fellow, block, currentCounts) &&
+      isWithinQuotaLimits(fellow, block, currentCounts, dynamicQuotas) &&
       !wouldCreateConsecutiveConflict(fellow, block, assignments)
     );
     
-    const selectedFellow = selectFellowWeighted(eligibleFellows, currentCounts);
+    const selectedFellow = selectFellowFair(eligibleFellows, currentCounts, dynamicQuotas, lastAssignedDate);
     
     if (selectedFellow) {
       // Assign the entire block to this fellow
       for (const dateISO of block.dates) {
         assignments[dateISO] = selectedFellow.id;
       }
+      
+      // Update last assigned date tracker
+      lastAssignedDate[selectedFellow.id] = block.dates[block.dates.length - 1];
       
       // Update counts
       const counts = currentCounts[selectedFellow.id];
