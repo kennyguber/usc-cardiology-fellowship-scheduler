@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +38,31 @@ export default function JeopardyEditDialog({ iso, schedule, open, onClose, onApp
     "PGY-5": loadSchedule("PGY-5"),
     "PGY-6": loadSchedule("PGY-6"),
   };
+
+  // Calculate jeopardy statistics for each fellow
+  const fellowStats = useMemo(() => {
+    if (!schedule || !setup) return {};
+    
+    const stats: Record<string, { total: number; weekend: number; holiday: number }> = {};
+    
+    setup.fellows.forEach(fellow => {
+      stats[fellow.id] = { total: 0, weekend: 0, holiday: 0 };
+    });
+
+    Object.entries(schedule.days).forEach(([dateISO, fellowId]) => {
+      if (fellowId && stats[fellowId]) {
+        stats[fellowId].total++;
+        const date = new Date(dateISO + "T00:00:00");
+        if (setup.holidays?.some(h => h.date === dateISO)) {
+          stats[fellowId].holiday++;
+        } else if (date.getDay() === 0 || date.getDay() === 6) { // Sunday or Saturday
+          stats[fellowId].weekend++;
+        }
+      }
+    });
+
+    return stats;
+  }, [schedule, setup]);
 
   // Helper to get fellow's rotation on a specific date
   const getRotationOnDate = (fellowId: string, dateISO: string) => {
@@ -138,7 +163,12 @@ export default function JeopardyEditDialog({ iso, schedule, open, onClose, onApp
             {currentFellow ? (
               <div className="flex items-center gap-2">
                 <div className="flex flex-col">
-                  <Badge variant="secondary">{currentFellow.name} ({currentFellow.pgy})</Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary">{currentFellow.name} ({currentFellow.pgy})</Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {fellowStats[currentFellow.id]?.total || 0} Total / {fellowStats[currentFellow.id]?.weekend || 0} Weekend / {fellowStats[currentFellow.id]?.holiday || 0} Holiday
+                    </span>
+                  </div>
                   {(() => {
                     const rotation = getRotationOnDate(currentFellow.id, iso);
                     return rotation ? <span className="text-xs text-muted-foreground mt-1">On: {rotation}</span> : null;
@@ -166,7 +196,7 @@ export default function JeopardyEditDialog({ iso, schedule, open, onClose, onApp
                   <Button
                     key={fellow.id}
                     variant="outline"
-                    className="justify-start h-auto p-3"
+                    className="justify-between h-auto p-3"
                     onClick={() => handleAssign(fellow.id)}
                     disabled={fellow.id === currentAssignment}
                   >
@@ -177,6 +207,9 @@ export default function JeopardyEditDialog({ iso, schedule, open, onClose, onApp
                         const rotation = getRotationOnDate(fellow.id, iso);
                         return rotation ? <div className="text-xs text-muted-foreground">On: {rotation}</div> : null;
                       })()}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {fellowStats[fellow.id]?.total || 0} Total / {fellowStats[fellow.id]?.weekend || 0} Weekend / {fellowStats[fellow.id]?.holiday || 0} Holiday
                     </div>
                   </Button>
                 ))}
@@ -206,12 +239,17 @@ export default function JeopardyEditDialog({ iso, schedule, open, onClose, onApp
                   <div className="space-y-2">
                     {ineligible.map(({ fellow, reasons }) => (
                       <div key={fellow.id} className="border rounded p-3">
-                        <div className="font-medium text-sm">
-                          {fellow.name} ({fellow.pgy})
-                          {(() => {
-                            const rotation = getRotationOnDate(fellow.id, iso);
-                            return rotation ? <span className="font-normal text-muted-foreground"> - On: {rotation}</span> : null;
-                          })()}
+                        <div className="flex justify-between items-start mb-1">
+                          <div className="font-medium text-sm">
+                            {fellow.name} ({fellow.pgy})
+                            {(() => {
+                              const rotation = getRotationOnDate(fellow.id, iso);
+                              return rotation ? <span className="font-normal text-muted-foreground"> - On: {rotation}</span> : null;
+                            })()}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {fellowStats[fellow.id]?.total || 0} Total / {fellowStats[fellow.id]?.weekend || 0} Weekend / {fellowStats[fellow.id]?.holiday || 0} Holiday
+                          </div>
                         </div>
                         <div className="mt-1 space-y-1">
                           {reasons.map((reason, idx) => (
