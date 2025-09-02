@@ -563,14 +563,78 @@ export function buildHFSchedule(options: {
   const mandatoryMissed: string[] = [];
   const lastWeekendAssignment: Record<string, string | undefined> = {};
 
-  // Note: Holiday assignments are now left unassigned for manual assignment
-  // Mark all holidays as uncovered since they won't be auto-assigned
-  for (const holidayBlock of allHolidayBlocks) {
+  // Phase 0: Assign holiday blocks using fair distribution
+  for (const holidayBlock of shuffle([...allHolidayBlocks])) {
+    const blockDates = getHolidayBlock(holidayBlock.startDate, setup);
+    
+    // Find eligible fellows for this holiday block
+    const eligible: Fellow[] = [];
+    for (const fellow of fellows) {
+      const check = isEligibleForHolidayHF(
+        fellow,
+        holidayBlock,
+        setup,
+        schedByPGY,
+        primarySchedule,
+        lastWeekendAssignment
+      );
+      if (check.eligible) {
+        eligible.push(fellow);
+      }
+    }
+    
+    if (eligible.length === 0) {
+      // No one eligible, mark as uncovered
+      const blockStartISO = toISODate(holidayBlock.startDate);
+      uncoveredHolidays.push(blockStartISO);
+      continue;
+    }
+    
+    // Fair distribution: prioritize lowest holiday count, then overall count
+    eligible.sort((a, b) => {
+      const aHolidayCount = schedule.holidayCountsByFellow[a.id] || 0;
+      const bHolidayCount = schedule.holidayCountsByFellow[b.id] || 0;
+      
+      // Primary sort: lowest holiday count
+      if (aHolidayCount !== bHolidayCount) {
+        return aHolidayCount - bHolidayCount;
+      }
+      
+      // Secondary sort: lowest overall count
+      const aCount = schedule.countsByFellow[a.id] || 0;
+      const bCount = schedule.countsByFellow[b.id] || 0;
+      if (aCount !== bCount) {
+        return aCount - bCount;
+      }
+      
+      // Tertiary sort: name for consistency
+      return a.name.localeCompare(b.name);
+    });
+    
+    const selectedFellow = eligible[0];
+    
+    // Assign the entire holiday block
+    const blockDatesAsStrings = blockDates.map(d => toISODate(d));
     const blockStartISO = toISODate(holidayBlock.startDate);
-    uncoveredHolidays.push(blockStartISO);
+    schedule.holidays[blockStartISO] = [selectedFellow.id, ...blockDatesAsStrings];
+    
+    for (const date of blockDates) {
+      schedule.holidayCountsByFellow[selectedFellow.id]++;
+      
+      // If this date is a weekend, also mark it in weekends
+      if (date.getDay() === 0 || date.getDay() === 6) {
+        const weekendStart = getWeekendStart(date);
+        const weekendISO = toISODate(weekendStart);
+        if (!schedule.weekends[weekendISO]) {
+          schedule.weekends[weekendISO] = selectedFellow.id;
+          schedule.countsByFellow[selectedFellow.id]++;
+          lastWeekendAssignment[selectedFellow.id] = weekendISO;
+        }
+      }
+    }
   }
 
-  // Phase 1: Mandatory HF rotation assignments (ensure every fellow on HF gets exactly 1 non-holiday weekend per half-block)
+  // Phase 1: Mandatory HF rotation assignments (ensure every fellow on HF gets exactly 1 weekend per half-block, preferring non-holiday)
   const hfAssignmentTracker: Record<string, { assigned: boolean; blockKey: string; weekends: Date[]; fellow: Fellow }> = {};
   
   // Build tracker for all fellows on HF rotation (including PGY-6)
@@ -599,19 +663,24 @@ export function buildHFSchedule(options: {
     }
   }
   
-  // Assign one non-holiday weekend per HF half-block (holiday weekends left unassigned)
+  // Assign one weekend per HF half-block, preferring non-holiday weekends
   for (const [trackerId, tracker] of Object.entries(hfAssignmentTracker)) {
     const fellow = tracker.fellow;
     if (tracker.weekends.length === 0) continue;
     
-    // Only consider non-holiday weekends for mandatory assignments
+    // First try non-holiday weekends
     const nonHolidayWeekends = tracker.weekends.filter(weekend => 
       !isHolidayWeekend(weekend, allHolidayBlocks)
     );
     
+    // Then try holiday weekends if no non-holiday options
+    const holidayWeekends = tracker.weekends.filter(weekend => 
+      isHolidayWeekend(weekend, allHolidayBlocks)
+    );
+    
     let assigned = false;
     
-    // Try non-holiday weekends only (shuffled for randomization)
+    // Try non-holiday weekends first (shuffled for randomization)
     for (const weekend of shuffle([...nonHolidayWeekends])) {
       const weekendISO = toISODate(weekend);
       if (schedule.weekends[weekendISO]) continue; // Already assigned
@@ -624,7 +693,7 @@ export function buildHFSchedule(options: {
         primarySchedule, 
         schedule.countsByFellow, 
         lastWeekendAssignment,
-        {},  // No holiday assignments to consider since we're not auto-assigning them
+        {},
         allHolidayBlocks,
         schedule,
         { 
@@ -643,9 +712,43 @@ export function buildHFSchedule(options: {
       }
     }
     
-    // If no non-holiday weekend available, record as mandatory missed
+    // If no non-holiday weekend available, try holiday weekends
     if (!assigned) {
-      mandatoryMissed.push(`${fellow.name} (${fellow.pgy}): No non-holiday weekends available for mandatory HF assignment in block ${tracker.blockKey}`);
+      for (const weekend of shuffle([...holidayWeekends])) {
+        const weekendISO = toISODate(weekend);
+        if (schedule.weekends[weekendISO]) continue; // Already assigned
+        
+        const eligibilityCheck = isEligibleForHF(
+          fellow, 
+          weekend, 
+          setup, 
+          schedByPGY, 
+          primarySchedule, 
+          schedule.countsByFellow, 
+          lastWeekendAssignment,
+          {},
+          allHolidayBlocks,
+          schedule,
+          { 
+            isMandatory: true, 
+            isHolidayWeekendOption: true
+          }
+        );
+        
+        if (eligibilityCheck.eligible) {
+          schedule.weekends[weekendISO] = fellow.id;
+          schedule.countsByFellow[fellow.id]++;
+          lastWeekendAssignment[fellow.id] = weekendISO;
+          tracker.assigned = true;
+          assigned = true;
+          break;
+        }
+      }
+    }
+    
+    // If still no assignment possible, record as mandatory missed
+    if (!assigned) {
+      mandatoryMissed.push(`${fellow.name} (${fellow.pgy}): No weekends available for mandatory HF assignment in block ${tracker.blockKey}`);
     }
   }
 
@@ -820,7 +923,7 @@ export function buildHFSchedule(options: {
     schedule,
     uncovered,
     uncoveredHolidays,
-    success: uncovered.length === 0 && mandatoryMissed.length === 0, // Success based only on non-holiday weekends
+    success: uncovered.length === 0 && uncoveredHolidays.length === 0 && mandatoryMissed.length === 0,
     mandatoryMissed,
   };
 }
