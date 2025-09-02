@@ -7,7 +7,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { loadSetup } from "@/lib/schedule-engine";
+import { loadSetup, loadSchedule, type PGY, type StoredSchedule } from "@/lib/schedule-engine";
 import { 
   applyJeopardyAssignmentScoped, 
   getEligibleJeopardyFellows, 
@@ -33,6 +33,31 @@ export default function JeopardyEditDialog({ iso, schedule, open, onClose, onApp
   
   const setup = loadSetup();
   const fellowById = setup ? Object.fromEntries(setup.fellows.map(f => [f.id, f])) : {};
+  const schedByPGY: Record<PGY, StoredSchedule | null> = {
+    "PGY-4": loadSchedule("PGY-4"),
+    "PGY-5": loadSchedule("PGY-5"),
+    "PGY-6": loadSchedule("PGY-6"),
+  };
+
+  // Helper to get fellow's rotation on a specific date
+  const getRotationOnDate = (fellowId: string, dateISO: string) => {
+    const fellow = fellowById[fellowId];
+    if (!fellow) return undefined;
+
+    const dateToBlockKey = (d: Date): string => {
+      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const abbr = monthNames[d.getMonth()];
+      const half = d.getDate() <= 15 ? 1 : 2;
+      return `${abbr.toUpperCase()}${half}`;
+    };
+
+    const date = new Date(dateISO + "T00:00:00");
+    const sched = schedByPGY[fellow.pgy];
+    if (!sched || !sched.byFellow) return undefined;
+    const row = sched.byFellow[fellow.id] || {};
+    const key = dateToBlockKey(date);
+    return row[key];
+  };
   
   const jeopardyBlock = iso ? getJeopardyBlockForDate(iso) : null;
   const blockLabel = jeopardyBlock ? 
@@ -112,7 +137,13 @@ export default function JeopardyEditDialog({ iso, schedule, open, onClose, onApp
             <h3 className="font-medium mb-2">Current Assignment</h3>
             {currentFellow ? (
               <div className="flex items-center gap-2">
-                <Badge variant="secondary">{currentFellow.name} ({currentFellow.pgy})</Badge>
+                <div className="flex flex-col">
+                  <Badge variant="secondary">{currentFellow.name} ({currentFellow.pgy})</Badge>
+                  {(() => {
+                    const rotation = getRotationOnDate(currentFellow.id, iso);
+                    return rotation ? <span className="text-xs text-muted-foreground mt-1">On: {rotation}</span> : null;
+                  })()}
+                </div>
                 <Button
                   variant="outline"
                   size="sm"
@@ -142,6 +173,10 @@ export default function JeopardyEditDialog({ iso, schedule, open, onClose, onApp
                     <div className="flex flex-col items-start">
                       <div className="font-medium">{fellow.name}</div>
                       <div className="text-sm text-muted-foreground">{fellow.pgy}</div>
+                      {(() => {
+                        const rotation = getRotationOnDate(fellow.id, iso);
+                        return rotation ? <div className="text-xs text-muted-foreground">On: {rotation}</div> : null;
+                      })()}
                     </div>
                   </Button>
                 ))}
@@ -173,6 +208,10 @@ export default function JeopardyEditDialog({ iso, schedule, open, onClose, onApp
                       <div key={fellow.id} className="border rounded p-3">
                         <div className="font-medium text-sm">
                           {fellow.name} ({fellow.pgy})
+                          {(() => {
+                            const rotation = getRotationOnDate(fellow.id, iso);
+                            return rotation ? <span className="font-normal text-muted-foreground"> - On: {rotation}</span> : null;
+                          })()}
                         </div>
                         <div className="mt-1 space-y-1">
                           {reasons.map((reason, idx) => (

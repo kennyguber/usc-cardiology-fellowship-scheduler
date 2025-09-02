@@ -72,6 +72,22 @@ export default function HFEditDialog({
       ])
     );
   }, [schedule, fellows, setup]);
+
+  // Helper to get fellow's rotation on the selected date
+  const getRotationOnDate = (fellow: Fellow, date: Date) => {
+    const dateToBlockKey = (d: Date): string => {
+      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const abbr = monthNames[d.getMonth()];
+      const half = d.getDate() <= 15 ? 1 : 2;
+      return `${abbr.toUpperCase()}${half}`;
+    };
+
+    const sched = schedByPGY[fellow.pgy];
+    if (!sched || !sched.byFellow) return undefined;
+    const row = sched.byFellow[fellow.id] || {};
+    const key = dateToBlockKey(date);
+    return row[key];
+  };
   
   const handleAssign = () => {
     if (!selectedFellowId) return;
@@ -187,10 +203,14 @@ export default function HFEditDialog({
               <SelectContent>
                 {fellows.map(fellow => {
                   const stats = fellowStats[fellow.id] || { nonHolidayWeekends: 0, holidayDays: 0 };
+                  const rotation = getRotationOnDate(fellow, date);
                   return (
                     <SelectItem key={fellow.id} value={fellow.id}>
                       <div className="flex justify-between items-center w-full">
-                        <span>{fellow.name} ({fellow.pgy})</span>
+                        <div className="flex flex-col items-start">
+                          <span>{fellow.name} ({fellow.pgy})</span>
+                          {rotation && <span className="text-xs text-muted-foreground">On: {rotation}</span>}
+                        </div>
                         <span className="text-xs text-muted-foreground ml-2">
                           {stats.nonHolidayWeekends} HF / {stats.holidayDays} Holiday
                         </span>

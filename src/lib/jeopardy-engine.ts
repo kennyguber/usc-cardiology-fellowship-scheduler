@@ -239,9 +239,15 @@ function isEligibleForBlock(fellow: Fellow, block: JeopardyBlock, setup: SetupSt
     }
   }
   
-  // PGY-6 Holiday Restriction
-  if (fellow.pgy === "PGY-6" && block.type === "holiday") {
-    return false;
+  // Holiday block restrictions by PGY
+  if (block.type === "holiday") {
+    if (fellow.pgy === "PGY-6") {
+      return false; // PGY-6s are ineligible for holiday blocks
+    }
+    if (fellow.pgy === "PGY-4") {
+      return false; // PGY-4s are ineligible for holiday blocks
+    }
+    // PGY-5s are eligible for holiday blocks (checked below for CCU/HF/call restrictions)
   }
   
   // Check same-day primary call exclusion for all dates in the block
@@ -636,10 +642,16 @@ export function getIneligibleJeopardyReasonsForBlock(block: JeopardyBlock): Arra
     for (const dateISO of block.dates) {
       const date = parseISO(dateISO);
       
-      // Check PGY restrictions
-      if (block.type === "holiday" && fellow.pgy === "PGY-4") {
-        reasons.push("PGY-4s cannot be assigned holiday jeopardy");
-        break; // Only need to add this reason once
+      // Check PGY restrictions for holiday blocks
+      if (block.type === "holiday") {
+        if (fellow.pgy === "PGY-4") {
+          reasons.push("PGY-4s cannot be assigned holiday jeopardy");
+          break; // Only need to add this reason once
+        }
+        if (fellow.pgy === "PGY-6") {
+          reasons.push("PGY-6s cannot be assigned holiday jeopardy");
+          break; // Only need to add this reason once
+        }
       }
       
       // Check rotation eligibility
@@ -795,9 +807,13 @@ export function getIneligibleJeopardyReasons(dateISO: string): Array<{ fellow: F
       reasons.push("PGY-4 not eligible before August 15th");
     }
     
-    // Check PGY-6 holiday restriction
-    if (fellow.pgy === "PGY-6" && block.type === "holiday") {
-      reasons.push("PGY-6 cannot take holiday assignments");
+    // Check holiday restrictions by PGY
+    if (block.type === "holiday") {
+      if (fellow.pgy === "PGY-4") {
+        reasons.push("PGY-4 cannot take holiday assignments");
+      } else if (fellow.pgy === "PGY-6") {
+        reasons.push("PGY-6 cannot take holiday assignments");
+      }
     }
     
     // Check same-day primary call exclusion
