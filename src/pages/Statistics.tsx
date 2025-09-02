@@ -8,6 +8,7 @@ import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, optimizeP
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import PrimaryCallStatsTable from "@/components/PrimaryCallStatsTable";
 import HFCoverageStatsTable from "@/components/HFCoverageStatsTable";
+import JeopardyStatsTable from "@/components/JeopardyStatsTable";
 
 export default function Statistics() {
   useSEO({
@@ -80,8 +81,8 @@ export default function Statistics() {
         <Tabs defaultValue="primary" className="mt-4">
           <TabsList>
             <TabsTrigger value="primary">Primary Call Statistics</TabsTrigger>
-            <TabsTrigger value="jeopardy">Heart Failure Coverage Statistics</TabsTrigger>
-            <TabsTrigger value="hf">Jeopardy Statistics</TabsTrigger>
+            <TabsTrigger value="hf">HF Coverage Statistics</TabsTrigger>
+            <TabsTrigger value="jeopardy">Jeopardy Statistics</TabsTrigger>
             <TabsTrigger value="clinic">Clinic Statistics</TabsTrigger>
           </TabsList>
           <TabsContent value="primary" className="space-y-6">
@@ -171,7 +172,7 @@ export default function Statistics() {
               </CardContent>
             </Card>
           </TabsContent>
-          <TabsContent value="jeopardy">
+          <TabsContent value="hf">
             <Card>
               <CardHeader>
                 <CardTitle>HF Coverage Statistics</CardTitle>
@@ -181,13 +182,13 @@ export default function Statistics() {
               </CardContent>
             </Card>
           </TabsContent>
-          <TabsContent value="hf">
+          <TabsContent value="jeopardy">
             <Card>
               <CardHeader>
-                <CardTitle>Heart Failure Coverage Statistics</CardTitle>
+                <CardTitle>Jeopardy Statistics</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-muted-foreground">Coming soon.</div>
+                <JeopardyStatsTable fellows={fellows} />
               </CardContent>
             </Card>
           </TabsContent>
