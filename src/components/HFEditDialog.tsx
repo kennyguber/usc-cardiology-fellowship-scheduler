@@ -84,7 +84,8 @@ export default function HFEditDialog({
       setup,
       callSchedule,
       schedByPGY,
-      fellows
+      fellows,
+      schedule
     );
     
     if (!validation.isValid) {

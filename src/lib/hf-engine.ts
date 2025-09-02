@@ -195,6 +195,44 @@ function isConsecutiveWithPreviousWeekend(
   return daysBetween === 7;
 }
 
+// Robust function to check for consecutive weekends using effective assignments
+function checkConsecutiveWeekends(
+  weekendStart: Date,
+  fellowId: string,
+  schedule: HFSchedule
+): { eligible: boolean; reason?: string } {
+  const prevWeekend = new Date(weekendStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const nextWeekend = new Date(weekendStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+  
+  // Check previous weekend
+  const prevSaturday = prevWeekend;
+  const prevSunday = addDays(prevWeekend, 1);
+  const prevSatISO = toISODate(prevSaturday);
+  const prevSunISO = toISODate(prevSunday);
+  
+  const prevSatAssignment = getEffectiveHFAssignment(prevSatISO, schedule);
+  const prevSunAssignment = getEffectiveHFAssignment(prevSunISO, schedule);
+  
+  if (prevSatAssignment === fellowId || prevSunAssignment === fellowId) {
+    return { eligible: false, reason: "Would create consecutive weekends (fellow assigned to previous weekend)" };
+  }
+  
+  // Check next weekend
+  const nextSaturday = nextWeekend;
+  const nextSunday = addDays(nextWeekend, 1);
+  const nextSatISO = toISODate(nextSaturday);
+  const nextSunISO = toISODate(nextSunday);
+  
+  const nextSatAssignment = getEffectiveHFAssignment(nextSatISO, schedule);
+  const nextSunAssignment = getEffectiveHFAssignment(nextSunISO, schedule);
+  
+  if (nextSatAssignment === fellowId || nextSunAssignment === fellowId) {
+    return { eligible: false, reason: "Would create consecutive weekends (fellow assigned to following weekend)" };
+  }
+  
+  return { eligible: true };
+}
+
 function isEligibleForHF(
   fellow: Fellow,
   weekendStart: Date,
@@ -291,37 +329,10 @@ function isEligibleForHF(
     }
   }
   
-  // Check for consecutive weekends (hard rule - never allow)
-  if (isConsecutiveWithPreviousWeekend(weekendStart, lastWeekendAssignment, fellow.id)) {
-    return { eligible: false, reason: "Cannot assign consecutive weekends" };
-  }
-  
-  // Also check if fellow has holiday coverage on consecutive weekends
-  const prevWeekend = new Date(weekendStart.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const nextWeekend = new Date(weekendStart.getTime() + 7 * 24 * 60 * 60 * 1000);
-  const prevWeekendISO = toISODate(prevWeekend);
-  const nextWeekendISO = toISODate(nextWeekend);
-  
-  // Check if fellow is assigned to previous or next weekend via holiday assignments
-  for (const [blockStartISO, fellowAndDates] of Object.entries(schedule.holidays)) {
-    if (Array.isArray(fellowAndDates) && fellowAndDates.length > 1) {
-      const [holidayFellowId, ...blockDates] = fellowAndDates;
-      if (holidayFellowId === fellow.id) {
-        // Check if any dates in this holiday block fall on consecutive weekends
-        const blockHasConsecutiveWeekend = blockDates.some(dateISO => {
-          const date = parseISO(dateISO);
-          if (isWeekendDate(date)) {
-            const weekendStartDate = getWeekendStart(date);
-            const weekendStartDateISO = toISODate(weekendStartDate);
-            return weekendStartDateISO === prevWeekendISO || weekendStartDateISO === nextWeekendISO;
-          }
-          return false;
-        });
-        if (blockHasConsecutiveWeekend) {
-          return { eligible: false, reason: "Would create consecutive weeks with existing holiday assignment" };
-        }
-      }
-    }
+  // Check for consecutive weekends using effective assignments (hard rule - never allow)
+  const consecutiveCheck = checkConsecutiveWeekends(weekendStart, fellow.id, schedule);
+  if (!consecutiveCheck.eligible) {
+    return consecutiveCheck;
   }
   
   // Check 14-day spacing between HF assignments (can be relaxed in emergency pass)
@@ -941,7 +952,8 @@ export function validateManualHFAssignment(
   setup: SetupState,
   callSchedule: any, // CallSchedule from call-engine
   schedByPGY: Record<PGY, StoredSchedule | null>,
-  fellows: Fellow[]
+  fellows: Fellow[],
+  hfSchedule?: HFSchedule | null
 ): { isValid: boolean; reason?: string } {
   const fellow = fellows.find(f => f.id === fellowId);
   if (!fellow) {
@@ -985,6 +997,23 @@ export function validateManualHFAssignment(
         isValid: false, 
         reason: `Fellow is on primary call the day before ${format(targetDate, "MMM d")}`
       };
+    }
+  }
+
+  // Check for consecutive weekends if HF schedule is provided
+  if (hfSchedule && targetDates.some(d => isWeekendDate(parseISO(d)))) {
+    for (const targetDateISO of targetDates) {
+      const targetDate = parseISO(targetDateISO);
+      if (isWeekendDate(targetDate)) {
+        const weekendStart = getWeekendStart(targetDate);
+        const consecutiveCheck = checkConsecutiveWeekends(weekendStart, fellowId, hfSchedule);
+        if (!consecutiveCheck.eligible) {
+          return { 
+            isValid: false, 
+            reason: consecutiveCheck.reason || "Would create consecutive weekend assignments"
+          };
+        }
+      }
     }
   }
 
