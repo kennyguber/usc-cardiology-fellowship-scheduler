@@ -364,48 +364,15 @@ function isEligibleForHolidayHF(
   pgy5Available: boolean = true
 ): { eligible: boolean; reason?: string } {
   
-  // PGY-6 rules: Only eligible for July 4th or if no PGY-5s available, OR if on HF with only holiday weekends
-  if (fellow.pgy === "PGY-6") {
-    if (holidayBlock.isJuly4Weekend) {
-      // Always eligible for July 4th if no PGY-5s available
-      if (pgy5Available) {
-        return { eligible: false, reason: "PGY-5s available for July 4th weekend" };
-      }
-    } else {
-      // For other holidays, only if on HF rotation with only holiday weekends in their block
-      const rotation = getRotationOnDate(fellow, holidayBlock.startDate, schedByPGY);
-      if (rotation !== "HF") {
-        return { eligible: false, reason: "PGY-6 not on HF rotation" };
-      }
-      
-      // Check if their HF block contains only holiday weekends
-      const hfWeekends = getHFRotationWeekends(fellow, schedByPGY, setup.yearStart);
-      const allHolidayBlocks = getAllHolidayBlocks(setup);
-      const nonHolidayWeekendsInBlock = hfWeekends.filter(weekend => {
-        const weekendISO = toISODate(weekend);
-        return !allHolidayBlocks.some(block => 
-          block.dates.some(d => toISODate(getWeekendStart(d)) === weekendISO)
-        );
-      });
-      
-      if (nonHolidayWeekendsInBlock.length > 0) {
-        return { eligible: false, reason: "PGY-6 has non-holiday weekends available in HF block" };
-      }
-    }
+  // ONLY PGY-5s are eligible for holiday blocks
+  if (fellow.pgy !== "PGY-5") {
+    return { eligible: false, reason: "Only PGY-5 fellows can cover holiday weekends" };
   }
   
-  // PGY-4 only eligible during HF rotation for first date of block
-  if (fellow.pgy === "PGY-4") {
-    const rotation = getRotationOnDate(fellow, holidayBlock.startDate, schedByPGY);
-    if (rotation !== "HF") {
-      return { eligible: false, reason: "PGY-4 only eligible during HF rotation" };
-    }
-  } else if (fellow.pgy === "PGY-5") {
-    // PGY-5s eligible except on vacation
-    const rotation = getRotationOnDate(fellow, holidayBlock.startDate, schedByPGY);
-    if (rotation === "VAC") {
-      return { eligible: false, reason: "Cannot assign during vacation" };
-    }
+  // PGY-5s eligible except on vacation
+  const rotation = getRotationOnDate(fellow, holidayBlock.startDate, schedByPGY);
+  if (rotation === "VAC") {
+    return { eligible: false, reason: "Cannot assign during vacation" };
   }
   
   // Check for primary call conflicts on any day in the holiday block
@@ -634,7 +601,7 @@ export function buildHFSchedule(options: {
     }
   }
 
-  // Phase 1: Mandatory HF rotation assignments (ensure every fellow on HF gets exactly 1 weekend per half-block, preferring non-holiday)
+  // Phase 1: Mandatory HF rotation assignments (ensure every fellow on HF gets exactly 1 weekend per half-block, prioritizing first non-holiday weekend)
   const hfAssignmentTracker: Record<string, { assigned: boolean; blockKey: string; weekends: Date[]; fellow: Fellow }> = {};
   
   // Build tracker for all fellows on HF rotation (including PGY-6)
@@ -663,25 +630,27 @@ export function buildHFSchedule(options: {
     }
   }
   
-  // Assign one weekend per HF half-block, preferring non-holiday weekends
+  // Assign one weekend per HF half-block, prioritizing first non-holiday weekend
   for (const [trackerId, tracker] of Object.entries(hfAssignmentTracker)) {
     const fellow = tracker.fellow;
     if (tracker.weekends.length === 0) continue;
     
-    // First try non-holiday weekends
-    const nonHolidayWeekends = tracker.weekends.filter(weekend => 
+    // Sort weekends chronologically to find first weekend
+    const sortedWeekends = [...tracker.weekends].sort((a, b) => a.getTime() - b.getTime());
+    
+    // Separate non-holiday and holiday weekends, maintaining chronological order
+    const nonHolidayWeekends = sortedWeekends.filter(weekend => 
       !isHolidayWeekend(weekend, allHolidayBlocks)
     );
     
-    // Then try holiday weekends if no non-holiday options
-    const holidayWeekends = tracker.weekends.filter(weekend => 
+    const holidayWeekends = sortedWeekends.filter(weekend => 
       isHolidayWeekend(weekend, allHolidayBlocks)
     );
     
     let assigned = false;
     
-    // Try non-holiday weekends first (shuffled for randomization)
-    for (const weekend of shuffle([...nonHolidayWeekends])) {
+    // First try the earliest non-holiday weekend (priority for on-HF fellow)
+    for (const weekend of nonHolidayWeekends) {
       const weekendISO = toISODate(weekend);
       if (schedule.weekends[weekendISO]) continue; // Already assigned
       
@@ -712,9 +681,9 @@ export function buildHFSchedule(options: {
       }
     }
     
-    // If no non-holiday weekend available, try holiday weekends
-    if (!assigned) {
-      for (const weekend of shuffle([...holidayWeekends])) {
+    // If no non-holiday weekend available and fellow is PGY-5, try holiday weekends
+    if (!assigned && fellow.pgy === "PGY-5") {
+      for (const weekend of holidayWeekends) {
         const weekendISO = toISODate(weekend);
         if (schedule.weekends[weekendISO]) continue; // Already assigned
         
@@ -1070,6 +1039,25 @@ export function validateManualHFAssignment(
   const targetDates = targetScope === 'block' 
     ? getBlockDatesForDate(dateISO, setup)
     : [dateISO];
+
+  // Check if this is a holiday weekend assignment
+  const allHolidayBlocks = getAllHolidayBlocks(setup);
+  const isHolidayAssignment = targetDates.some(targetDateISO => {
+    const targetDate = parseISO(targetDateISO);
+    if (isWeekendDate(targetDate)) {
+      const weekendStart = getWeekendStart(targetDate);
+      return isHolidayWeekend(weekendStart, allHolidayBlocks);
+    }
+    return false;
+  });
+
+  // Only PGY-5s can be manually assigned to holiday weekends
+  if (isHolidayAssignment && fellow.pgy !== "PGY-5") {
+    return { 
+      isValid: false, 
+      reason: "Only PGY-5 fellows can be assigned to holiday weekends"
+    };
+  }
 
   // Check all dates in the assignment block
   for (const targetDateISO of targetDates) {
