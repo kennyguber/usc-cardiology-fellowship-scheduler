@@ -20,6 +20,13 @@ export type SolveRotationsResult = {
   success: boolean;
   conflicts?: string[];
   tried?: number;
+  timeout?: boolean;
+  diagnostics?: {
+    failureReasons: Record<string, number>;
+    constraintViolations: string[];
+    crossPGYConflicts: string[];
+    lastAttemptDetails?: string;
+  };
 };
 
 export const FIRST_FIVE_KEYS = ["JUL1", "JUL2", "AUG1", "AUG2", "SEP1"] as const;
@@ -65,14 +72,23 @@ export function placePGY4Rotations(
   fellows: Fellow[],
   blocks: BlockInfo[],
   existingByFellow: FellowSchedule | undefined,
-  opts?: { randomize?: boolean; maxTries?: number; lockVacations?: boolean }
+  opts?: { randomize?: boolean; maxTries?: number; lockVacations?: boolean; timeout?: number }
 ): SolveRotationsResult {
   const randomize = !!opts?.randomize;
-  const maxTries = opts?.maxTries ?? 40;
+  const maxTries = opts?.maxTries ?? 500;
   const lockVacations = opts?.lockVacations ?? true;
+  const timeout = opts?.timeout ?? 45000; // 45 seconds
+  
+  const startTime = Date.now();
+  const diagnostics = {
+    failureReasons: {} as Record<string, number>,
+    constraintViolations: [] as string[],
+    crossPGYConflicts: [] as string[],
+    lastAttemptDetails: undefined as string | undefined,
+  };
 
   if (!fellows || fellows.length === 0) {
-    return { success: false, byFellow: {}, conflicts: ["No PGY-4 fellows found"], tried: 0 };
+    return { success: false, byFellow: {}, conflicts: ["No PGY-4 fellows found"], tried: 0, diagnostics };
   }
   if (fellows.length !== 5) {
     return {
@@ -82,12 +98,17 @@ export function placePGY4Rotations(
         `Expected 5 PGY-4 fellows for early LAC_CATH mapping; found ${fellows.length}. Adjust cohort or rule.`,
       ],
       tried: 0,
+      diagnostics,
     };
   }
 
   const { keyToIndex, keyToMonth, monthToKeys } = buildKeyMaps(blocks);
   const blockKeys = blocks.map((b) => b.key);
   const firstFive = FIRST_FIVE_KEYS.filter((k) => keyToIndex.has(k));
+
+  function addFailureReason(reason: string) {
+    diagnostics.failureReasons[reason] = (diagnostics.failureReasons[reason] || 0) + 1;
+  }
 
   function tryOnce(): SolveRotationsResult {
     const byFellow: FellowSchedule = cloneByFellow(existingByFellow || {});
@@ -183,6 +204,8 @@ export function placePGY4Rotations(
             }
           }
           if (!placed) {
+            const reason = `vacation_relocation_failed_${f.id}`;
+            addFailureReason(reason);
             return {
               success: false,
               byFellow: {},
@@ -196,6 +219,7 @@ export function placePGY4Rotations(
     // Step B: Early LAC_CATH mapping - one unique early block per fellow
     const earlyAvail = firstFive.filter((k) => !isBlocked(k, "LAC_CATH"));
     if (earlyAvail.length < fellows.length) {
+      addFailureReason("insufficient_early_lac_cath_blocks");
       return {
         success: false,
         byFellow: {},
@@ -228,6 +252,7 @@ export function placePGY4Rotations(
     }
 
     if (!backtrackEarly(0)) {
+      addFailureReason("early_lac_cath_mapping_failed");
       return {
         success: false,
         byFellow: {},
@@ -328,6 +353,7 @@ export function placePGY4Rotations(
             if (needLC <= 0) break;
           }
           if (needLC > 0) {
+            addFailureReason(`lac_cath_placement_failed_${f.id}`);
             return {
               success: false,
               byFellow: {},
@@ -375,6 +401,7 @@ if (needCCU > 0) {
           tryPlaceFrom(candidateMonths);
         }
         if (needCCU > 0) {
+          addFailureReason(`ccu_placement_failed_${f.id}`);
           return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place CCU.`] };
         }
       }
@@ -396,6 +423,7 @@ if (needCCU > 0) {
           if (needLCON <= 0) break;
         }
         if (needLCON > 0) {
+          addFailureReason(`lac_consult_placement_failed_${f.id}`);
           return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place LAC_CONSULT.`] };
         }
       }
@@ -432,6 +460,7 @@ if (needCCU > 0) {
         tryPlaceHF(fallbackHF);
       }
       if (!placedHF) {
+        addFailureReason(`hf_placement_failed_${f.id}`);
         return {
           success: false,
           byFellow: {},
@@ -452,6 +481,7 @@ if (needCCU > 0) {
           break;
         }
         if (!placed || needKECK > 0) {
+          addFailureReason(`keck_consult_placement_failed_${f.id}`);
           return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place KECK_CONSULT.`] };
         }
       }
@@ -473,6 +503,7 @@ if (needCCU > 0) {
           if (needECHO <= 0) break;
         }
         if (needECHO > 0) {
+          addFailureReason(`echo1_placement_failed_${f.id}`);
           return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place ECHO1.`] };
         }
       }
@@ -488,6 +519,7 @@ if (needCCU > 0) {
           needEP -= 1;
         }
         if (needEP > 0) {
+          addFailureReason(`ep_placement_failed_${f.id}`);
           return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place EP.`] };
         }
       }
@@ -515,6 +547,7 @@ if (needCCU > 0) {
         arr.push(f.name || f.id);
         m.set(v as Rotation, arr);
         if (arr.length > 1) {
+          addFailureReason(`capacity_violation_${k}_${v}`);
           return {
             success: false,
             byFellow: {},
@@ -581,17 +614,62 @@ if (needCCU > 0) {
       }
     }
     if (ruleConflicts.length > 0) {
+      addFailureReason("post_placement_rule_violations");
+      diagnostics.constraintViolations.push(...ruleConflicts);
       return { success: false, byFellow: {}, conflicts: ruleConflicts };
     }
 
     return { success: true, byFellow };
   }
 
-  for (let t = 0; t < maxTries; t++) {
-    const res = tryOnce();
-    if (res.success) return res;
+  // Multi-restart algorithm with different strategies
+  const strategies = [
+    { randomize: false, description: "deterministic" },
+    { randomize: true, description: "randomized" },
+    { randomize: true, description: "randomized_intensive" }
+  ];
+
+  let totalTried = 0;
+  for (const strategy of strategies) {
+    const strategyMaxTries = strategy.description === "randomized_intensive" ? Math.floor(maxTries * 0.6) : Math.floor(maxTries / strategies.length);
+    
+    for (let t = 0; t < strategyMaxTries; t++) {
+      if (Date.now() - startTime > timeout) {
+        diagnostics.lastAttemptDetails = `Timeout after ${totalTried} attempts using ${strategy.description} strategy`;
+        return { 
+          success: false, 
+          byFellow: {}, 
+          conflicts: ["PGY-4 rotation scheduling timed out"], 
+          tried: totalTried,
+          timeout: true,
+          diagnostics 
+        };
+      }
+
+      const res = tryOnce();
+      totalTried++;
+      
+      if (res.success) {
+        return { ...res, tried: totalTried, diagnostics };
+      }
+    }
   }
-  return { success: false, byFellow: {}, conflicts: ["Unable to build PGY-4 rotations within max attempts."] };
+
+  diagnostics.lastAttemptDetails = `Failed after ${totalTried} attempts across ${strategies.length} strategies`;
+  return { 
+    success: false, 
+    byFellow: {}, 
+    conflicts: [
+      `Unable to build PGY-4 rotations within ${totalTried} attempts.`,
+      `Most common failures: ${Object.entries(diagnostics.failureReasons)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([reason, count]) => `${reason} (${count}x)`)
+        .join(", ")}`
+    ], 
+    tried: totalTried,
+    diagnostics 
+  };
 }
 
 // PGY-5 solver implementing specified rules
@@ -599,17 +677,30 @@ export function placePGY5Rotations(
   fellows: Fellow[],
   blocks: BlockInfo[],
   existingByFellow: FellowSchedule | undefined,
-  opts?: { randomize?: boolean; maxTries?: number }
+  opts?: { randomize?: boolean; maxTries?: number; timeout?: number }
 ): SolveRotationsResult {
   const randomize = !!opts?.randomize;
-  const maxTries = opts?.maxTries ?? 40;
+  const maxTries = opts?.maxTries ?? 500;
+  const timeout = opts?.timeout ?? 45000; // 45 seconds
+  
+  const startTime = Date.now();
+  const diagnostics = {
+    failureReasons: {} as Record<string, number>,
+    constraintViolations: [] as string[],
+    crossPGYConflicts: [] as string[],
+    lastAttemptDetails: undefined as string | undefined,
+  };
+  function addFailureReason(reason: string) {
+    diagnostics.failureReasons[reason] = (diagnostics.failureReasons[reason] || 0) + 1;
+  }
+
   if (!fellows || fellows.length === 0) {
-    return { success: false, byFellow: {}, conflicts: ["No PGY-5 fellows found"], tried: 0 };
+    return { success: false, byFellow: {}, conflicts: ["No PGY-5 fellows found"], tried: 0, diagnostics };
   }
   if (fellows.length !== 5) {
     return { success: false, byFellow: {}, conflicts: [
       `Expected 5 PGY-5 fellows; found ${fellows.length}. Adjust cohort or rule.`,
-    ], tried: 0 };
+    ], tried: 0, diagnostics };
   }
 
   const { keyToIndex, keyToMonth, monthToKeys } = buildKeyMaps(blocks);
@@ -830,6 +921,7 @@ export function placePGY5Rotations(
         arr.push(f.name || f.id);
         m.set(v as Rotation, arr);
         if (arr.length > 1) {
+          addFailureReason(`capacity_violation_${k}_${v}`);
           return { success: false, byFellow: {}, conflicts: [`Capacity violation at ${k} for ${v}: ${arr.join(", ")}`] };
         }
       }
@@ -868,16 +960,63 @@ export function placePGY5Rotations(
       }
     }
 
-    if (conflicts.length > 0) return { success: false, byFellow: {}, conflicts };
+    if (conflicts.length > 0) {
+      addFailureReason("post_placement_rule_violations");
+      diagnostics.constraintViolations.push(...conflicts);
+      return { success: false, byFellow: {}, conflicts };
+    }
 
     return { success: true, byFellow };
   }
 
-  for (let t = 0; t < maxTries; t++) {
-    const res = tryOnce();
-    if (res.success) return res;
+  // Multi-restart algorithm with different strategies
+  const strategies = [
+    { randomize: false, description: "deterministic" },
+    { randomize: true, description: "randomized" },
+    { randomize: true, description: "randomized_intensive" }
+  ];
+
+  let totalTried = 0;
+  for (const strategy of strategies) {
+    const strategyMaxTries = strategy.description === "randomized_intensive" ? Math.floor(maxTries * 0.6) : Math.floor(maxTries / strategies.length);
+    
+    for (let t = 0; t < strategyMaxTries; t++) {
+      if (Date.now() - startTime > timeout) {
+        diagnostics.lastAttemptDetails = `Timeout after ${totalTried} attempts using ${strategy.description} strategy`;
+        return { 
+          success: false, 
+          byFellow: {}, 
+          conflicts: ["PGY-5 rotation scheduling timed out"], 
+          tried: totalTried,
+          timeout: true,
+          diagnostics 
+        };
+      }
+
+      const res = tryOnce();
+      totalTried++;
+      
+      if (res.success) {
+        return { ...res, tried: totalTried, diagnostics };
+      }
+    }
   }
-  return { success: false, byFellow: {}, conflicts: ["Unable to build PGY-5 rotations within max attempts."] };
+
+  diagnostics.lastAttemptDetails = `Failed after ${totalTried} attempts across ${strategies.length} strategies`;
+  return { 
+    success: false, 
+    byFellow: {}, 
+    conflicts: [
+      `Unable to build PGY-5 rotations within ${totalTried} attempts.`,
+      `Most common failures: ${Object.entries(diagnostics.failureReasons)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([reason, count]) => `${reason} (${count}x)`)
+        .join(", ")}`
+    ], 
+    tried: totalTried,
+    diagnostics 
+  };
 }
 
 // PGY-6 solver implementing specified rules
@@ -885,17 +1024,30 @@ export function placePGY6Rotations(
   fellows: Fellow[],
   blocks: BlockInfo[],
   existingByFellow: FellowSchedule | undefined,
-  opts?: { randomize?: boolean; maxTries?: number }
+  opts?: { randomize?: boolean; maxTries?: number; timeout?: number }
 ): SolveRotationsResult {
   const randomize = !!opts?.randomize;
-  const maxTries = opts?.maxTries ?? 120;
+  const maxTries = opts?.maxTries ?? 1000;
+  const timeout = opts?.timeout ?? 60000; // 60 seconds
+  
+  const startTime = Date.now();
+  const diagnostics = {
+    failureReasons: {} as Record<string, number>,
+    constraintViolations: [] as string[],
+    crossPGYConflicts: [] as string[],
+    lastAttemptDetails: undefined as string | undefined,
+  };
+  function addFailureReason(reason: string) {
+    diagnostics.failureReasons[reason] = (diagnostics.failureReasons[reason] || 0) + 1;
+  }
+
   if (!fellows || fellows.length === 0) {
-    return { success: false, byFellow: {}, conflicts: ["No PGY-6 fellows found"], tried: 0 };
+    return { success: false, byFellow: {}, conflicts: ["No PGY-6 fellows found"], tried: 0, diagnostics };
   }
   if (fellows.length !== 5) {
     return { success: false, byFellow: {}, conflicts: [
       `Expected 5 PGY-6 fellows; found ${fellows.length}. Adjust cohort or rule.`,
-    ], tried: 0 };
+    ], tried: 0, diagnostics };
   }
 
   const { keyToIndex, keyToMonth, monthToKeys } = buildKeyMaps(blocks);
@@ -1267,6 +1419,7 @@ export function placePGY6Rotations(
         arr.push(f.name || f.id);
         m.set(v as Rotation, arr);
         if (arr.length > 1 && v !== "LAC_CATH") {
+          addFailureReason(`capacity_violation_${k}_${v}`);
           return { success: false, byFellow: {}, conflicts: [`Capacity violation at ${k} for ${v}: ${arr.join(", ")}`] };
         }
       }
@@ -1345,15 +1498,62 @@ export function placePGY6Rotations(
       if ((m.get("LAC_CATH") || 0) < 2) conflicts.push(`${k}: essential coverage missing for LAC_CATH (need 2).`);
     }
 
-    if (conflicts.length > 0) return { success: false, byFellow: {}, conflicts };
+    if (conflicts.length > 0) {
+      addFailureReason("post_placement_rule_violations");
+      diagnostics.constraintViolations.push(...conflicts);
+      return { success: false, byFellow: {}, conflicts };
+    }
 
     return { success: true, byFellow };
   }
 
-  for (let t = 0; t < maxTries; t++) {
-    const res = tryOnce();
-    if (res.success) return res;
+  // Multi-restart algorithm with different strategies
+  const strategies = [
+    { randomize: false, description: "deterministic" },
+    { randomize: true, description: "randomized" },
+    { randomize: true, description: "randomized_intensive" }
+  ];
+
+  let totalTried = 0;
+  for (const strategy of strategies) {
+    const strategyMaxTries = strategy.description === "randomized_intensive" ? Math.floor(maxTries * 0.6) : Math.floor(maxTries / strategies.length);
+    
+    for (let t = 0; t < strategyMaxTries; t++) {
+      if (Date.now() - startTime > timeout) {
+        diagnostics.lastAttemptDetails = `Timeout after ${totalTried} attempts using ${strategy.description} strategy`;
+        return { 
+          success: false, 
+          byFellow: {}, 
+          conflicts: ["PGY-6 rotation scheduling timed out"], 
+          tried: totalTried,
+          timeout: true,
+          diagnostics 
+        };
+      }
+
+      const res = tryOnce();
+      totalTried++;
+      
+      if (res.success) {
+        return { ...res, tried: totalTried, diagnostics };
+      }
+    }
   }
-  return { success: false, byFellow: {}, conflicts: ["Unable to build PGY-6 rotations within max attempts."] };
+
+  diagnostics.lastAttemptDetails = `Failed after ${totalTried} attempts across ${strategies.length} strategies`;
+  return { 
+    success: false, 
+    byFellow: {}, 
+    conflicts: [
+      `Unable to build PGY-6 rotations within ${totalTried} attempts.`,
+      `Most common failures: ${Object.entries(diagnostics.failureReasons)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([reason, count]) => `${reason} (${count}x)`)
+        .join(", ")}`
+    ], 
+    tried: totalTried,
+    diagnostics 
+  };
 }
 

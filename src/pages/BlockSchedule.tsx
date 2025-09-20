@@ -758,9 +758,20 @@ const handlePlaceRotations = () => {
           ])
         ) as Record<string, Record<string, string | undefined>>
       : undefined;
-    const res = placePGY4Rotations(fellows, blocks, baseByFellow, { randomize: true });
+    const res = placePGY4Rotations(fellows, blocks, baseByFellow, { 
+      randomize: true, 
+      maxTries: 2000,
+      timeout: 60000 
+    });
     if (!res.success) {
-      toast({ variant: "destructive", title: "Unable to place rotations", description: res.conflicts?.[0] || "No solution found." });
+      const detailedMessage = res.diagnostics?.lastAttemptDetails 
+        ? `${res.conflicts?.[0] || "No solution found."}\n\nDiagnostics: ${res.diagnostics.lastAttemptDetails}`
+        : res.conflicts?.[0] || "No solution found.";
+      toast({ 
+        variant: "destructive", 
+        title: `Unable to place rotations${res.timeout ? " (timed out)" : ""}`, 
+        description: detailedMessage 
+      });
       return;
     }
     const next: StoredSchedule = { version: 1, pgy: activePGY, byFellow: res.byFellow };
@@ -787,9 +798,20 @@ const handlePlaceRotations = () => {
           ])
         ) as Record<string, Record<string, string | undefined>>
       : undefined;
-    const res = placePGY5Rotations(fellows, blocks, baseByFellow, { randomize: true });
+    const res = placePGY5Rotations(fellows, blocks, baseByFellow, { 
+      randomize: true, 
+      maxTries: 2000,
+      timeout: 60000 
+    });
     if (!res.success) {
-      toast({ variant: "destructive", title: "Unable to place rotations", description: res.conflicts?.[0] || "No solution found." });
+      const detailedMessage = res.diagnostics?.lastAttemptDetails 
+        ? `${res.conflicts?.[0] || "No solution found."}\n\nDiagnostics: ${res.diagnostics.lastAttemptDetails}`
+        : res.conflicts?.[0] || "No solution found.";
+      toast({ 
+        variant: "destructive", 
+        title: `Unable to place rotations${res.timeout ? " (timed out)" : ""}`, 
+        description: detailedMessage 
+      });
       return;
     }
     const next: StoredSchedule = { version: 1, pgy: activePGY, byFellow: res.byFellow };
@@ -815,9 +837,20 @@ const handlePlaceRotations = () => {
           ])
         ) as Record<string, Record<string, string | undefined>>
       : undefined;
-    const res = placePGY6Rotations(fellows, blocks, baseByFellow, { randomize: true });
+    const res = placePGY6Rotations(fellows, blocks, baseByFellow, { 
+      randomize: true, 
+      maxTries: 3000,
+      timeout: 90000 
+    });
     if (!res.success) {
-      toast({ variant: "destructive", title: "Unable to place rotations", description: res.conflicts?.[0] || "No solution found." });
+      const detailedMessage = res.diagnostics?.lastAttemptDetails 
+        ? `${res.conflicts?.[0] || "No solution found."}\n\nDiagnostics: ${res.diagnostics.lastAttemptDetails}`
+        : res.conflicts?.[0] || "No solution found.";
+      toast({ 
+        variant: "destructive", 
+        title: `Unable to place rotations${res.timeout ? " (timed out)" : ""}`, 
+        description: detailedMessage 
+      });
       return;
     }
     const next: StoredSchedule = { version: 1, pgy: activePGY, byFellow: res.byFellow };
