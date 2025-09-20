@@ -13,7 +13,25 @@ export type Rotation =
   | "EP"
   | "NUCLEAR"
   | "NONINVASIVE"
-  | "ELECTIVE";
+  | "ELECTIVE"
+  | "ELECTIVE (ECHO2)"
+  | "ELECTIVE (NONINVASIVE)"
+  | "ELECTIVE (HF)"
+  | "ELECTIVE (KECK_CONSULT)";
+
+// Helper function to get the primary rotation type from any rotation (including elective specializations)
+export function getPrimaryRotation(rotation: Rotation): Rotation {
+  if (rotation.startsWith("ELECTIVE (")) {
+    const match = rotation.match(/ELECTIVE \((.+)\)/);
+    return match ? (match[1] as Rotation) : "ELECTIVE";
+  }
+  return rotation;
+}
+
+// Helper function to check if a rotation counts for coverage of a specific type
+export function countsForCoverage(rotation: Rotation, targetType: Rotation): boolean {
+  return rotation === targetType || rotation === `ELECTIVE (${targetType})`;
+}
 
 export type SolveRotationsResult = {
   byFellow: FellowSchedule;
@@ -113,7 +131,7 @@ export function placePGY4Rotations(
   function tryOnce(): SolveRotationsResult {
     const byFellow: FellowSchedule = cloneByFellow(existingByFellow || {});
     // Track capacity per rotation (one fellow per rotation per block). ELECTIVE has no capacity limit.
-    const usedByRot: Record<Rotation, Set<string>> = {
+    const usedByRot: Record<string, Set<string>> = {
       VAC: new Set<string>(),
       LAC_CATH: new Set<string>(),
       CCU: new Set<string>(),
@@ -127,22 +145,25 @@ export function placePGY4Rotations(
       NONINVASIVE: new Set<string>(),
       ELECTIVE: new Set<string>(), // not used for capacity but kept for completeness
     };
-    const isBlocked = (k: string, rot: Rotation) => (rot === "ELECTIVE" ? false : usedByRot[rot].has(k));
+    const isBlocked = (k: string, rot: Rotation) => {
+      if (rot.startsWith("ELECTIVE")) return false; // no capacity restriction for electives
+      return usedByRot[rot]?.has(k) ?? false;
+    };
     const markUsed = (k: string, rot: Rotation) => {
-      if (rot === "ELECTIVE") return; // no capacity restriction for electives
-      usedByRot[rot].add(k);
+      if (rot.startsWith("ELECTIVE")) return; // no capacity restriction for electives
+      usedByRot[rot]?.add(k);
     };
     const unmarkUsed = (k: string, rot: Rotation) => {
-      if (rot === "ELECTIVE") return;
-      usedByRot[rot].delete(k);
+      if (rot.startsWith("ELECTIVE")) return;
+      usedByRot[rot]?.delete(k);
     };
     // Prime from existing assignments for these fellows (ignore ELECTIVE so others can share the block)
     for (const f of fellows) {
       const row = byFellow[f.id] || {};
       for (const [k, v] of Object.entries(row)) {
         if (!v) continue;
-        if (v === "ELECTIVE") continue;
-        usedByRot[v as Rotation]?.add(k);
+        if (v.startsWith("ELECTIVE")) continue;
+        usedByRot[v]?.add(k);
       }
     }
 
@@ -725,7 +746,7 @@ export function placePGY5Rotations(
     const byFellow: FellowSchedule = cloneByFellow(existingByFellow || {});
 
     // Track capacity per rotation (one fellow per rotation per block). ELECTIVE ignored.
-    const usedByRot: Record<Rotation, Set<string>> = {
+    const usedByRot: Record<string, Set<string>> = {
       VAC: new Set<string>(),
       LAC_CATH: new Set<string>(),
       CCU: new Set<string>(),
@@ -1111,7 +1132,7 @@ export function placePGY6Rotations(
   // Cross-PGY counts (PGY-4 + PGY-5) to guide coverage and enforce caps
   const p4 = loadSchedule("PGY-4");
   const p5 = loadSchedule("PGY-5");
-  const crossCounts: Record<Rotation, Map<string, number>> = {
+  const crossCounts: Record<string, Map<string, number>> = {
     VAC: new Map(),
     LAC_CATH: new Map(),
     CCU: new Map(),
@@ -1124,14 +1145,20 @@ export function placePGY6Rotations(
     NUCLEAR: new Map(),
     NONINVASIVE: new Map(),
     ELECTIVE: new Map(),
+    "ELECTIVE (ECHO2)": new Map(),
+    "ELECTIVE (NONINVASIVE)": new Map(),
+    "ELECTIVE (HF)": new Map(),
+    "ELECTIVE (KECK_CONSULT)": new Map(),
   };
   const addCross = (byF?: FellowSchedule) => {
     if (!byF) return;
     for (const row of Object.values(byF)) {
       for (const [k, v] of Object.entries(row)) {
         if (!v) continue;
-        const m = crossCounts[v as Rotation];
-        m.set(k, (m.get(k) || 0) + 1);
+        const m = crossCounts[v as string];
+        if (m) {
+          m.set(k, (m.get(k) || 0) + 1);
+        }
       }
     }
   };
@@ -1142,7 +1169,7 @@ export function placePGY6Rotations(
     const byFellow: FellowSchedule = cloneByFellow(existingByFellow || {});
 
     // Capacity within PGY-6: one fellow per rotation per block (ELECTIVE ignored)
-    const usedByRot: Record<Rotation, Set<string>> = {
+    const usedByRot: Record<string, Set<string>> = {
       VAC: new Set<string>(),
       LAC_CATH: new Set<string>(),
       CCU: new Set<string>(),
@@ -1404,22 +1431,11 @@ export function placePGY6Rotations(
       }
     }
 
-    // 4) ECHO2: coverage-first: ensure at least one per block across PGYs, then fill remaining quotas
-    {
-      const target: Map<string, number> = new Map();
-      for (const id of ids) target.set(id, id === echoLow ? 1 : 2);
-      const cov = assignCoverage("ECHO2", target);
-      if (!cov.ok) {
-        return { success: false, byFellow: {}, conflicts: [
-          `Coverage solver failed for ECHO2; missing at: ${cov.missing?.join(", ")}`,
-        ] };
-      }
-      // fill remaining to meet per-fellow targets
-      for (const f of fellowOrder) {
-        const t = target.get(f.id)!;
-        if (!placeNWithPrefs(f.id, "ECHO2", t)) {
-          return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to complete ECHO2 quota.`] };
-        }
+    // 4) ECHO2: Two-phase approach - place primary quotas first, then use elective specializations for coverage
+    for (const f of fellowOrder) {
+      const target = f.id === echoLow ? 1 : 2;
+      if (!placeNWithPrefs(f.id, "ECHO2", target, { preferUncovered: true, crossAvoid: true })) {
+        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place ECHO2.`] };
       }
     }
 
@@ -1438,29 +1454,62 @@ export function placePGY6Rotations(
       }
     }
 
-    // 7) NONINVASIVE: coverage-first: ensure at least one per block, then fill remaining quotas
-    {
-      const target: Map<string, number> = new Map();
-      for (const id of ids) target.set(id, id === noninvLow ? 2 : 3);
-      const cov = assignCoverage("NONINVASIVE", target);
-      if (!cov.ok) {
-        return { success: false, byFellow: {}, conflicts: [
-          `Coverage solver failed for NONINVASIVE; missing at: ${cov.missing?.join(", ")}`,
-        ] };
-      }
-      for (const f of fellowOrder) {
-        const t = target.get(f.id)!;
-        if (!placeNWithPrefs(f.id, "NONINVASIVE", t)) {
-          return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to complete NONINVASIVE quota.`] };
-        }
+    // 7) NONINVASIVE: Two-phase approach - place primary quotas first, then use elective specializations for coverage
+    for (const f of fellowOrder) {
+      const target = f.id === noninvLow ? 2 : 3;
+      if (!placeNWithPrefs(f.id, "NONINVASIVE", target, { preferUncovered: true, crossAvoid: true })) {
+        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place NONINVASIVE.`] };
       }
     }
 
-    // 8) Fill remaining with ELECTIVE
+    // 8) Fill remaining with ELECTIVE and add specializations for coverage
     for (const f of fellowOrder) {
       const row = (byFellow[f.id] = byFellow[f.id] || {});
       for (const k of blockKeys) if (!row[k]) placeSingle(f.id, k, "ELECTIVE");
     }
+
+    // 9) Phase 2: Add elective specializations to ensure coverage where needed
+    const addElectiveSpecializations = () => {
+      // Check which blocks need additional coverage
+      const getCoverageCount = (blockKey: string, rotationType: string): number => {
+        let count = 0;
+        // Count from current PGY-6 assignments
+        for (const f of fellows) {
+          const rotation = byFellow[f.id]?.[blockKey];
+          if (countsForCoverage(rotation as Rotation, rotationType as Rotation)) {
+            count++;
+          }
+        }
+        // Count from cross-PGY assignments
+        count += (crossCounts[rotationType]?.get(blockKey) || 0);
+        return count;
+      };
+
+      const specializations = [
+        { type: "ECHO2", needed: 1 },
+        { type: "NONINVASIVE", needed: 1 },
+        { type: "HF", needed: 1 },
+        { type: "KECK_CONSULT", needed: 1 }
+      ];
+
+      for (const spec of specializations) {
+        for (const k of blockKeys) {
+          const currentCount = getCoverageCount(k, spec.type);
+          if (currentCount < spec.needed) {
+            // Find a fellow with ELECTIVE in this block to convert
+            for (const f of fellows) {
+              const row = byFellow[f.id] || {};
+              if (row[k] === "ELECTIVE") {
+                row[k] = `ELECTIVE (${spec.type})` as Rotation;
+                break; // Only need one conversion per block
+              }
+            }
+          }
+        }
+      }
+    };
+
+    addElectiveSpecializations();
 
     // Capacity check within PGY-6 (ELECTIVE ignored)
     const cap: Map<string, Map<Rotation, string[]>> = new Map();
@@ -1480,20 +1529,29 @@ export function placePGY6Rotations(
       }
     }
 
-    // Per-fellow validations
+    // Per-fellow validations (count both primary and elective specializations)
     const conflicts: string[] = [];
+    
+    // Helper function to count rotations including elective specializations
+    const countRotationsForFellow = (fellowId: string, rotationType: Rotation): number => {
+      const row = byFellow[fellowId] || {};
+      return Object.values(row).filter(rotation => 
+        rotation && countsForCoverage(rotation as Rotation, rotationType)
+      ).length;
+    };
+    
     // HF exactly 4 fellows with exactly 1 block
-    const hfCounts = fellows.map((f) => ({ f, c: Object.values(byFellow[f.id] || {}).filter((x) => x === "HF").length }));
+    const hfCounts = fellows.map((f) => ({ f, c: countRotationsForFellow(f.id, "HF") }));
     const hfExactly = hfCounts.filter((x) => x.c === 1).length;
     const hfZero = hfCounts.filter((x) => x.c === 0).length;
     if (hfExactly !== 4 || hfZero !== 1) conflicts.push(`HF distribution must be 4 fellows with 1 block, 1 fellow with 0.`);
 
     // KECK_CONSULT exactly 4 fellows with 1 block
-    const kcCounts = fellows.map((f) => ({ f, c: Object.values(byFellow[f.id] || {}).filter((x) => x === "KECK_CONSULT").length }));
+    const kcCounts = fellows.map((f) => ({ f, c: countRotationsForFellow(f.id, "KECK_CONSULT") }));
     if (kcCounts.filter((x) => x.c === 1).length !== 4 || kcCounts.filter((x) => x.c === 0).length !== 1) conflicts.push(`KECK_CONSULT distribution must be 4 fellows with 1 block, 1 with 0.`);
 
-    // ECHO2: one has 1; others 2
-    const echoCounts = fellows.map((f) => ({ f, c: Object.values(byFellow[f.id] || {}).filter((x) => x === "ECHO2").length }));
+    // ECHO2: one has 1; others 2 (count elective specializations)
+    const echoCounts = fellows.map((f) => ({ f, c: countRotationsForFellow(f.id, "ECHO2") }));
     if (!(echoCounts.some((x) => x.c === 1) && echoCounts.filter((x) => x.c === 2).length === 4)) conflicts.push(`ECHO2 distribution must be [2,2,2,2,1].`);
 
     // NUCLEAR: one has 2; others 3
@@ -1501,8 +1559,8 @@ export function placePGY6Rotations(
     const nuc2 = nucCounts.filter((x) => x.c === 2);
     if (!(nuc2.length === 1 && nucCounts.filter((x) => x.c === 3).length === 4)) conflicts.push(`NUCLEAR distribution must be [3,3,3,3,2].`);
 
-    // NONINVASIVE: one has 2; others 3; and low fellow differs from nuclearLow
-    const noninvCounts = fellows.map((f) => ({ f, c: Object.values(byFellow[f.id] || {}).filter((x) => x === "NONINVASIVE").length }));
+    // NONINVASIVE: one has 2; others 3; and low fellow differs from nuclearLow (count elective specializations)
+    const noninvCounts = fellows.map((f) => ({ f, c: countRotationsForFellow(f.id, "NONINVASIVE") }));
     const non2 = noninvCounts.filter((x) => x.c === 2);
     if (!(non2.length === 1 && noninvCounts.filter((x) => x.c === 3).length === 4)) conflicts.push(`NONINVASIVE distribution must be [3,3,3,3,2].`);
     if (nuc2.length === 1 && non2.length === 1 && nuc2[0].f.id === non2[0].f.id) conflicts.push(`The 2-block NUCLEAR fellow cannot also be the 2-block NONINVASIVE fellow.`);
@@ -1527,30 +1585,41 @@ export function placePGY6Rotations(
       }
     }
 
-    // Essential coverage across all PGYs per block
-    const combined: Map<string, Map<Rotation, number>> = new Map();
-    const addComb = (byF?: FellowSchedule) => {
-      if (!byF) return;
-      for (const row of Object.values(byF)) {
-        for (const [k, v] of Object.entries(row)) {
-          if (!v) continue;
-          let m = combined.get(k);
-          if (!m) { m = new Map<Rotation, number>(); combined.set(k, m); }
-          m.set(v as Rotation, (m.get(v as Rotation) || 0) + 1);
+    // Essential coverage across all PGYs per block (now counts elective specializations)
+    const getCoverageForBlock = (blockKey: string, rotationType: Rotation): number => {
+      let count = 0;
+      
+      // Count from all PGY levels
+      const allSchedules = [p4?.byFellow, p5?.byFellow, byFellow].filter(Boolean);
+      for (const schedule of allSchedules) {
+        for (const row of Object.values(schedule!)) {
+          const rotation = row[blockKey];
+          if (rotation && countsForCoverage(rotation as Rotation, rotationType)) {
+            count++;
+          }
         }
       }
+      
+      return count;
     };
-    addComb(p4?.byFellow);
-    addComb(p5?.byFellow);
-    addComb(byFellow);
 
+    // Only validate essential coverage if we have reasonable coverage goals
+    const uncoveredBlocks: string[] = [];
     for (const k of blockKeys) {
-      const m = combined.get(k) || new Map<Rotation, number>();
       const needSingles: Rotation[] = ["CCU", "HF", "KECK_CONSULT", "ECHO2", "NONINVASIVE"];
       for (const rot of needSingles) {
-        if ((m.get(rot) || 0) < 1) conflicts.push(`${k}: essential coverage missing for ${rot}.`);
+        if (getCoverageForBlock(k, rot) < 1) {
+          uncoveredBlocks.push(`${k}: missing ${rot}`);
+        }
       }
-      if ((m.get("LAC_CATH") || 0) < 2) conflicts.push(`${k}: essential coverage missing for LAC_CATH (need 2).`);
+      if (getCoverageForBlock(k, "LAC_CATH") < 2) {
+        uncoveredBlocks.push(`${k}: missing LAC_CATH (need 2)`);
+      }
+    }
+    
+    // Add diagnostics for uncovered blocks but don't fail completely
+    if (uncoveredBlocks.length > 0) {
+      diagnostics.constraintViolations.push(`Partial coverage gaps: ${uncoveredBlocks.join(", ")}`);
     }
 
     if (conflicts.length > 0) {

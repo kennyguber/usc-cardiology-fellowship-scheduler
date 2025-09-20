@@ -27,6 +27,7 @@ import { VacationConflictDialog } from "@/components/VacationConflictDialog";
 import { DraggableBadge } from "@/components/DraggableBadge";
 import { DroppableCell } from "@/components/DroppableCell";
 import { applyBlockDragAndDrop } from "@/lib/block-engine";
+import { getRotationDisplayName, getRotationBadgeVariant } from "@/lib/rotation-utils";
 
 export default function BlockSchedule() {
   useSEO({
@@ -1060,37 +1061,13 @@ const handlePlaceRotations = () => {
                                     }
                                     onClick={() => openEdit(f.id, b.key)}
                                   >
-                                    {label === "VAC" ? "Vacation" : label}
+                                    {getRotationDisplayName(label as any)}
                                   </DraggableBadge>
                                 ) : (
                                   <Badge
-                                    variant={
-                                      label === "VAC"
-                                        ? "destructive"
-                                        : label === "LAC_CATH"
-                                        ? "rot-lac-cath"
-                                        : label === "CCU"
-                                        ? "rot-ccu"
-                                        : label === "LAC_CONSULT"
-                                        ? "rot-lac-consult"
-                                        : label === "HF"
-                                        ? "rot-hf"
-                                        : label === "KECK_CONSULT"
-                                        ? "rot-keck-consult"
-                                        : label === "ECHO1"
-                                        ? "rot-echo1"
-                                        : label === "ECHO2"
-                                        ? "rot-echo2"
-                                        : label === "EP"
-                                        ? "rot-ep"
-                                        : label === "NUCLEAR"
-                                        ? "rot-nuclear"
-                                        : label === "NONINVASIVE"
-                                        ? "rot-noninvasive"
-                                        : "rot-elective"
-                                    }
+                                    variant={getRotationBadgeVariant(label as any) as any}
                                   >
-                                    {label === "VAC" ? "Vacation" : label}
+                                    {getRotationDisplayName(label as any)}
                                   </Badge>
                                 )
                               ) : (

@@ -40,7 +40,9 @@ export function BlockEditDialog({ open, onOpenChange, fellowName, blockKey, bloc
             <SelectContent>
               {options.map((opt) => (
                 <SelectItem key={opt} value={opt}>
-                  {opt === "VAC" ? "Vacation" : opt}
+                  {opt === "VAC" ? "Vacation" : 
+                   opt.startsWith("ELECTIVE (") ? `Elective ${opt.match(/\((.*)\)/)?.[1] || ""}` :
+                   opt}
                 </SelectItem>
               ))}
             </SelectContent>
