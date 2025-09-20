@@ -715,13 +715,15 @@ const handleBuildVacations = () => {
       return;
     }
     
-    const result = buildVacationScheduleForPGY(fellows, blocks, { randomize: true });
+    const result = buildVacationScheduleForPGY(fellows, blocks, { randomize: true, maxAttempts: 20000, timeout: 60000 });
     if (!result.success) {
+      const detailedErrors = result.conflicts?.slice(0, 3).join('; ') || "No assignment satisfies all constraints.";
       toast({
         variant: "destructive",
         title: "Unable to place vacations",
-        description: (result.conflicts && result.conflicts[0]) || "No assignment satisfies all constraints.",
+        description: `Tried ${result.tried} assignments. ${detailedErrors}`,
       });
+      console.error("Vacation placement failed:", result.conflicts);
       return;
     }
     
