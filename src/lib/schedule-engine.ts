@@ -138,8 +138,8 @@ export function buildVacationScheduleForPGY(
 ): VacationSolveResult {
   const opts = (typeof minOrOpts === "object" && minOrOpts !== null ? minOrOpts : maybeOpts) || {};
   const randomize = !!opts.randomize;
-  const maxAttempts = opts.maxAttempts || 10000;
-  const timeout = opts.timeout || 30000; // 30 seconds
+  const maxAttempts = opts.maxAttempts || 100000;
+  const timeout = opts.timeout || 180000; // 180 seconds (3 minutes)
   const minSpacingBlocks = typeof minOrOpts === "number" ? minOrOpts : VACATION_MIN_SPACING_BLOCKS;
 
   const blockKeys = blocks.map((b) => b.key);

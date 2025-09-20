@@ -1082,8 +1082,8 @@ export function placePGY6Rotations(
   opts?: { randomize?: boolean; maxTries?: number; timeout?: number }
 ): SolveRotationsResult {
   const randomize = !!opts?.randomize;
-  const maxTries = opts?.maxTries ?? 1000;
-  const timeout = opts?.timeout ?? 60000; // 60 seconds
+  const maxTries = opts?.maxTries ?? 25000;
+  const timeout = opts?.timeout ?? 240000; // 240 seconds (4 minutes)
   
   const startTime = Date.now();
   const diagnostics = {
