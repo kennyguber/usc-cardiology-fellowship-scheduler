@@ -201,11 +201,15 @@ function generateHolidayBlocks(holidays: Array<{ date: string; name: string }>):
   const blocks: JeopardyBlock[] = [];
   const processed = new Set<string>();
   
+  console.log(`Generating holiday blocks for ${holidays.length} holidays`);
+  
   for (const holiday of holidays) {
     if (processed.has(holiday.date)) continue;
     
     const holidayDate = parseISO(holiday.date);
     const dayOfWeek = holidayDate.getDay();
+    
+    console.log(`Processing holiday: ${holiday.name} on ${holiday.date} (day ${dayOfWeek})`);
     
     if (holiday.name.toLowerCase().includes("thanksgiving")) {
       // Thanksgiving: 4 days (Thu-Sun)
@@ -216,6 +220,7 @@ function generateHolidayBlocks(holidays: Array<{ date: string; name: string }>):
         dates.push(dateISO);
         processed.add(dateISO);
       }
+      console.log(`  - Created Thanksgiving block: [${dates.join(', ')}]`);
       blocks.push({
         dates,
         type: "holiday",
@@ -236,6 +241,7 @@ function generateHolidayBlocks(holidays: Array<{ date: string; name: string }>):
         dates.push(holiday.date, toISODate(saturday), toISODate(sunday));
       }
       
+      console.log(`  - Created ${dayOfWeek === 1 ? 'Monday' : 'Friday'} holiday block: [${dates.join(', ')}]`);
       dates.forEach(d => processed.add(d));
       blocks.push({
         dates,
@@ -244,6 +250,7 @@ function generateHolidayBlocks(holidays: Array<{ date: string; name: string }>):
       });
     } else if (dayOfWeek >= 2 && dayOfWeek <= 4) {
       // Midweek holidays (Tue/Wed/Thu): 1 day
+      console.log(`  - Created midweek holiday block: [${holiday.date}]`);
       processed.add(holiday.date);
       blocks.push({
         dates: [holiday.date],
@@ -446,28 +453,42 @@ export function buildJeopardySchedule(): { schedule: JeopardySchedule; success: 
     const selectedFellow = selectFellowFair(eligibleFellows, currentCounts, dynamicQuotas, lastAssignedDate);
     
     if (selectedFellow) {
+      console.log(`Assigning ${block.type} block [${block.dates.join(', ')}] to ${selectedFellow.name} (${selectedFellow.id})`);
+      
       // Assign the entire block to this fellow
       for (const dateISO of block.dates) {
         assignments[dateISO] = selectedFellow.id;
+        console.log(`  - Assigned ${dateISO} to ${selectedFellow.name}`);
       }
       
       // Update last assigned date tracker
       lastAssignedDate[selectedFellow.id] = block.dates[block.dates.length - 1];
       
-      // Update counts
+      // Update counts based on block structure, not just block.dayCount
       const counts = currentCounts[selectedFellow.id];
-      if (block.type === "weekday") {
-        counts.weekday += block.dayCount;
-      } else if (block.type === "weekend") {
-        counts.weekend += block.dayCount;
-      } else {
-        counts.holiday += block.dayCount;
+      
+      // Count each date in the block according to its individual type
+      for (const dateISO of block.dates) {
+        const date = parseISO(dateISO);
+        const isWeekend = isWeekendDate(date);
+        const isHoliday = isHolidayDate(dateISO, setup);
+        
+        if (isHoliday) {
+          counts.holiday += 1;
+        } else if (isWeekend) {
+          counts.weekend += 1;
+        } else {
+          counts.weekday += 1;
+        }
+        counts.total += 1;
       }
-      counts.total += block.dayCount;
+      
+      console.log(`  - Updated counts for ${selectedFellow.name}: weekday=${counts.weekday}, weekend=${counts.weekend}, holiday=${counts.holiday}, total=${counts.total}`);
     } else {
       // Could not assign this block
       uncovered.push(...block.dates);
-      errors.push(`Could not assign ${block.type} block starting ${block.dates[0]} (${block.dayCount} days)`);
+      errors.push(`Could not assign ${block.type} block starting ${block.dates[0]} (${block.dayCount} days): no eligible fellows`);
+      console.log(`Failed to assign ${block.type} block [${block.dates.join(', ')}] - no eligible fellows`);
     }
   }
   
@@ -477,12 +498,23 @@ export function buildJeopardySchedule(): { schedule: JeopardySchedule; success: 
   const weekendCountsByFellow: Record<string, number> = {};
   const holidayCountsByFellow: Record<string, number> = {};
   
+  console.log(`Final assignment summary:`);
   for (const fellow of setup.fellows) {
     const counts = currentCounts[fellow.id];
     countsByFellow[fellow.id] = counts.total;
     weekdayCountsByFellow[fellow.id] = counts.weekday;
     weekendCountsByFellow[fellow.id] = counts.weekend;
     holidayCountsByFellow[fellow.id] = counts.holiday;
+    
+    if (counts.total > 0) {
+      console.log(`  ${fellow.name}: ${counts.total} total (${counts.weekday} weekday, ${counts.weekend} weekend, ${counts.holiday} holiday)`);
+    }
+  }
+  
+  console.log(`Total assignments: ${Object.keys(assignments).length} days`);
+  console.log(`Uncovered dates: ${uncovered.length}`);
+  if (uncovered.length > 0) {
+    console.log(`  Uncovered: ${uncovered.join(', ')}`);
   }
   
   const schedule: JeopardySchedule = {
