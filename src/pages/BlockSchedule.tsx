@@ -227,7 +227,7 @@ const rotationOptions = useMemo<Rotation[]>(
       byFellow: { ...schedule.byFellow, [fid]: row },
     };
     setSchedule(newSchedule);
-    saveSchedule(newSchedule);
+    saveSchedule(activePGY as PGY, newSchedule);
   };
 
   const applyNonVacationAssignment = (fid: string, k: string, rotation: Rotation) => {
@@ -275,10 +275,18 @@ const rotationOptions = useMemo<Rotation[]>(
       byFellow: { ...schedule.byFellow, [fid]: row },
     };
     setSchedule(newSchedule);
-    saveSchedule(newSchedule);
-  };
-
-  // Continue with existing applyEdit validation logic...
+    saveSchedule(activePGY as PGY, newSchedule);
+    
+    // Validation logic that was originally in applyEdit
+    if (activePGY === "PGY-4") {
+      // HF must be full-month in Jan–Jun
+      const hfKeys = Object.entries(row).filter(([, v]) => v === "HF").map(([kk]) => kk);
+      const hfByMonth = new Map<number, string[]>();
+      for (const kk of hfKeys) {
+        const mii = keyToMonth.get(kk);
+        if (mii == null) continue;
+        const arr = hfByMonth.get(mii) || [];
+        arr.push(kk);
         hfByMonth.set(mii, arr);
       }
       for (const [mii, arr] of hfByMonth) {
@@ -385,13 +393,14 @@ const rotationOptions = useMemo<Rotation[]>(
       }
     }
 
+    const nextByFellow: Record<string, Record<string, string | undefined>> = { ...(schedule.byFellow || {}) };
     nextByFellow[fid] = row;
     const next: StoredSchedule = { version: 1, pgy: activePGY as PGY, byFellow: nextByFellow };
     saveSchedule(activePGY as PGY, next);
     setSchedule(next);
     setEdit({ open: false });
     toast({ title: "Block updated", description: "Assignment updated successfully." });
-  }
+  };
 
   const handleDragStart = (event: DragStartEvent) => {
     const { active } = event;
@@ -401,7 +410,7 @@ const rotationOptions = useMemo<Rotation[]>(
     if (rotation) {
       setDragData({ fellowId, blockKey, rotation });
     }
-  }
+  };
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
