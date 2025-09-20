@@ -800,8 +800,8 @@ const handlePlaceRotations = () => {
       : undefined;
     const res = placePGY5Rotations(fellows, blocks, baseByFellow, { 
       randomize: true, 
-      maxTries: 2000,
-      timeout: 60000 
+      maxTries: 25000, // Dramatically increased for PGY-5 complex constraints
+      timeout: 150000 // 2.5 minutes for intensive search
     });
     if (!res.success) {
       const detailedMessage = res.diagnostics?.lastAttemptDetails 

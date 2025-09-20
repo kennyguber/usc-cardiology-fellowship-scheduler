@@ -680,8 +680,8 @@ export function placePGY5Rotations(
   opts?: { randomize?: boolean; maxTries?: number; timeout?: number }
 ): SolveRotationsResult {
   const randomize = !!opts?.randomize;
-  const maxTries = opts?.maxTries ?? 500;
-  const timeout = opts?.timeout ?? 45000; // 45 seconds
+  const maxTries = opts?.maxTries ?? 20000; // Dramatically increased for PGY-5
+  const timeout = opts?.timeout ?? 120000; // 2 minutes for intensive search
   
   const startTime = Date.now();
   const diagnostics = {
@@ -721,7 +721,7 @@ export function placePGY5Rotations(
     }
   }
 
-  function tryOnce(): SolveRotationsResult {
+  function tryOnce(strategy = 'default'): SolveRotationsResult {
     const byFellow: FellowSchedule = cloneByFellow(existingByFellow || {});
 
     // Track capacity per rotation (one fellow per rotation per block). ELECTIVE ignored.
@@ -762,8 +762,20 @@ export function placePGY5Rotations(
       }
     }
 
+    // Enhanced fellow ordering strategies
+    let fellowOrder = [...fellows];
+    if (strategy === 'constraint_aware') {
+      // Order by constraint difficulty - fellows with most vacation first
+      fellowOrder.sort((a, b) => {
+        const aVacs = Object.values(byFellow[a.id] || {}).filter(v => v === 'VAC').length;
+        const bVacs = Object.values(byFellow[b.id] || {}).filter(v => v === 'VAC').length;
+        return bVacs - aVacs; // Most constrained first
+      });
+    } else if (randomize || strategy === 'randomized') {
+      fellowOrder = shuffle([...fellows]);
+    }
+    
     // Selection: 4 of 5 get CCU. The remaining MUST get LAC_CONSULT. Plus 3 random CCU fellows also get LAC_CONSULT.
-    const fellowOrder = randomize ? shuffle([...fellows]) : [...fellows];
     const ccuFellows = new Set<string>(fellowOrder.slice(0, 4).map((f) => f.id));
     const nonCcuFellow = fellowOrder[4].id;
     const lacConsultFellows = new Set<string>([nonCcuFellow]);
@@ -857,20 +869,52 @@ export function placePGY5Rotations(
     }
 
     // 4) HF: 2 blocks, non-consecutive, and not adjacent to CCU for same fellow
+    // Enhanced with backtracking for better success rate
     for (const f of fellowOrder) {
       const row = (byFellow[f.id] = byFellow[f.id] || {});
       let need = 2 - Object.values(row).filter((x) => x === "HF").length;
       if (need <= 0) continue;
-      const singles = blockKeys.filter((k) => !row[k] && !isBlocked(k, "HF"));
-      const ordered = randomize ? shuffle(singles) : singles;
-      for (const k of ordered) {
-        if (!nonConsecutiveOk(f.id, k, "HF")) continue;
-        if (!notAdjacentToCCU(f.id, k)) continue;
-        placeSingle(f.id, k, "HF");
-        need--;
-        if (need <= 0) break;
+      
+      // Try multiple strategies for HF placement
+      const attemptHFPlacement = () => {
+        const backupRow = { ...row };
+        const backupUsed = new Map(Object.entries(usedByRot).map(([k, v]) => [k, new Set(v)]));
+        
+        const singles = blockKeys.filter((k) => !row[k] && !isBlocked(k, "HF"));
+        const strategies = [
+          singles, // original order
+          randomize ? shuffle([...singles]) : singles, // randomized
+          singles.slice().sort((a, b) => { // prefer later blocks
+            const idxA = keyToIndex.get(a) ?? 0;
+            const idxB = keyToIndex.get(b) ?? 0;
+            return idxB - idxA;
+          })
+        ];
+        
+        for (const ordered of strategies) {
+          let placed = 0;
+          for (const k of ordered) {
+            if (!nonConsecutiveOk(f.id, k, "HF")) continue;
+            if (!notAdjacentToCCU(f.id, k)) continue;
+            placeSingle(f.id, k, "HF");
+            placed++;
+            if (placed >= need) return true;
+          }
+          if (placed < need) {
+            // Restore and try next strategy
+            Object.assign(row, backupRow);
+            Object.assign(usedByRot, Object.fromEntries(
+              Object.entries(backupUsed).map(([k, v]) => [k, new Set(v)])
+            ));
+          }
+        }
+        return false;
+      };
+      
+      if (!attemptHFPlacement()) {
+        addFailureReason(`hf_placement_${f.id}`);
+        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place HF with constraints.`] };
       }
-      if (need > 0) return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place HF.`] };
     }
 
     // Helper to place N blocks non-consecutive for label
@@ -969,20 +1013,21 @@ export function placePGY5Rotations(
     return { success: true, byFellow };
   }
 
-  // Multi-restart algorithm with different strategies
+  // Enhanced multi-restart algorithm with different strategies
   const strategies = [
-    { randomize: false, description: "deterministic" },
-    { randomize: true, description: "randomized" },
-    { randomize: true, description: "randomized_intensive" }
+    { randomize: false, strategy: 'default', description: "deterministic", weight: 0.15 },
+    { randomize: false, strategy: 'constraint_aware', description: "constraint_aware", weight: 0.25 },
+    { randomize: true, strategy: 'randomized', description: "randomized", weight: 0.35 },
+    { randomize: true, strategy: 'randomized', description: "randomized_intensive", weight: 0.25 }
   ];
 
   let totalTried = 0;
-  for (const strategy of strategies) {
-    const strategyMaxTries = strategy.description === "randomized_intensive" ? Math.floor(maxTries * 0.6) : Math.floor(maxTries / strategies.length);
+  for (const strategyConfig of strategies) {
+    const strategyMaxTries = Math.floor(maxTries * strategyConfig.weight);
     
     for (let t = 0; t < strategyMaxTries; t++) {
       if (Date.now() - startTime > timeout) {
-        diagnostics.lastAttemptDetails = `Timeout after ${totalTried} attempts using ${strategy.description} strategy`;
+        diagnostics.lastAttemptDetails = `Timeout after ${totalTried} attempts using ${strategyConfig.description} strategy. Cross-PGY conflicts: [${diagnostics.crossPGYConflicts.slice(0, 3).join(", ")}]`;
         return { 
           success: false, 
           byFellow: {}, 
@@ -993,11 +1038,21 @@ export function placePGY5Rotations(
         };
       }
 
-      const res = tryOnce();
+      const res = tryOnce(strategyConfig.strategy);
       totalTried++;
       
       if (res.success) {
+        diagnostics.lastAttemptDetails = `Success on attempt ${totalTried} using ${strategyConfig.description} strategy`;
         return { ...res, tried: totalTried, diagnostics };
+      }
+      
+      // Track cross-PGY conflicts for diagnostics
+      if (res.conflicts) {
+        for (const conflict of res.conflicts) {
+          if (conflict.includes('CCU') || conflict.includes('KECK_CONSULT') || conflict.includes('LAC_CONSULT') || conflict.includes('HF') || conflict.includes('EP')) {
+            diagnostics.crossPGYConflicts.push(`${strategyConfig.description}: ${conflict}`);
+          }
+        }
       }
     }
   }
