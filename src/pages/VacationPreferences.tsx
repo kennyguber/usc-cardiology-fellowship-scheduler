@@ -231,6 +231,40 @@ export default function VacationPreferences() {
     });
   };
 
+  const randomizeVacationPrefs = () => {
+    if (setup.fellows.length === 0) {
+      toast({ variant: "destructive", title: "No fellows", description: "Add fellows first before randomizing." });
+      return;
+    }
+
+    const monthsJulDec = ["JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+    const monthsJanJun = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN"];
+    
+    const getRandomBlocksForHalf = (months: string[], count: number = 2) => {
+      const halfBlocks = blocks.filter((b) => months.includes(b.key.slice(0, 3)));
+      const shuffled = [...halfBlocks].sort(() => Math.random() - 0.5);
+      return shuffled.slice(0, count).map(b => b.key);
+    };
+
+    const updatedFellows = setup.fellows.map(fellow => {
+      const firstHalfPrefs = getRandomBlocksForHalf(monthsJulDec, 2);
+      const secondHalfPrefs = getRandomBlocksForHalf(monthsJanJun, 2);
+      
+      return {
+        ...fellow,
+        vacationPrefs: [
+          firstHalfPrefs[0],
+          firstHalfPrefs[1],
+          secondHalfPrefs[0],
+          secondHalfPrefs[1]
+        ]
+      };
+    });
+
+    save({ ...setup, fellows: updatedFellows });
+    toast({ title: "Randomized", description: `Assigned random vacation preferences to ${setup.fellows.length} fellows.` });
+  };
+
   const updateFellow = (id: string, next: Fellow) => {
     save({
       ...setup,
@@ -358,7 +392,12 @@ export default function VacationPreferences() {
                   <p className="text-sm text-muted-foreground">
                     Add fellows, set PGY level, and choose their top-two vacation preferences within each 6-month block.
                   </p>
-                  <Button onClick={addFellow}>Add Fellow</Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={randomizeVacationPrefs}>
+                      Randomize Prefs
+                    </Button>
+                    <Button onClick={addFellow}>Add Fellow</Button>
+                  </div>
                 </div>
                 <div className="rounded-md border overflow-x-auto">
                   <Table>
