@@ -23,6 +23,7 @@ import { placePGY4Rotations, placePGY5Rotations, placePGY6Rotations } from "@/li
 import { useToast } from "@/hooks/use-toast";
 import type { Rotation } from "@/lib/rotation-engine";
 import BlockEditDialog from "@/components/BlockEditDialog";
+import { VacationConflictDialog } from "@/components/VacationConflictDialog";
 import { DraggableBadge } from "@/components/DraggableBadge";
 import { DroppableCell } from "@/components/DroppableCell";
 import { applyBlockDragAndDrop } from "@/lib/block-engine";
@@ -52,6 +53,21 @@ const fellows: Fellow[] = useMemo(
 
   const [schedule, setSchedule] = useState<StoredSchedule | null>(() => (activePGY === "TOTAL" ? null : loadSchedule(activePGY as PGY)));
   const [panelOpen, setPanelOpen] = useState(false);
+  
+  // Vacation conflict dialog state
+  const [vacationConflictDialog, setVacationConflictDialog] = useState<{
+    open: boolean;
+    fellowName: string;
+    blockKey: string;
+    conflictingFellow: string;
+    pendingAction: (() => void) | null;
+  }>({
+    open: false,
+    fellowName: "",
+    blockKey: "",
+    conflictingFellow: "",
+    pendingAction: null,
+  });
 
   // Maps for block <-> month helpers
   const keyToMonth = useMemo(() => {
@@ -152,12 +168,21 @@ const rotationOptions = useMemo<Rotation[]>(
       }
     } else {
       if (action.rotation === "VAC") {
-        // Only one vacation per block across fellows in same PGY
-        const conflictInBlock = Object.entries(schedule.byFellow || {}).some(
+        // Check for vacation conflicts and offer override option
+        const conflictEntry = Object.entries(schedule.byFellow || {}).find(
           ([ofid, orow]) => ofid !== fid && orow?.[k] === "VAC"
         );
-        if (conflictInBlock) {
-          toast({ variant: "destructive", title: "Vacation conflict", description: "Another fellow already has Vacation in this block." });
+        if (conflictEntry) {
+          const conflictingFellow = fellows.find(f => f.id === conflictEntry[0])?.name || conflictEntry[0];
+          const currentFellow = fellows.find(f => f.id === fid)?.name || fid;
+          
+          setVacationConflictDialog({
+            open: true,
+            fellowName: currentFellow,
+            blockKey: k,
+            conflictingFellow,
+            pendingAction: () => applyVacationAssignment(fid, k, action.rotation),
+          });
           return;
         }
         // Max 2 vacations per fellow, with >= 6-block spacing
@@ -174,60 +199,86 @@ const rotationOptions = useMemo<Rotation[]>(
           toast({ variant: "destructive", title: "Vacation spacing", description: "Vacations must be at least 6 blocks apart." });
           return;
         }
-        row[k] = "VAC";
-        // avoid orphaned single HF in the same month (PGY-4 only)
-        if (activePGY === "PGY-4") {
-          const keys = monthToKeys.get(mi) || [];
-          const other = keys.find((kk) => kk !== k);
-          if (other && row[other] === "HF") {
-            delete row[other];
-          }
-        }
-      } else if (action.rotation === "HF" && activePGY === "PGY-4") {
-        if (!withinJanToJun(mi)) {
-          toast({ variant: "destructive", title: "Invalid HF placement", description: "HF must be a full month between Jan and Jun." });
-          return;
-        }
-        const keys = monthToKeys.get(mi) || [];
-        if (keys.length < 2) {
-          toast({ variant: "destructive", title: "Invalid HF placement", description: "HF requires both blocks in the month." });
-          return;
-        }
-        for (const kk of keys) {
-          row[kk] = "HF";
-        }
-      } else if (action.rotation === "KECK_CONSULT" && activePGY === "PGY-5") {
-        const keys = monthToKeys.get(mi) || [];
-        if (keys.length < 2) {
-          toast({ variant: "destructive", title: "Invalid KECK_CONSULT placement", description: "KECK_CONSULT must be a full month (2 blocks)." });
-          return;
-        }
-        for (const kk of keys) {
-          row[kk] = "KECK_CONSULT";
-        }
+        applyVacationAssignment(fid, k, action.rotation);
       } else {
-        row[k] = action.rotation;
-        // avoid orphaned single HF in the same month (PGY-4 only)
-        if (activePGY === "PGY-4") {
-          const keys = monthToKeys.get(mi) || [];
-          const other = keys.find((kk) => kk !== k);
-          if (other && row[other] === "HF") {
-            delete row[other];
-          }
+        applyNonVacationAssignment(fid, k, action.rotation);
+      }
+    }
+  };
+
+  const applyVacationAssignment = (fid: string, k: string, rotation: Rotation) => {
+    if (!schedule) return;
+    
+    const row = schedule.byFellow[fid] || {};
+    const mi = keyToMonth.get(k) ?? -1;
+    
+    row[k] = rotation;
+    // avoid orphaned single HF in the same month (PGY-4 only)
+    if (activePGY === "PGY-4") {
+      const keys = monthToKeys.get(mi) || [];
+      const other = keys.find((kk) => kk !== k);
+      if (other && row[other] === "HF") {
+        delete row[other];
+      }
+    }
+    
+    const newSchedule: StoredSchedule = {
+      ...schedule,
+      byFellow: { ...schedule.byFellow, [fid]: row },
+    };
+    setSchedule(newSchedule);
+    saveSchedule(newSchedule);
+  };
+
+  const applyNonVacationAssignment = (fid: string, k: string, rotation: Rotation) => {
+    if (!schedule) return;
+    
+    const row = schedule.byFellow[fid] || {};
+    const mi = keyToMonth.get(k) ?? -1;
+    
+    if (rotation === "HF" && activePGY === "PGY-4") {
+      if (!withinJanToJun(mi)) {
+        toast({ variant: "destructive", title: "Invalid HF placement", description: "HF must be a full month between Jan and Jun." });
+        return;
+      }
+      const keys = monthToKeys.get(mi) || [];
+      if (keys.length < 2) {
+        toast({ variant: "destructive", title: "Invalid HF placement", description: "HF requires both blocks in the month." });
+        return;
+      }
+      for (const kk of keys) {
+        row[kk] = "HF";
+      }
+    } else if (rotation === "KECK_CONSULT" && activePGY === "PGY-5") {
+      const keys = monthToKeys.get(mi) || [];
+      if (keys.length < 2) {
+        toast({ variant: "destructive", title: "Invalid KECK_CONSULT placement", description: "KECK_CONSULT must be a full month (2 blocks)." });
+        return;
+      }
+      for (const kk of keys) {
+        row[kk] = "KECK_CONSULT";
+      }
+    } else {
+      row[k] = rotation;
+      // avoid orphaned single HF in the same month (PGY-4 only)
+      if (activePGY === "PGY-4") {
+        const keys = monthToKeys.get(mi) || [];
+        const other = keys.find((kk) => kk !== k);
+        if (other && row[other] === "HF") {
+          delete row[other];
         }
       }
     }
+    
+    const newSchedule: StoredSchedule = {
+      ...schedule,
+      byFellow: { ...schedule.byFellow, [fid]: row },
+    };
+    setSchedule(newSchedule);
+    saveSchedule(newSchedule);
+  };
 
-// Validations by PGY
-    if (activePGY === "PGY-4") {
-      // HF must be full-month in Jan–Jun
-      const hfKeys = Object.entries(row).filter(([, v]) => v === "HF").map(([kk]) => kk);
-      const hfByMonth = new Map<number, string[]>();
-      for (const kk of hfKeys) {
-        const mii = keyToMonth.get(kk);
-        if (mii == null) continue;
-        const arr = hfByMonth.get(mii) || [];
-        arr.push(kk);
+  // Continue with existing applyEdit validation logic...
         hfByMonth.set(mii, arr);
       }
       for (const [mii, arr] of hfByMonth) {
@@ -272,7 +323,9 @@ const rotationOptions = useMemo<Rotation[]>(
           return;
         }
       }
-    } else if (activePGY === "PGY-5") {
+    }
+    
+    if (activePGY === "PGY-5") {
       // KECK_CONSULT must be exactly one full month (2 blocks)
       const kcKeys = Object.entries(row).filter(([, v]) => v === "KECK_CONSULT").map(([kk]) => kk);
       if (kcKeys.length > 0) {
@@ -332,14 +385,13 @@ const rotationOptions = useMemo<Rotation[]>(
       }
     }
 
-
     nextByFellow[fid] = row;
     const next: StoredSchedule = { version: 1, pgy: activePGY as PGY, byFellow: nextByFellow };
     saveSchedule(activePGY as PGY, next);
     setSchedule(next);
     setEdit({ open: false });
     toast({ title: "Block updated", description: "Assignment updated successfully." });
-  };
+  }
 
   const handleDragStart = (event: DragStartEvent) => {
     const { active } = event;
@@ -349,7 +401,7 @@ const rotationOptions = useMemo<Rotation[]>(
     if (rotation) {
       setDragData({ fellowId, blockKey, rotation });
     }
-  };
+  }
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
@@ -422,12 +474,47 @@ const rotationOptions = useMemo<Rotation[]>(
       });
     } else {
       console.log("❌ Failed drag drop:", result.error);
-      toast({ 
-        variant: "destructive", 
-        title: "Invalid move", 
-        description: result.error || "This move violates scheduling rules.",
-        duration: 5000
-      });
+      
+      // Check if it's a vacation conflict that can be overridden
+      if (result.vacationConflict) {
+        const currentFellow = fellows.find(f => f.id === dragFellowId)?.name || dragFellowId;
+        setVacationConflictDialog({
+          open: true,
+          fellowName: currentFellow,
+          blockKey: result.vacationConflict.blockKey,
+          conflictingFellow: result.vacationConflict.conflictingFellow,
+          pendingAction: () => {
+            // Retry the drag and drop with vacation conflicts allowed
+            const retryResult = applyBlockDragAndDrop(
+              schedule,
+              dragFellowId,
+              dragBlockKey,
+              dropFellowId,
+              dropBlockKey,
+              blocks,
+              fellows,
+              true // Allow vacation conflicts
+            );
+            
+            if (retryResult.success && retryResult.schedule) {
+              saveSchedule(activePGY as PGY, retryResult.schedule);
+              setSchedule({ ...retryResult.schedule });
+              toast({ 
+                title: "Block moved", 
+                description: "Vacation conflict overridden. Assignment updated successfully.",
+                duration: 3000
+              });
+            }
+          },
+        });
+      } else {
+        toast({ 
+          variant: "destructive", 
+          title: "Invalid move", 
+          description: result.error || "This move violates scheduling rules.",
+          duration: 5000
+        });
+      }
     }
   };
 
@@ -1121,6 +1208,21 @@ const handlePlaceRotations = () => {
           currentLabel={currentLabelForEdit}
           options={rotationOptions}
           onApply={(val) => applyEdit(val)}
+        />
+
+        <VacationConflictDialog
+          open={vacationConflictDialog.open}
+          onOpenChange={(open) => 
+            setVacationConflictDialog(prev => ({ ...prev, open }))
+          }
+          onConfirm={() => {
+            if (vacationConflictDialog.pendingAction) {
+              vacationConflictDialog.pendingAction();
+            }
+          }}
+          fellowName={vacationConflictDialog.fellowName}
+          blockKey={vacationConflictDialog.blockKey}
+          conflictingFellow={vacationConflictDialog.conflictingFellow}
         />
       </section>
     </main>

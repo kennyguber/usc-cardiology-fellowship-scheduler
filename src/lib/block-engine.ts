@@ -7,6 +7,7 @@ export type BlockSwapResult = {
   success: boolean;
   schedule?: StoredSchedule;
   error?: string;
+  vacationConflict?: { fellowId: string; blockKey: string; conflictingFellow: string };
 };
 
 type BlockChange = {
@@ -41,8 +42,9 @@ export function validateBlockScheduleChange(
   currentSchedule: StoredSchedule,
   changes: BlockChange[],
   blocks: BlockInfo[],
-  fellows: Fellow[]
-): { success: boolean; error?: string } {
+  fellows: Fellow[],
+  allowVacationConflicts: boolean = false
+): { success: boolean; error?: string; vacationConflict?: { fellowId: string; blockKey: string; conflictingFellow: string } } {
   const previewByFellow = previewBlockScheduleChange(currentSchedule, changes);
   const pgy = currentSchedule.pgy;
   
@@ -71,12 +73,19 @@ export function validateBlockScheduleChange(
       .map(([k]) => k);
     
     // Check vacation conflicts (only one vacation per block across all fellows)
-    for (const vacKey of vacKeys) {
-      const conflictInBlock = Object.entries(previewByFellow).some(
-        ([fid, frow]) => fid !== fellowId && frow?.[vacKey] === "VAC"
-      );
-      if (conflictInBlock) {
-        return { success: false, error: `Vacation conflict: Another fellow already has vacation in block ${vacKey}` };
+    if (!allowVacationConflicts) {
+      for (const vacKey of vacKeys) {
+        const conflictingEntry = Object.entries(previewByFellow).find(
+          ([fid, frow]) => fid !== fellowId && frow?.[vacKey] === "VAC"
+        );
+        if (conflictingEntry) {
+          const conflictingFellow = fellows.find(f => f.id === conflictingEntry[0])?.name || conflictingEntry[0];
+          return { 
+            success: false, 
+            error: `Vacation conflict: Another fellow already has vacation in block ${vacKey}`,
+            vacationConflict: { fellowId, blockKey: vacKey, conflictingFellow }
+          };
+        }
       }
     }
     
@@ -227,7 +236,8 @@ export function applyBlockDragAndDrop(
   dropFellowId: string,
   dropBlockKey: string,
   blocks: BlockInfo[],
-  fellows: Fellow[]
+  fellows: Fellow[],
+  allowVacationConflicts: boolean = false
 ): BlockSwapResult {
   console.log("🔧 Block Engine - applyBlockDragAndDrop called", {
     dragFellowId,
@@ -258,12 +268,12 @@ export function applyBlockDragAndDrop(
     
     console.log("📝 Move changes:", changes);
     
-    const validation = validateBlockScheduleChange(currentSchedule, changes, blocks, fellows);
+    const validation = validateBlockScheduleChange(currentSchedule, changes, blocks, fellows, allowVacationConflicts);
     console.log("✅ Move validation result:", validation);
     
     if (!validation.success) {
       console.log("❌ Move validation failed:", validation.error);
-      return { success: false, error: validation.error };
+      return { success: false, error: validation.error, vacationConflict: validation.vacationConflict };
     }
     
     const newByFellow = previewBlockScheduleChange(currentSchedule, changes);
@@ -287,12 +297,12 @@ export function applyBlockDragAndDrop(
   
   console.log("📝 Swap changes:", changes);
   
-  const validation = validateBlockScheduleChange(currentSchedule, changes, blocks, fellows);
+  const validation = validateBlockScheduleChange(currentSchedule, changes, blocks, fellows, allowVacationConflicts);
   console.log("✅ Swap validation result:", validation);
   
   if (!validation.success) {
     console.log("❌ Swap validation failed:", validation.error);
-    return { success: false, error: validation.error };
+    return { success: false, error: validation.error, vacationConflict: validation.vacationConflict };
   }
   
   const newByFellow = previewBlockScheduleChange(currentSchedule, changes);
