@@ -166,6 +166,18 @@ const rotationOptions = useMemo<Rotation[]>(
       } else {
         delete row[k];
       }
+      
+      // Update schedule state and save to localStorage
+      const newSchedule: StoredSchedule = {
+        version: 1,
+        pgy: activePGY as PGY,
+        byFellow: { ...schedule.byFellow, [fid]: row },
+      };
+      setSchedule(newSchedule);
+      saveSchedule(activePGY as PGY, newSchedule);
+      setEdit({ open: false });
+      toast({ title: "Assignment cleared", description: "Block assignment cleared successfully." });
+      return;
     } else {
       if (action.rotation === "VAC") {
         // Check for vacation conflicts and offer override option
