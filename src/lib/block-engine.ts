@@ -1,7 +1,7 @@
 import type { BlockInfo } from "@/lib/block-utils";
 import type { Fellow, StoredSchedule } from "@/lib/schedule-engine";
 import type { Rotation } from "@/lib/rotation-engine";
-import { loadSchedule } from "@/lib/schedule-engine";
+import { loadSchedule, getAllPGYVacationCounts } from "@/lib/schedule-engine";
 
 export type BlockSwapResult = {
   success: boolean;
@@ -72,18 +72,36 @@ export function validateBlockScheduleChange(
       .filter(([, v]) => v === "VAC")
       .map(([k]) => k);
     
-    // Check vacation conflicts (only one vacation per block across all fellows)
+    // Check vacation conflicts (max 2 vacations per block within PGY, max 2 total across all PGYs)
     if (!allowVacationConflicts) {
       for (const vacKey of vacKeys) {
-        const conflictingEntry = Object.entries(previewByFellow).find(
+        // Count within current PGY
+        const samePGYCount = Object.entries(previewByFellow).filter(
           ([fid, frow]) => fid !== fellowId && frow?.[vacKey] === "VAC"
-        );
-        if (conflictingEntry) {
-          const conflictingFellow = fellows.find(f => f.id === conflictingEntry[0])?.name || conflictingEntry[0];
+        ).length;
+        
+        if (samePGYCount >= 2) {
+          const conflictingFellow = Object.entries(previewByFellow).find(
+            ([fid, frow]) => fid !== fellowId && frow?.[vacKey] === "VAC"
+          );
+          const conflictName = conflictingFellow ? 
+            (fellows.find(f => f.id === conflictingFellow[0])?.name || conflictingFellow[0]) : 
+            "Unknown";
           return { 
             success: false, 
-            error: `Vacation conflict: Another fellow already has vacation in block ${vacKey}`,
-            vacationConflict: { fellowId, blockKey: vacKey, conflictingFellow }
+            error: `Vacation conflict: Block ${vacKey} already has 2 fellows on vacation`,
+            vacationConflict: { fellowId, blockKey: vacKey, conflictingFellow: conflictName }
+          };
+        }
+        
+        // Check cross-PGY limits
+        const allPGYCounts = getAllPGYVacationCounts();
+        const crossPGYCount = allPGYCounts[vacKey] || 0;
+        
+        if (samePGYCount + crossPGYCount >= 2) {
+          return { 
+            success: false, 
+            error: `Vacation conflict: Block ${vacKey} would exceed limit of 2 total fellows on vacation across all PGY levels`,
           };
         }
       }

@@ -714,6 +714,7 @@ const handleBuildVacations = () => {
       });
       return;
     }
+    
     const result = buildVacationScheduleForPGY(fellows, blocks, { randomize: true });
     if (!result.success) {
       toast({
@@ -723,10 +724,18 @@ const handleBuildVacations = () => {
       });
       return;
     }
+    
     const next: StoredSchedule = { version: 1, pgy: activePGY, byFellow: result.byFellow };
     saveSchedule(activePGY, next);
     setSchedule(next);
-    toast({ title: "Vacations placed", description: `Draft schedule built for ${activePGY}.` });
+    
+    // Show success message with partial assignment info
+    let description = `Draft schedule built for ${activePGY}.`;
+    if (result.partialAssignments && result.partialAssignments.length > 0) {
+      description += ` Note: ${result.partialAssignments.length} fellow(s) received fewer than 2 vacations: ${result.partialAssignments.join(", ")}`;
+    }
+    
+    toast({ title: "Vacations placed", description });
   };
 
 const handlePlaceRotations = () => {
@@ -898,8 +907,8 @@ const handlePlaceRotations = () => {
                     <TabsTrigger value="TOTAL">TOTAL</TabsTrigger>
                   </TabsList>
                 </Tabs>
-<Button variant="outline" onClick={handleBuildVacations} disabled={activePGY === "TOTAL"}>
-                  <RefreshCw className="mr-2 h-4 w-4" /> Place Vacations
+                <Button variant="outline" onClick={handleBuildVacations} disabled={activePGY === "TOTAL"}>
+                  <RefreshCw className="mr-2 h-4 w-4" /> Place Vacations (Max 2 per block, preference-only)
                 </Button>
                 <Button
                   variant="outline"

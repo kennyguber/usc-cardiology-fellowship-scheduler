@@ -98,13 +98,36 @@ export function countByBlock(byFellow: FellowSchedule): Record<string, number> {
   return counts;
 }
 
-// New solver: assign exactly 2 vacations per fellow with >= 6-block spacing
-// and prevent overlaps within the same PGY (max 1 vacation per block across fellows)
+// Get vacation counts across all PGY levels for cross-PGY validation
+export function getAllPGYVacationCounts(): Record<string, number> {
+  const counts: Record<string, number> = {};
+  const pgyLevels: PGY[] = ["PGY-4", "PGY-5", "PGY-6"];
+  
+  for (const pgy of pgyLevels) {
+    const schedule = loadSchedule(pgy);
+    if (schedule?.byFellow) {
+      for (const fellowRow of Object.values(schedule.byFellow)) {
+        for (const [blockKey, rotation] of Object.entries(fellowRow)) {
+          if (rotation === "VAC") {
+            counts[blockKey] = (counts[blockKey] || 0) + 1;
+          }
+        }
+      }
+    }
+  }
+  
+  return counts;
+}
+
+// New solver: assign up to 2 vacations per fellow with >= 6-block spacing
+// Allow up to 2 fellows per block (within PGY), max 2 total across all PGYs
+// Only assign preferred vacation pairs - no random assignments
 export type VacationSolveResult = {
   byFellow: FellowSchedule;
   success: boolean;
   conflicts?: string[];
   tried?: number;
+  partialAssignments?: string[]; // Fellows who got < 2 vacations
 };
 
 export function buildVacationScheduleForPGY(
@@ -121,6 +144,9 @@ export function buildVacationScheduleForPGY(
   const indexByKey = new Map<string, number>(blockKeys.map((k, i) => [k, i] as const));
   const N = fellows.length;
 
+  // Get existing vacation counts across all PGYs
+  const crossPGYCounts = getAllPGYVacationCounts();
+
   function spaced(a: string, b: string) {
     const ia = indexByKey.get(a) ?? -1;
     const ib = indexByKey.get(b) ?? -1;
@@ -129,13 +155,12 @@ export function buildVacationScheduleForPGY(
     return diff >= minSpacingBlocks;
   }
 
-  // Prepare candidates (preferences first, then all others)
+  // Prepare candidates - ONLY preference-based pairs
   const allKeysSet = new Set(blockKeys);
   const byFellowCandidates = fellows.map((f) => {
     const prefs = Array.from(new Set((f.vacationPrefs || []).filter((k): k is string => !!k && allKeysSet.has(k))));
-    const nonPrefs = blockKeys.filter((k) => !prefs.includes(k));
 
-    // Tiered pairs: (pref,pref) -> (pref,nonpref) -> (nonpref,nonpref)
+    // Only preference-based pairs (pref,pref)
     const prefPref: [string, string][] = [];
     for (let i = 0; i < prefs.length; i++) {
       for (let j = i + 1; j < prefs.length; j++) {
@@ -143,88 +168,110 @@ export function buildVacationScheduleForPGY(
       }
     }
 
-    const prefNon: [string, string][] = [];
-    for (const p of prefs) {
-      for (const q of nonPrefs) {
-        if (spaced(p, q)) prefNon.push([p, q]);
-      }
-    }
+    // Single preference blocks for partial assignments
+    const singlePrefs: [string][] = prefs.map(p => [p]);
 
-    const nonNon: [string, string][] = [];
-    for (let i = 0; i < nonPrefs.length; i++) {
-      for (let j = i + 1; j < nonPrefs.length; j++) {
-        if (spaced(nonPrefs[i], nonPrefs[j])) nonNon.push([nonPrefs[i], nonPrefs[j]]);
-      }
-    }
+    // Combine pairs and singles, with pairs preferred
+    const allOptions = [...prefPref.map(p => ({ blocks: p, score: 0 })), ...singlePrefs.map(p => ({ blocks: p, score: 1000 }))];
 
-    const allPairs = [...prefPref, ...prefNon, ...nonNon];
+    // Sort by preference score (pairs first)
+    allOptions.sort((a, b) => a.score - b.score);
 
-    // Heuristic: keep tiers via a large base weight, randomize within tier if requested
-    const mid = (blockKeys.length - 1) / 2;
-    const score = (a: string, b: string) => {
-      const ia = indexByKey.get(a)!;
-      const ib = indexByKey.get(b)!;
-      const center = Math.abs(ia - mid) + Math.abs(ib - mid);
-      const prefScore = (prefs.includes(a) ? 0 : 1) + (prefs.includes(b) ? 0 : 1); // 0=pref/pref,1=pref/non,2=non/non
-      const jitter = randomize ? Math.random() : 0; // small jitter won't cross tier gaps
-      return prefScore * 1000 + center + jitter;
-    };
-
-    allPairs.sort((p1, p2) => score(p1[0], p1[1]) - score(p2[0], p2[1]));
-    return { fellow: f, pairs: allPairs, prefCount: prefPref.length };
+    return { fellow: f, options: allOptions, prefPairCount: prefPref.length };
   });
 
-  // Order fellows: most constrained first; randomize tie-breaks if requested
+  // Order fellows: most constrained first
   const order = [...byFellowCandidates]
     .map((c, idx) => ({ ...c, idx }))
     .sort((a, b) => {
-      const cmp = (a.prefCount - b.prefCount) || (a.pairs.length - b.pairs.length);
+      const cmp = (a.prefPairCount - b.prefPairCount) || (a.options.length - b.options.length);
       if (cmp !== 0) return cmp;
       return randomize ? Math.random() - 0.5 : 0;
     });
 
-  const used = new Set<string>();
+  const usedCount = new Map<string, number>(); // Track how many fellows assigned per block
   const byFellow: FellowSchedule = {};
+  const partialAssignments: string[] = [];
   let tried = 0;
 
   function backtrack(i: number): boolean {
     if (i >= N) return true;
-    const { fellow, pairs } = order[i];
+    const { fellow, options } = order[i];
 
-    for (const [a, b] of pairs) {
-      if (used.has(a) || used.has(b)) continue;
-      // place
-      byFellow[fellow.id] = { [a]: "VAC", [b]: "VAC" };
-      used.add(a);
-      used.add(b);
+    // Try to assign vacation options (pairs first, then singles)
+    for (const option of options) {
+      const blocks = option.blocks;
+      
+      // Check if all blocks in this option are available
+      const canAssign = blocks.every(block => {
+        const currentUsed = usedCount.get(block) || 0;
+        const crossPGYUsed = crossPGYCounts[block] || 0;
+        return currentUsed < 2 && (currentUsed + crossPGYUsed) < 2;
+      });
+
+      if (!canAssign) continue;
+
+      // Assign blocks
+      const fellowRow: Record<string, string> = {};
+      for (const block of blocks) {
+        fellowRow[block] = "VAC";
+        usedCount.set(block, (usedCount.get(block) || 0) + 1);
+      }
+      
+      byFellow[fellow.id] = fellowRow;
+      
+      // Track partial assignments (< 2 vacations)
+      if (blocks.length < 2) {
+        partialAssignments.push(fellow.name || fellow.id);
+      }
+      
       tried++;
+      
       if (backtrack(i + 1)) return true;
-      // undo
-      used.delete(a);
-      used.delete(b);
+      
+      // Undo assignment
+      for (const block of blocks) {
+        const count = usedCount.get(block) || 0;
+        if (count <= 1) {
+          usedCount.delete(block);
+        } else {
+          usedCount.set(block, count - 1);
+        }
+      }
       delete byFellow[fellow.id];
-      // continue
+      
+      // Remove from partial assignments if it was added
+      if (blocks.length < 2) {
+        const index = partialAssignments.indexOf(fellow.name || fellow.id);
+        if (index > -1) partialAssignments.splice(index, 1);
+      }
     }
+    
+    // If no vacation assignment worked, try with no vacations for this fellow
+    if (backtrack(i + 1)) return true;
+    
     return false;
   }
 
   const success = backtrack(0);
+  
+  // Ensure all fellows have an entry (even if empty)
+  for (const f of fellows) {
+    if (!byFellow[f.id]) byFellow[f.id] = {};
+  }
+
   if (success) {
-    // Ensure everyone has exactly two vacations marked
-    for (const f of fellows) {
-      if (!byFellow[f.id]) byFellow[f.id] = {};
-    }
-    return { byFellow, success: true, tried };
+    return { byFellow, success: true, tried, partialAssignments };
   }
 
   // Build conflicts diagnostics
   const conflicts: string[] = [];
   for (const c of order) {
-    if (c.pairs.length === 0) {
-      conflicts.push(`${c.fellow.name || c.fellow.id}: no valid pairs available given spacing`);
+    if (c.options.length === 0) {
+      conflicts.push(`${c.fellow.name || c.fellow.id}: no valid vacation preferences available given spacing`);
     }
   }
   if (conflicts.length === 0) conflicts.push("No assignment satisfies all constraints (try adjusting preferences)");
 
-  return { byFellow: {}, success: false, conflicts, tried };
+  return { byFellow: {}, success: false, conflicts, tried, partialAssignments };
 }

@@ -28,9 +28,10 @@ export function VacationConflictDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Vacation Conflict</AlertDialogTitle>
           <AlertDialogDescription>
-            {conflictingFellow} already has vacation assigned to block {blockKey}. 
-            Assigning {fellowName} to vacation in the same block will override the normal 
-            "one vacation per block" rule.
+            {conflictingFellow ? 
+              `${conflictingFellow} already has vacation assigned to block ${blockKey}. Assigning ${fellowName} to vacation in the same block will allow up to 2 fellows on vacation per block.` :
+              `Block ${blockKey} would exceed the limit of 2 total fellows on vacation across all PGY levels (including other PGY classes).`
+            }
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
