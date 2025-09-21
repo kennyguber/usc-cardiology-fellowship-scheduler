@@ -61,6 +61,17 @@ import { hasMinSpacing, type BlockInfo } from "@/lib/block-utils";
 export const MAX_VACATIONS_PER_YEAR = 2;
 export const VACATION_MIN_SPACING_BLOCKS = 6; // 3 months (2-week blocks)
 
+// Helper function to check if a vacation is allowed based on restrictions
+function isVacationAllowed(blockKey: string, pgy: PGY): boolean {
+  // No fellow can be granted vacation in July
+  if (blockKey.startsWith('JUL')) return false;
+  
+  // No PGY4 fellow can be granted vacation in July or August
+  if (pgy === 'PGY-4' && blockKey.startsWith('AUG')) return false;
+  
+  return true;
+}
+
 // Step 1 engine: place vacations only: at most 2 per fellow, >= 6 blocks apart, honoring preference order
 export function buildVacationOnlySchedule(fellows: Fellow[], blocks: BlockInfo[]): FellowSchedule {
   const byFellow: FellowSchedule = {};
@@ -72,6 +83,8 @@ export function buildVacationOnlySchedule(fellows: Fellow[], blocks: BlockInfo[]
     for (const pref of f.vacationPrefs) {
       if (!pref) continue;
       if (seen.has(pref)) continue;
+      // Check vacation restrictions
+      if (!isVacationAllowed(pref, f.pgy)) continue;
       seen.add(pref);
       const next = [...selected, pref];
       if (hasMinSpacing(blocks, next, VACATION_MIN_SPACING_BLOCKS)) {
@@ -160,7 +173,9 @@ export function buildVacationScheduleForPGY(
   // Prepare candidates - ONLY preference-based pairs
   const allKeysSet = new Set(blockKeys);
   const byFellowCandidates = fellows.map((f) => {
-    const prefs = Array.from(new Set((f.vacationPrefs || []).filter((k): k is string => !!k && allKeysSet.has(k))));
+    // Filter preferences to exclude restricted vacation periods
+    const prefs = Array.from(new Set((f.vacationPrefs || [])
+      .filter((k): k is string => !!k && allKeysSet.has(k) && isVacationAllowed(k, f.pgy))));
 
     // Only preference-based pairs (pref,pref)
     const prefPref: [string, string][] = [];
