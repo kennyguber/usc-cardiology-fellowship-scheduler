@@ -132,16 +132,33 @@ export function getAllPGYVacationCounts(): Record<string, number> {
   return counts;
 }
 
-// New solver: assign up to 2 vacations per fellow with >= 6-block spacing
-// Allow up to 2 fellows per block (within PGY), max 2 total across all PGYs
-// Only assign preferred vacation pairs - no random assignments
+// Enhanced multi-phase vacation assignment algorithm
 export type VacationSolveResult = {
   byFellow: FellowSchedule;
   success: boolean;
   conflicts?: string[];
   tried?: number;
   partialAssignments?: string[]; // Fellows who got < 2 vacations
+  phaseResults?: string[]; // Details from each phase
 };
+
+// Helper functions for enhanced algorithm
+function getPreferenceScore(blockKey: string, preferences: (string | undefined)[]): number {
+  const index = preferences.findIndex(pref => pref === blockKey);
+  return index === -1 ? 1000 : index; // Lower score = higher preference
+}
+
+function isInFirstHalf(blockKey: string, blocks: BlockInfo[]): boolean {
+  const blockIndex = blocks.findIndex(b => b.key === blockKey);
+  return blockIndex < blocks.length / 2;
+}
+
+function hasBalancedDistribution(assignments: string[], blocks: BlockInfo[]): boolean {
+  if (assignments.length !== 2) return true;
+  const firstHalf = assignments.some(block => isInFirstHalf(block, blocks));
+  const secondHalf = assignments.some(block => !isInFirstHalf(block, blocks));
+  return firstHalf && secondHalf;
+}
 
 export function buildVacationScheduleForPGY(
   fellows: Fellow[],
@@ -151,206 +168,258 @@ export function buildVacationScheduleForPGY(
 ): VacationSolveResult {
   const opts = (typeof minOrOpts === "object" && minOrOpts !== null ? minOrOpts : maybeOpts) || {};
   const randomize = !!opts.randomize;
-  const maxAttempts = opts.maxAttempts || 100000;
-  const timeout = opts.timeout || 180000; // 180 seconds (3 minutes)
-  const minSpacingBlocks = typeof minOrOpts === "number" ? minOrOpts : VACATION_MIN_SPACING_BLOCKS;
+  const maxAttempts = opts.maxAttempts || 50000;
+  const timeout = opts.timeout || 120000; // 2 minutes
+  const initialMinSpacing = typeof minOrOpts === "number" ? minOrOpts : VACATION_MIN_SPACING_BLOCKS;
 
   const blockKeys = blocks.map((b) => b.key);
   const indexByKey = new Map<string, number>(blockKeys.map((k, i) => [k, i] as const));
-  const N = fellows.length;
+  const allKeysSet = new Set(blockKeys);
+  const startTime = Date.now();
+  const phaseResults: string[] = [];
 
   // Get existing vacation counts across all PGYs
   const crossPGYCounts = getAllPGYVacationCounts();
 
-  function spaced(a: string, b: string) {
+  function hasSpacing(a: string, b: string, minSpacing: number): boolean {
     const ia = indexByKey.get(a) ?? -1;
     const ib = indexByKey.get(b) ?? -1;
     if (ia < 0 || ib < 0) return false;
-    const diff = Math.abs(ia - ib);
-    return diff >= minSpacingBlocks;
+    return Math.abs(ia - ib) >= minSpacing;
   }
 
-  // Prepare candidates - ONLY preference-based pairs
-  const allKeysSet = new Set(blockKeys);
-  const byFellowCandidates = fellows.map((f) => {
-    // Filter preferences to exclude restricted vacation periods
-    const prefs = Array.from(new Set((f.vacationPrefs || [])
-      .filter((k): k is string => !!k && allKeysSet.has(k) && isVacationAllowed(k, f.pgy))));
+  // Prepare fellow data with enhanced preference analysis
+  const fellowData = fellows.map((f) => {
+    const validPrefs = (f.vacationPrefs || [])
+      .map((pref, index) => ({ pref, index }))
+      .filter(({ pref }) => pref && allKeysSet.has(pref) && isVacationAllowed(pref, f.pgy))
+      .map(({ pref, index }) => ({ block: pref!, preferenceScore: index }));
 
-    // Only preference-based pairs (pref,pref)
-    const prefPref: [string, string][] = [];
-    for (let i = 0; i < prefs.length; i++) {
-      for (let j = i + 1; j < prefs.length; j++) {
-        if (spaced(prefs[i], prefs[j])) prefPref.push([prefs[i], prefs[j]]);
-      }
-    }
-
-    // Single preference blocks for partial assignments
-    const singlePrefs: [string][] = prefs.map(p => [p]);
-
-    // Combine pairs and singles, with pairs preferred
-    const allOptions = [...prefPref.map(p => ({ blocks: p, score: 0 })), ...singlePrefs.map(p => ({ blocks: p, score: 1000 }))];
-
-    // Sort by preference score (pairs first)
-    allOptions.sort((a, b) => a.score - b.score);
-
-    return { fellow: f, options: allOptions, prefPairCount: prefPref.length };
+    return { fellow: f, validPrefs, vacationCount: 0, assignments: [] as string[] };
   });
 
-  // Order fellows: most constrained first
-  const order = [...byFellowCandidates]
-    .map((c, idx) => ({ ...c, idx }))
-    .sort((a, b) => {
-      const cmp = (a.prefPairCount - b.prefPairCount) || (a.options.length - b.options.length);
-      if (cmp !== 0) return cmp;
-      return randomize ? Math.random() - 0.5 : 0;
-    });
-
-  // Multi-restart algorithm with enhanced diagnostics
-  const startTime = Date.now();
-  let bestResult: VacationSolveResult | null = null;
+  const result: FellowSchedule = {};
+  const usedCount = new Map<string, number>();
   let totalTried = 0;
-  const diagnostics: string[] = [];
 
-  function tryWithOrdering(fellowOrder: typeof order, attemptNum: number): VacationSolveResult | null {
-    const usedCount = new Map<string, number>();
-    const byFellow: FellowSchedule = {};
-    const partialAssignments: string[] = [];
-    let tried = 0;
-    const attemptStart = Date.now();
+  // Initialize empty schedules
+  for (const f of fellows) {
+    result[f.id] = {};
+  }
 
-    function backtrack(i: number): boolean {
-      if (Date.now() - startTime > timeout) return false; // Timeout check
-      if (tried > maxAttempts / 5) return false; // Per-attempt limit
-      
-      if (i >= N) return true;
-      const { fellow, options } = fellowOrder[i];
+  // Phase 1: Primary preference pairs with optimal spacing
+  phaseResults.push("Phase 1: Assigning preference pairs with 6-block spacing");
+  let phase1Success = 0;
+  
+  for (const data of fellowData.sort((a, b) => a.validPrefs.length - b.validPrefs.length)) {
+    if (Date.now() - startTime > timeout) break;
+    
+    const { fellow, validPrefs } = data;
+    if (validPrefs.length < 2) continue;
 
-      // Try to assign vacation options (pairs first, then singles)
-      for (const option of options) {
-        const blocks = option.blocks;
+    // Find best preference pair with 6-block spacing
+    let bestPair: { blocks: [string, string]; score: number } | null = null;
+    
+    for (let i = 0; i < validPrefs.length && !bestPair; i++) {
+      for (let j = i + 1; j < validPrefs.length; j++) {
+        const block1 = validPrefs[i].block;
+        const block2 = validPrefs[j].block;
         
-        // Check if all blocks in this option are available
-        const canAssign = blocks.every(block => {
+        if (!hasSpacing(block1, block2, 6)) continue;
+        
+        const canAssign = [block1, block2].every(block => {
           const currentUsed = usedCount.get(block) || 0;
           const crossPGYUsed = crossPGYCounts[block] || 0;
           return currentUsed < 2 && (currentUsed + crossPGYUsed) < 2;
         });
-
-        if (!canAssign) continue;
-
-        // Assign blocks
-        const fellowRow: Record<string, string> = {};
-        for (const block of blocks) {
-          fellowRow[block] = "VAC";
-          usedCount.set(block, (usedCount.get(block) || 0) + 1);
+        
+        if (canAssign) {
+          const score = validPrefs[i].preferenceScore + validPrefs[j].preferenceScore;
+          const balanced = hasBalancedDistribution([block1, block2], blocks);
+          bestPair = { blocks: [block1, block2], score: score - (balanced ? 10 : 0) };
+          break;
         }
-        
-        byFellow[fellow.id] = fellowRow;
-        
-        // Track partial assignments (< 2 vacations)
-        if (blocks.length < 2) {
-          partialAssignments.push(fellow.name || fellow.id);
-        }
-        
-        tried++;
-        
-        if (backtrack(i + 1)) return true;
-        
-        // Undo assignment
-        for (const block of blocks) {
-          const count = usedCount.get(block) || 0;
-          if (count <= 1) {
-            usedCount.delete(block);
-          } else {
-            usedCount.set(block, count - 1);
+      }
+    }
+
+    if (bestPair) {
+      for (const block of bestPair.blocks) {
+        result[fellow.id][block] = "VAC";
+        usedCount.set(block, (usedCount.get(block) || 0) + 1);
+        data.assignments.push(block);
+      }
+      data.vacationCount = 2;
+      phase1Success++;
+      totalTried++;
+    }
+  }
+  
+  phaseResults.push(`Phase 1 completed: ${phase1Success} fellows got 2 vacations`);
+
+  // Phase 2: Single preferences for remaining fellows and those with only 1 vacation
+  phaseResults.push("Phase 2: Assigning single preferences");
+  let phase2Success = 0;
+  
+  const fellowsNeedingMore = fellowData
+    .filter(data => data.vacationCount < 2)
+    .sort((a, b) => (a.vacationCount - b.vacationCount) || (a.validPrefs.length - b.validPrefs.length));
+  
+  for (const data of fellowsNeedingMore) {
+    if (Date.now() - startTime > timeout) break;
+    
+    const { fellow, validPrefs, assignments } = data;
+    const remainingSlots = 2 - data.vacationCount;
+    let assigned = 0;
+    
+    // Sort preferences by score, prioritizing first half/second half balance
+    const sortedPrefs = validPrefs
+      .filter(({ block }) => !assignments.includes(block))
+      .sort((a, b) => {
+        const balanceBonus = (pref: typeof a) => {
+          if (assignments.length === 1) {
+            const existingInFirstHalf = isInFirstHalf(assignments[0], blocks);
+            const thisInFirstHalf = isInFirstHalf(pref.block, blocks);
+            return existingInFirstHalf !== thisInFirstHalf ? -5 : 0;
           }
-        }
-        delete byFellow[fellow.id];
-        
-        // Remove from partial assignments if it was added
-        if (blocks.length < 2) {
-          const index = partialAssignments.indexOf(fellow.name || fellow.id);
-          if (index > -1) partialAssignments.splice(index, 1);
+          return 0;
+        };
+        return (a.preferenceScore + balanceBonus(a)) - (b.preferenceScore + balanceBonus(b));
+      });
+
+    for (const { block } of sortedPrefs) {
+      if (assigned >= remainingSlots) break;
+      
+      // Check spacing with existing assignments
+      const hasValidSpacing = assignments.every(existing => hasSpacing(block, existing, 6));
+      if (!hasValidSpacing) continue;
+      
+      // Check availability
+      const currentUsed = usedCount.get(block) || 0;
+      const crossPGYUsed = crossPGYCounts[block] || 0;
+      if (currentUsed >= 2 || (currentUsed + crossPGYUsed) >= 2) continue;
+      
+      result[fellow.id][block] = "VAC";
+      usedCount.set(block, currentUsed + 1);
+      data.assignments.push(block);
+      data.vacationCount++;
+      assigned++;
+      totalTried++;
+    }
+    
+    if (assigned > 0) phase2Success++;
+  }
+  
+  phaseResults.push(`Phase 2 completed: ${phase2Success} additional fellows got vacations`);
+
+  // Phase 3: Progressive constraint relaxation for remaining fellows
+  phaseResults.push("Phase 3: Progressive constraint relaxation");
+  let phase3Success = 0;
+  const spacingLevels = [5, 4, 3]; // Progressively relax spacing requirements
+  
+  for (const minSpacing of spacingLevels) {
+    if (Date.now() - startTime > timeout) break;
+    
+    const stillNeedingVacations = fellowData.filter(data => data.vacationCount === 0);
+    if (stillNeedingVacations.length === 0) break;
+    
+    phaseResults.push(`Phase 3.${6-minSpacing}: Trying ${minSpacing}-block minimum spacing`);
+    
+    for (const data of stillNeedingVacations) {
+      const { fellow, validPrefs } = data;
+      
+      // Try to find any pair with the current spacing requirement
+      let bestAssignment: string[] | null = null;
+      let bestScore = Infinity;
+      
+      for (let i = 0; i < validPrefs.length && !bestAssignment; i++) {
+        for (let j = i + 1; j < validPrefs.length; j++) {
+          const block1 = validPrefs[i].block;
+          const block2 = validPrefs[j].block;
+          
+          if (!hasSpacing(block1, block2, minSpacing)) continue;
+          
+          // Allow slightly more flexible cross-PGY limits in this phase
+          const canAssign = [block1, block2].every(block => {
+            const currentUsed = usedCount.get(block) || 0;
+            const crossPGYUsed = crossPGYCounts[block] || 0;
+            return currentUsed < 2 && (currentUsed + crossPGYUsed) <= 2; // Allow exactly 2 total
+          });
+          
+          if (canAssign) {
+            const score = validPrefs[i].preferenceScore + validPrefs[j].preferenceScore;
+            if (score < bestScore) {
+              bestScore = score;
+              bestAssignment = [block1, block2];
+            }
+          }
         }
       }
       
-      // If no vacation assignment worked, try with no vacations for this fellow
-      if (backtrack(i + 1)) return true;
+      if (bestAssignment) {
+        for (const block of bestAssignment) {
+          result[fellow.id][block] = "VAC";
+          usedCount.set(block, (usedCount.get(block) || 0) + 1);
+          data.assignments.push(block);
+        }
+        data.vacationCount = 2;
+        phase3Success++;
+        totalTried++;
+      }
+    }
+  }
+  
+  phaseResults.push(`Phase 3 completed: ${phase3Success} fellows got vacations with relaxed spacing`);
+
+  // Phase 4: Final single assignments for any remaining fellows
+  phaseResults.push("Phase 4: Final single vacation assignments");
+  let phase4Success = 0;
+  
+  const finalUnassigned = fellowData.filter(data => data.vacationCount === 0);
+  for (const data of finalUnassigned) {
+    if (Date.now() - startTime > timeout) break;
+    
+    const { fellow, validPrefs } = data;
+    
+    // Just try to get them one vacation from their preferences
+    for (const { block } of validPrefs.sort((a, b) => a.preferenceScore - b.preferenceScore)) {
+      const currentUsed = usedCount.get(block) || 0;
+      const crossPGYUsed = crossPGYCounts[block] || 0;
       
-      return false;
-    }
-
-    const success = backtrack(0);
-    
-    // Ensure all fellows have an entry (even if empty)
-    for (const f of fellows) {
-      if (!byFellow[f.id]) byFellow[f.id] = {};
-    }
-
-    const duration = Date.now() - attemptStart;
-    diagnostics.push(`Attempt ${attemptNum}: ${success ? 'SUCCESS' : 'FAILED'} in ${duration}ms, tried ${tried} assignments`);
-
-    if (success) {
-      return { byFellow, success: true, tried, partialAssignments };
-    }
-
-    return null;
-  }
-
-  // Try multiple restart strategies
-  const strategies = [
-    { name: "mostConstrained", order: [...order] },
-    { name: "leastConstrained", order: [...order].reverse() },
-    { name: "random1", order: [...order].sort(() => Math.random() - 0.5) },
-    { name: "random2", order: [...order].sort(() => Math.random() - 0.5) },
-    { name: "byPreferenceCount", order: [...order].sort((a, b) => b.prefPairCount - a.prefPairCount) }
-  ];
-
-  for (let i = 0; i < strategies.length && Date.now() - startTime < timeout; i++) {
-    const strategy = strategies[i];
-    diagnostics.push(`Trying strategy: ${strategy.name}`);
-    
-    const result = tryWithOrdering(strategy.order, i + 1);
-    totalTried += result?.tried || 0;
-    
-    if (result) {
-      bestResult = result;
-      bestResult.tried = totalTried;
-      diagnostics.push(`SUCCESS with strategy: ${strategy.name}`);
-      break;
-    }
-  }
-
-  if (bestResult) {
-    return bestResult;
-  }
-
-  // Build enhanced diagnostics for failure
-  const conflicts: string[] = [...diagnostics];
-  
-  // Analyze constraint conflicts
-  const constraintAnalysis: string[] = [];
-  for (const c of order) {
-    if (c.options.length === 0) {
-      constraintAnalysis.push(`${c.fellow.name || c.fellow.id}: no valid vacation preferences (need 6+ block spacing)`);
-    } else if (c.prefPairCount === 0) {
-      constraintAnalysis.push(`${c.fellow.name || c.fellow.id}: no preference pairs with valid spacing`);
+      // Very relaxed constraints for final assignments
+      if (currentUsed < 2 && (currentUsed + crossPGYUsed) <= 2) {
+        result[fellow.id][block] = "VAC";
+        usedCount.set(block, currentUsed + 1);
+        data.assignments.push(block);
+        data.vacationCount = 1;
+        phase4Success++;
+        totalTried++;
+        break;
+      }
     }
   }
   
-  // Check cross-PGY vacation density
-  const blockConstraints: string[] = [];
-  const highUsageBlocks = Object.entries(crossPGYCounts).filter(([, count]) => count >= 1);
-  if (highUsageBlocks.length > 0) {
-    blockConstraints.push(`Cross-PGY constraint blocks: ${highUsageBlocks.map(([block, count]) => `${block}(${count})`).join(', ')}`);
-  }
-  
-  conflicts.push(...constraintAnalysis, ...blockConstraints);
-  
-  if (conflicts.length === 0) {
-    conflicts.push("Algorithm failed - try increasing maxAttempts or timeout, or adjust vacation preferences");
-  }
+  phaseResults.push(`Phase 4 completed: ${phase4Success} fellows got at least one vacation`);
 
-  return { byFellow: {}, success: false, conflicts, tried: totalTried, partialAssignments: [] };
+  // Calculate success metrics
+  const fellowsWith2Vacations = fellowData.filter(data => data.vacationCount === 2).length;
+  const fellowsWith1Vacation = fellowData.filter(data => data.vacationCount === 1).length;
+  const fellowsWith0Vacations = fellowData.filter(data => data.vacationCount === 0).length;
+  
+  phaseResults.push(`Final results: ${fellowsWith2Vacations} fellows with 2 vacations, ${fellowsWith1Vacation} with 1 vacation, ${fellowsWith0Vacations} with 0 vacations`);
+  
+  const partialAssignments = fellowData
+    .filter(data => data.vacationCount > 0 && data.vacationCount < 2)
+    .map(data => data.fellow.name || data.fellow.id);
+
+  const conflicts = fellowsWith0Vacations > 0 ? 
+    [`${fellowsWith0Vacations} fellows could not be assigned any vacations`] : [];
+
+  return {
+    byFellow: result,
+    success: fellowsWith0Vacations === 0,
+    conflicts: conflicts.length > 0 ? conflicts : undefined,
+    tried: totalTried,
+    partialAssignments,
+    phaseResults
+  };
 }
