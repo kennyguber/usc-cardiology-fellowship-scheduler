@@ -108,6 +108,12 @@ function FellowRow({
     blocks.filter((b) => monthsJanJun.includes(b.key.slice(0, 3))),
     monthsJanJun
   );
+  const firstHalfAllowed = firstHalf.filter((b) => {
+    const month = b.key.slice(0, 3);
+    if (month === "JUL") return false;
+    if (fellow.pgy === "PGY-4" && month === "AUG") return false;
+    return true;
+  });
   const rowTone =
     fellow.pgy === "PGY-4"
       ? "bg-[hsl(var(--pgy4))] hover:bg-[hsl(var(--pgy4))]"
@@ -170,7 +176,7 @@ function FellowRow({
               <SelectValue placeholder={`Pref ${i + 1}`} />
             </SelectTrigger>
             <SelectContent>
-              {(i < 2 ? firstHalf : secondHalf).map((b) => (
+              {(i < 2 ? firstHalfAllowed : secondHalf).map((b) => (
                 <SelectItem key={b.key} value={b.key}>
                   {b.key} – {b.label}
                 </SelectItem>
@@ -247,7 +253,8 @@ export default function VacationPreferences() {
     };
 
     const updatedFellows = setup.fellows.map(fellow => {
-      const firstHalfPrefs = getRandomBlocksForHalf(monthsJulDec, 2);
+      const allowedFirstHalfMonths = monthsJulDec.filter(m => m !== "JUL" && !(fellow.pgy === "PGY-4" && m === "AUG"));
+      const firstHalfPrefs = getRandomBlocksForHalf(allowedFirstHalfMonths, 2);
       const secondHalfPrefs = getRandomBlocksForHalf(monthsJanJun, 2);
       
       return {
