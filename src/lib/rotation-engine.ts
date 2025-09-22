@@ -701,14 +701,15 @@ export function placePGY5Rotations(
   opts?: { randomize?: boolean; maxTries?: number; timeout?: number }
 ): SolveRotationsResult {
   const randomize = !!opts?.randomize;
-  const maxTries = opts?.maxTries ?? 20000; // Dramatically increased for PGY-5
-  const timeout = opts?.timeout ?? 120000; // 2 minutes for intensive search
+  const maxTries = opts?.maxTries ?? 25000; // Increased for enhanced algorithms
+  const timeout = opts?.timeout ?? 150000; // 2.5 minutes for intensive search
   
   const startTime = Date.now();
   const diagnostics = {
     failureReasons: {} as Record<string, number>,
     constraintViolations: [] as string[],
     crossPGYConflicts: [] as string[],
+    relaxationSteps: [] as string[],
     lastAttemptDetails: undefined as string | undefined,
   };
   function addFailureReason(reason: string) {
@@ -742,8 +743,25 @@ export function placePGY5Rotations(
     }
   }
 
-  function tryOnce(strategy = 'default'): SolveRotationsResult {
+  // Progressive constraint relaxation levels
+  type ConstraintLevel = 'strict' | 'relaxed' | 'minimal';
+  
+  function getConstraintSettings(level: ConstraintLevel) {
+    return {
+      allowConsecutive: level !== 'strict',
+      allowHFCCUAdjacency: level === 'minimal',
+      allowCrossCapacityViolation: level === 'minimal',
+      maxConsecutiveBlocks: level === 'strict' ? 0 : (level === 'relaxed' ? 1 : 2)
+    };
+  }
+
+  function tryOnce(strategy = 'default', constraintLevel: ConstraintLevel = 'strict'): SolveRotationsResult {
     const byFellow: FellowSchedule = cloneByFellow(existingByFellow || {});
+    const constraints = getConstraintSettings(constraintLevel);
+    
+    if (constraintLevel !== 'strict') {
+      diagnostics.relaxationSteps.push(`Trying ${constraintLevel} constraints with ${strategy} strategy`);
+    }
 
     // Track capacity per rotation (one fellow per rotation per block). ELECTIVE ignored.
     const usedByRot: Record<string, Set<string>> = {
@@ -762,7 +780,7 @@ export function placePGY5Rotations(
     };
     const isBlocked = (k: string, rot: Rotation) => {
       if (rot !== "ELECTIVE" && usedByRot[rot].has(k)) return true;
-      if (crossBlock[rot]?.has(k)) return true; // avoid PGY-4 overlaps per rules
+      if (!constraints.allowCrossCapacityViolation && crossBlock[rot]?.has(k)) return true; // avoid PGY-4 overlaps per rules
       return false;
     };
     const markUsed = (k: string, rot: Rotation) => {
@@ -786,11 +804,23 @@ export function placePGY5Rotations(
     // Enhanced fellow ordering strategies
     let fellowOrder = [...fellows];
     if (strategy === 'constraint_aware') {
-      // Order by constraint difficulty - fellows with most vacation first
+      // Order by constraint difficulty - fellows with most vacation first, then by available blocks
       fellowOrder.sort((a, b) => {
         const aVacs = Object.values(byFellow[a.id] || {}).filter(v => v === 'VAC').length;
         const bVacs = Object.values(byFellow[b.id] || {}).filter(v => v === 'VAC').length;
-        return bVacs - aVacs; // Most constrained first
+        if (aVacs !== bVacs) return bVacs - aVacs; // Most constrained first
+        
+        // Secondary sort by available blocks (fewer available = more constrained)
+        const aAvailable = blockKeys.filter(k => !(byFellow[a.id] || {})[k]).length;
+        const bAvailable = blockKeys.filter(k => !(byFellow[b.id] || {})[k]).length;
+        return aAvailable - bAvailable;
+      });
+    } else if (strategy === 'hf_first') {
+      // Place HF-heavy fellows first as they have the most constraints
+      fellowOrder.sort((a, b) => {
+        const aHF = Object.values(byFellow[a.id] || {}).filter(v => v === 'HF').length;
+        const bHF = Object.values(byFellow[b.id] || {}).filter(v => v === 'HF').length;
+        return bHF - aHF;
       });
     } else if (randomize || strategy === 'randomized') {
       fellowOrder = shuffle([...fellows]);
@@ -820,16 +850,25 @@ export function placePGY5Rotations(
       for (const k of keys) placeSingle(fid, k, label);
     };
     const nonConsecutiveOk = (fid: string, k: string, label: Rotation) => {
+      if (constraints.allowConsecutive) return true; // Skip check if relaxed
+      
       const row = byFellow[fid] || {};
       const idx = keyToIndex.get(k) ?? -1;
+      let consecutiveCount = 0;
+      
       for (const [kk, vv] of Object.entries(row)) {
         if (vv !== label) continue;
         const j = keyToIndex.get(kk) ?? -1;
-        if (j >= 0 && Math.abs(j - idx) <= 1) return false;
+        if (j >= 0 && Math.abs(j - idx) <= 1) {
+          consecutiveCount++;
+          if (consecutiveCount > constraints.maxConsecutiveBlocks) return false;
+        }
       }
       return true;
     };
     const notAdjacentToCCU = (fid: string, k: string) => {
+      if (constraints.allowHFCCUAdjacency) return true; // Skip check if minimal constraints
+      
       const row = byFellow[fid] || {};
       const idx = keyToIndex.get(k) ?? -1;
       for (const [kk, vv] of Object.entries(row)) {
@@ -890,51 +929,95 @@ export function placePGY5Rotations(
     }
 
     // 4) HF: 2 blocks, non-consecutive, and not adjacent to CCU for same fellow
-    // Enhanced with backtracking for better success rate
+    // Enhanced with sophisticated backtracking and CCU repositioning
     for (const f of fellowOrder) {
       const row = (byFellow[f.id] = byFellow[f.id] || {});
       let need = 2 - Object.values(row).filter((x) => x === "HF").length;
       if (need <= 0) continue;
       
-      // Try multiple strategies for HF placement
+      // Advanced HF placement with CCU repositioning if needed
       const attemptHFPlacement = () => {
         const backupRow = { ...row };
         const backupUsed = new Map(Object.entries(usedByRot).map(([k, v]) => [k, new Set(v)]));
         
-        const singles = blockKeys.filter((k) => !row[k] && !isBlocked(k, "HF"));
-        const strategies = [
-          singles, // original order
-          randomize ? shuffle([...singles]) : singles, // randomized
-          singles.slice().sort((a, b) => { // prefer later blocks
-            const idxA = keyToIndex.get(a) ?? 0;
-            const idxB = keyToIndex.get(b) ?? 0;
-            return idxB - idxA;
-          })
-        ];
+        // Try CCU repositioning if HF placement fails initially
+        const tryWithCCURepositioning = () => {
+          const ccuBlocks = Object.entries(row).filter(([, v]) => v === "CCU").map(([k]) => k);
+          if (ccuBlocks.length === 0) return false;
+          
+          // Try moving CCU to different positions to free up space for HF
+          const alternateCCUPositions = blockKeys.filter(k => 
+            !row[k] && !isBlocked(k, "CCU") && k !== ccuBlocks[0]
+          );
+          
+          for (const newCCUPos of alternateCCUPositions.slice(0, 5)) { // Limit repositioning attempts
+            // Temporarily move CCU
+            const originalCCU = ccuBlocks[0];
+            delete row[originalCCU];
+            unmarkUsed(originalCCU, "CCU");
+            placeSingle(f.id, newCCUPos, "CCU");
+            
+            // Try HF placement with new CCU position
+            const hfPlaced = tryHFPlacement();
+            if (hfPlaced) return true;
+            
+            // Restore CCU if HF placement still failed
+            delete row[newCCUPos];
+            unmarkUsed(newCCUPos, "CCU");
+            placeSingle(f.id, originalCCU, "CCU");
+          }
+          return false;
+        };
         
-        for (const ordered of strategies) {
-          let placed = 0;
-          for (const k of ordered) {
-            if (!nonConsecutiveOk(f.id, k, "HF")) continue;
-            if (!notAdjacentToCCU(f.id, k)) continue;
-            placeSingle(f.id, k, "HF");
-            placed++;
-            if (placed >= need) return true;
+        const tryHFPlacement = () => {
+          const singles = blockKeys.filter((k) => !row[k] && !isBlocked(k, "HF"));
+          const strategies = [
+            singles, // original order
+            singles.slice().reverse(), // reverse order
+            randomize ? shuffle([...singles]) : singles, // randomized
+            singles.slice().sort((a, b) => { // prefer middle blocks (away from edges)
+              const idxA = keyToIndex.get(a) ?? 0;
+              const idxB = keyToIndex.get(b) ?? 0;
+              const midPoint = blockKeys.length / 2;
+              return Math.abs(idxA - midPoint) - Math.abs(idxB - midPoint);
+            }),
+            singles.slice().sort(() => Math.random() - 0.5) // another random shuffle
+          ];
+          
+          for (const ordered of strategies) {
+            let placed = 0;
+            const placedBlocks: string[] = [];
+            
+            for (const k of ordered) {
+              if (!nonConsecutiveOk(f.id, k, "HF")) continue;
+              if (!notAdjacentToCCU(f.id, k)) continue;
+              placeSingle(f.id, k, "HF");
+              placedBlocks.push(k);
+              placed++;
+              if (placed >= need) return true;
+            }
+            
+            // Undo partial placement for this strategy
+            for (const k of placedBlocks) {
+              delete row[k];
+              unmarkUsed(k, "HF");
+            }
           }
-          if (placed < need) {
-            // Restore and try next strategy
-            Object.assign(row, backupRow);
-            Object.assign(usedByRot, Object.fromEntries(
-              Object.entries(backupUsed).map(([k, v]) => [k, new Set(v)])
-            ));
-          }
-        }
+          return false;
+        };
+        
+        // First try normal HF placement
+        if (tryHFPlacement()) return true;
+        
+        // If that fails and we have CCU, try repositioning CCU
+        if (constraintLevel !== 'strict' && tryWithCCURepositioning()) return true;
+        
         return false;
       };
       
       if (!attemptHFPlacement()) {
-        addFailureReason(`hf_placement_${f.id}`);
-        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place HF with constraints.`] };
+        addFailureReason(`hf_placement_${f.id}_${constraintLevel}`);
+        return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place HF with ${constraintLevel} constraints.`] };
       }
     }
 
@@ -1034,51 +1117,67 @@ export function placePGY5Rotations(
     return { success: true, byFellow };
   }
 
-  // Enhanced multi-restart algorithm with different strategies
+  // Progressive constraint relaxation with enhanced multi-restart algorithm
+  const constraintLevels: ConstraintLevel[] = ['strict', 'relaxed', 'minimal'];
   const strategies = [
     { randomize: false, strategy: 'default', description: "deterministic", weight: 0.15 },
     { randomize: false, strategy: 'constraint_aware', description: "constraint_aware", weight: 0.25 },
-    { randomize: true, strategy: 'randomized', description: "randomized", weight: 0.35 },
-    { randomize: true, strategy: 'randomized', description: "randomized_intensive", weight: 0.25 }
+    { randomize: false, strategy: 'hf_first', description: "hf_first", weight: 0.15 },
+    { randomize: true, strategy: 'randomized', description: "randomized", weight: 0.30 },
+    { randomize: true, strategy: 'randomized', description: "randomized_intensive", weight: 0.15 }
   ];
 
   let totalTried = 0;
-  for (const strategyConfig of strategies) {
-    const strategyMaxTries = Math.floor(maxTries * strategyConfig.weight);
+  
+  // Multi-phase approach with progressive constraint relaxation
+  for (const constraintLevel of constraintLevels) {
+    const levelMaxTries = Math.floor(maxTries / constraintLevels.length);
+    let levelTried = 0;
     
-    for (let t = 0; t < strategyMaxTries; t++) {
-      if (Date.now() - startTime > timeout) {
-        diagnostics.lastAttemptDetails = `Timeout after ${totalTried} attempts using ${strategyConfig.description} strategy. Cross-PGY conflicts: [${diagnostics.crossPGYConflicts.slice(0, 3).join(", ")}]`;
-        return { 
-          success: false, 
-          byFellow: {}, 
-          conflicts: ["PGY-5 rotation scheduling timed out"], 
-          tried: totalTried,
-          timeout: true,
-          diagnostics 
-        };
-      }
+    for (const strategyConfig of strategies) {
+      const strategyMaxTries = Math.floor(levelMaxTries * strategyConfig.weight);
+      
+      for (let t = 0; t < strategyMaxTries; t++) {
+        if (Date.now() - startTime > timeout) {
+          diagnostics.lastAttemptDetails = `Timeout after ${totalTried} attempts. Last: ${constraintLevel} constraints, ${strategyConfig.description} strategy. Relaxation steps: [${diagnostics.relaxationSteps.slice(-3).join(", ")}]`;
+          return { 
+            success: false, 
+            byFellow: {}, 
+            conflicts: ["PGY-5 rotation scheduling timed out"], 
+            tried: totalTried,
+            timeout: true,
+            diagnostics 
+          };
+        }
 
-      const res = tryOnce(strategyConfig.strategy);
-      totalTried++;
-      
-      if (res.success) {
-        diagnostics.lastAttemptDetails = `Success on attempt ${totalTried} using ${strategyConfig.description} strategy`;
-        return { ...res, tried: totalTried, diagnostics };
-      }
-      
-      // Track cross-PGY conflicts for diagnostics
-      if (res.conflicts) {
-        for (const conflict of res.conflicts) {
-          if (conflict.includes('CCU') || conflict.includes('KECK_CONSULT') || conflict.includes('LAC_CONSULT') || conflict.includes('HF') || conflict.includes('EP')) {
-            diagnostics.crossPGYConflicts.push(`${strategyConfig.description}: ${conflict}`);
+        const res = tryOnce(strategyConfig.strategy, constraintLevel);
+        totalTried++;
+        levelTried++;
+        
+        if (res.success) {
+          const relaxationNote = constraintLevel !== 'strict' ? ` (with ${constraintLevel} constraints)` : '';
+          diagnostics.lastAttemptDetails = `Success on attempt ${totalTried} using ${strategyConfig.description} strategy${relaxationNote}`;
+          return { ...res, tried: totalTried, diagnostics };
+        }
+        
+        // Track cross-PGY conflicts for diagnostics
+        if (res.conflicts) {
+          for (const conflict of res.conflicts) {
+            if (conflict.includes('CCU') || conflict.includes('KECK_CONSULT') || conflict.includes('LAC_CONSULT') || conflict.includes('HF') || conflict.includes('EP')) {
+              diagnostics.crossPGYConflicts.push(`${constraintLevel}/${strategyConfig.description}: ${conflict}`);
+            }
           }
         }
       }
     }
+    
+    // Log constraint level completion
+    if (constraintLevel !== 'minimal') {
+      diagnostics.relaxationSteps.push(`Completed ${constraintLevel} level after ${levelTried} attempts, moving to more relaxed constraints`);
+    }
   }
 
-  diagnostics.lastAttemptDetails = `Failed after ${totalTried} attempts across ${strategies.length} strategies`;
+  diagnostics.lastAttemptDetails = `Failed after ${totalTried} attempts across ${constraintLevels.length} constraint levels and ${strategies.length} strategies`;
   return { 
     success: false, 
     byFellow: {}, 
@@ -1088,7 +1187,9 @@ export function placePGY5Rotations(
         .sort((a, b) => b[1] - a[1])
         .slice(0, 3)
         .map(([reason, count]) => `${reason} (${count}x)`)
-        .join(", ")}`
+        .join(", ")}`,
+      `Relaxation attempted: ${diagnostics.relaxationSteps.length > 0 ? diagnostics.relaxationSteps.slice(-2).join("; ") : "None"}`,
+      `Cross-PGY conflicts detected: ${diagnostics.crossPGYConflicts.length}`
     ], 
     tried: totalTried,
     diagnostics 
