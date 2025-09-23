@@ -781,25 +781,70 @@ export function placePGY5Rotations(
     const isBlocked = (k: string, rot: Rotation) => {
       if (rot !== "ELECTIVE" && usedByRot[rot].has(k)) return true;
       if (!constraints.allowCrossCapacityViolation && crossBlock[rot]?.has(k)) return true; // avoid PGY-4 overlaps per rules
+      
+      // Special vacation capacity check
+      if (rot === "VAC") {
+        const currentVacationsInBlock = totalVacationsByBlock.get(k) || 0;
+        if (currentVacationsInBlock >= 2) {
+          console.log(`🚫 Block ${k} vacation capacity exceeded: ${currentVacationsInBlock}/2 vacations already assigned`);
+          return true;
+        }
+      }
+      
       return false;
     };
     const markUsed = (k: string, rot: Rotation) => {
       if (rot === "ELECTIVE") return;
       usedByRot[rot].add(k);
+      if (rot === "VAC") {
+        totalVacationsByBlock.set(k, (totalVacationsByBlock.get(k) || 0) + 1);
+        console.log(`✅ Marked vacation used in block ${k}, total vacations: ${totalVacationsByBlock.get(k)}`);
+      }
     };
     const unmarkUsed = (k: string, rot: Rotation) => {
       if (rot === "ELECTIVE") return;
       usedByRot[rot].delete(k);
+      if (rot === "VAC") {
+        const current = totalVacationsByBlock.get(k) || 0;
+        if (current > 0) {
+          totalVacationsByBlock.set(k, current - 1);
+          console.log(`❌ Unmarked vacation from block ${k}, total vacations: ${totalVacationsByBlock.get(k)}`);
+        }
+      }
     };
 
     // Prime usedByRot from existing assignments (ignore ELECTIVE for capacity)
+    // Also track vacation assignments from other PGY levels for cross-PGY constraints
+    let totalVacationsByBlock = new Map<string, number>();
+    
     for (const f of fellows) {
       const row = byFellow[f.id] || {};
       for (const [k, v] of Object.entries(row)) {
         if (!v || v === "ELECTIVE") continue;
         usedByRot[v as Rotation]?.add(k);
+        if (v === "VAC") {
+          totalVacationsByBlock.set(k, (totalVacationsByBlock.get(k) || 0) + 1);
+        }
       }
     }
+    
+    // Add vacation counts from other PGY levels
+    const pgy4Schedule = loadSchedule("PGY-4");
+    const pgy6Schedule = loadSchedule("PGY-6");
+    
+    [pgy4Schedule, pgy6Schedule].forEach(schedule => {
+      if (schedule?.byFellow) {
+        for (const fellowSchedule of Object.values(schedule.byFellow)) {
+          for (const [blockKey, rotation] of Object.entries(fellowSchedule)) {
+            if (rotation === "VAC") {
+              totalVacationsByBlock.set(blockKey, (totalVacationsByBlock.get(blockKey) || 0) + 1);
+            }
+          }
+        }
+      }
+    });
+    
+    console.log(`📊 Total vacation counts across all PGY levels:`, Object.fromEntries(totalVacationsByBlock));
 
     // Enhanced fellow ordering strategies
     let fellowOrder = [...fellows];
