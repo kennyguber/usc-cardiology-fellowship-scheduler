@@ -145,8 +145,15 @@ export function placePGY4Rotations(
       NONINVASIVE: new Set<string>(),
       ELECTIVE: new Set<string>(), // not used for capacity but kept for completeness
     };
-    const isBlocked = (k: string, rot: Rotation) => {
+    const isBlocked = (k: string, rot: Rotation, fellowId?: string) => {
       if (rot.startsWith("ELECTIVE")) return false; // no capacity restriction for electives
+      
+      // Check if fellow is on vacation in this block - treat as unavailable
+      if (fellowId) {
+        const fellowSchedule = byFellow[fellowId] || {};
+        if (fellowSchedule[k] === "VAC") return true;
+      }
+      
       return usedByRot[rot]?.has(k) ?? false;
     };
     const markUsed = (k: string, rot: Rotation) => {
@@ -181,7 +188,7 @@ export function placePGY4Rotations(
         // Helper: can place a vacation at candidate key?
         const otherVac = vacs.find((k) => !vacsInFirst.includes(k));
         const canPlaceVacAt = (cand: string) => {
-          if (isBlocked(cand, "VAC")) return false;
+          if (isBlocked(cand, "VAC", f.id)) return false;
           if (row[cand]) return false;
           // spacing with the other vacation
           if (otherVac) {
@@ -257,7 +264,7 @@ export function placePGY4Rotations(
       const row = (byFellow[f.id] = byFellow[f.id] || {});
       const candidates = randomize ? shuffle([...earlyAvail]) : [...earlyAvail];
       for (const k of candidates) {
-        if (isBlocked(k, "LAC_CATH")) continue;
+        if (isBlocked(k, "LAC_CATH", f.id)) continue;
         if (row[k]) continue;
         // assign
         row[k] = "LAC_CATH";
@@ -302,7 +309,7 @@ export function placePGY4Rotations(
     const pairFree = (fid: string, mi: number, label: Rotation) => {
       const keys = monthToKeys.get(mi) || [];
       if (keys.length < 2) return false;
-      return keys.every((k) => !isBlocked(k, label) && !(byFellow[fid] && byFellow[fid][k]));
+      return keys.every((k) => !isBlocked(k, label, fid) && !(byFellow[fid] && byFellow[fid][k]));
     };
 
     const placePair = (fid: string, mi: number, label: Rotation) => {
@@ -363,7 +370,7 @@ export function placePGY4Rotations(
             for (const m of lacCathMonths) if (isAdjacentMonth(mi, m)) ok = false;
             if (!ok) continue;
             for (const k of keys) {
-              if (!isBlocked(k, "LAC_CATH") && !row[k]) singles.push({ k, mi });
+              if (!isBlocked(k, "LAC_CATH", f.id) && !row[k]) singles.push({ k, mi });
             }
           }
           const singlesOrdered = randomize ? shuffle(singles) : singles;
@@ -514,7 +521,7 @@ if (needCCU > 0) {
         const singles: { k: string; mi: number }[] = [];
         for (const [mi, keys] of monthToKeys) {
           if ([...echoMonths].some((m) => isAdjacentMonth(mi, m))) continue;
-          for (const k of keys) if (!isBlocked(k, "ECHO1") && !row[k]) singles.push({ k, mi });
+          for (const k of keys) if (!isBlocked(k, "ECHO1", f.id) && !row[k]) singles.push({ k, mi });
         }
         const ordered = randomize ? shuffle(singles) : singles;
         for (const s of ordered) {
@@ -533,7 +540,7 @@ if (needCCU > 0) {
       let needEP = 1 - (Object.values(row).filter((x) => x === "EP").length || 0);
       if (needEP > 0) {
         const singles: string[] = [];
-        for (const k of blockKeys) if (!isBlocked(k, "EP") && !row[k]) singles.push(k);
+        for (const k of blockKeys) if (!isBlocked(k, "EP", f.id) && !row[k]) singles.push(k);
         const ordered = randomize ? shuffle(singles) : singles;
         if (ordered[0]) {
           placeSingle(f.id, ordered[0], "EP");
@@ -778,17 +785,14 @@ export function placePGY5Rotations(
       NONINVASIVE: new Set<string>(),
       ELECTIVE: new Set<string>(),
     };
-    const isBlocked = (k: string, rot: Rotation) => {
+    const isBlocked = (k: string, rot: Rotation, fellowId?: string) => {
       if (rot !== "ELECTIVE" && usedByRot[rot].has(k)) return true;
       if (!constraints.allowCrossCapacityViolation && crossBlock[rot]?.has(k)) return true; // avoid PGY-4 overlaps per rules
       
-      // Special vacation capacity check
-      if (rot === "VAC") {
-        const currentVacationsInBlock = totalVacationsByBlock.get(k) || 0;
-        if (currentVacationsInBlock >= 2) {
-          console.log(`🚫 Block ${k} vacation capacity exceeded: ${currentVacationsInBlock}/2 vacations already assigned`);
-          return true;
-        }
+      // Check if fellow is on vacation in this block - treat as unavailable
+      if (fellowId) {
+        const fellowSchedule = byFellow[fellowId] || {};
+        if (fellowSchedule[k] === "VAC") return true;
       }
       
       return false;
@@ -796,55 +800,20 @@ export function placePGY5Rotations(
     const markUsed = (k: string, rot: Rotation) => {
       if (rot === "ELECTIVE") return;
       usedByRot[rot].add(k);
-      if (rot === "VAC") {
-        totalVacationsByBlock.set(k, (totalVacationsByBlock.get(k) || 0) + 1);
-        console.log(`✅ Marked vacation used in block ${k}, total vacations: ${totalVacationsByBlock.get(k)}`);
-      }
     };
     const unmarkUsed = (k: string, rot: Rotation) => {
       if (rot === "ELECTIVE") return;
       usedByRot[rot].delete(k);
-      if (rot === "VAC") {
-        const current = totalVacationsByBlock.get(k) || 0;
-        if (current > 0) {
-          totalVacationsByBlock.set(k, current - 1);
-          console.log(`❌ Unmarked vacation from block ${k}, total vacations: ${totalVacationsByBlock.get(k)}`);
-        }
-      }
     };
 
-    // Prime usedByRot from existing assignments (ignore ELECTIVE for capacity)
-    // Also track vacation assignments from other PGY levels for cross-PGY constraints
-    let totalVacationsByBlock = new Map<string, number>();
-    
+    // Prime usedByRot from existing assignments (ignore ELECTIVE and VAC for capacity)
     for (const f of fellows) {
       const row = byFellow[f.id] || {};
       for (const [k, v] of Object.entries(row)) {
-        if (!v || v === "ELECTIVE") continue;
+        if (!v || v === "ELECTIVE" || v === "VAC") continue;
         usedByRot[v as Rotation]?.add(k);
-        if (v === "VAC") {
-          totalVacationsByBlock.set(k, (totalVacationsByBlock.get(k) || 0) + 1);
-        }
       }
     }
-    
-    // Add vacation counts from other PGY levels
-    const pgy4Schedule = loadSchedule("PGY-4");
-    const pgy6Schedule = loadSchedule("PGY-6");
-    
-    [pgy4Schedule, pgy6Schedule].forEach(schedule => {
-      if (schedule?.byFellow) {
-        for (const fellowSchedule of Object.values(schedule.byFellow)) {
-          for (const [blockKey, rotation] of Object.entries(fellowSchedule)) {
-            if (rotation === "VAC") {
-              totalVacationsByBlock.set(blockKey, (totalVacationsByBlock.get(blockKey) || 0) + 1);
-            }
-          }
-        }
-      }
-    });
-    
-    console.log(`📊 Total vacation counts across all PGY levels:`, Object.fromEntries(totalVacationsByBlock));
 
     // Enhanced fellow ordering strategies
     let fellowOrder = [...fellows];
@@ -933,7 +902,7 @@ export function placePGY5Rotations(
         const keys = monthToKeys.get(mi) || [];
         if (keys.length < 2) return false;
         // both free for this fellow and not blocked globally
-        return keys.every((k) => !row[k] && !isBlocked(k, "KECK_CONSULT"));
+        return keys.every((k) => !row[k] && !isBlocked(k, "KECK_CONSULT", f.id));
       });
       const ordered = randomize ? shuffle(candidateMonths) : candidateMonths;
       let placed = false;
@@ -951,7 +920,7 @@ export function placePGY5Rotations(
       const need = ccuFellows.has(f.id) ? 1 : 0;
       const has = Object.values(row).filter((x) => x === "CCU").length;
       for (let n = has; n < need; n++) {
-        const singles = blockKeys.filter((k) => !row[k] && !isBlocked(k, "CCU"));
+        const singles = blockKeys.filter((k) => !row[k] && !isBlocked(k, "CCU", f.id));
         const ordered = randomize ? shuffle(singles) : singles;
         const cand = ordered.find((k) => true);
         if (!cand) return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place CCU.`] };
@@ -965,7 +934,7 @@ export function placePGY5Rotations(
       const need = lacConsultFellows.has(f.id) ? 1 : 0;
       const has = Object.values(row).filter((x) => x === "LAC_CONSULT").length;
       for (let n = has; n < need; n++) {
-        const singles = blockKeys.filter((k) => !row[k] && !isBlocked(k, "LAC_CONSULT"));
+        const singles = blockKeys.filter((k) => !row[k] && !isBlocked(k, "LAC_CONSULT", f.id));
         const ordered = randomize ? shuffle(singles) : singles;
         const cand = ordered.find((k) => true);
         if (!cand) return { success: false, byFellow: {}, conflicts: [`${f.name || f.id}: unable to place LAC_CONSULT.`] };
@@ -992,7 +961,7 @@ export function placePGY5Rotations(
           
           // Try moving CCU to different positions to free up space for HF
           const alternateCCUPositions = blockKeys.filter(k => 
-            !row[k] && !isBlocked(k, "CCU") && k !== ccuBlocks[0]
+            !row[k] && !isBlocked(k, "CCU", f.id) && k !== ccuBlocks[0]
           );
           
           for (const newCCUPos of alternateCCUPositions.slice(0, 5)) { // Limit repositioning attempts
@@ -1015,7 +984,7 @@ export function placePGY5Rotations(
         };
         
         const tryHFPlacement = () => {
-          const singles = blockKeys.filter((k) => !row[k] && !isBlocked(k, "HF"));
+          const singles = blockKeys.filter((k) => !row[k] && !isBlocked(k, "HF", f.id));
           const strategies = [
             singles, // original order
             singles.slice().reverse(), // reverse order
@@ -1071,7 +1040,7 @@ export function placePGY5Rotations(
       const row = (byFellow[fid] = byFellow[fid] || {});
       let need = n - Object.values(row).filter((x) => x === label).length;
       if (need <= 0) return true;
-      const singles = blockKeys.filter((k) => !row[k] && !isBlocked(k, label));
+      const singles = blockKeys.filter((k) => !row[k] && !isBlocked(k, label, fid));
       const ordered = randomize ? shuffle(singles) : singles;
       for (const k of ordered) {
         if (!nonConsecutiveOk(fid, k, label)) continue;
@@ -1333,13 +1302,23 @@ export function placePGY6Rotations(
       if (rot === "ELECTIVE") return;
       usedByRot[rot].add(k);
     };
-    const isUsed = (k: string, rot: Rotation) => rot !== "ELECTIVE" && usedByRot[rot].has(k);
+    const isUsed = (k: string, rot: Rotation, fellowId?: string) => {
+      if (rot === "ELECTIVE") return false;
+      
+      // Check if fellow is on vacation in this block - treat as unavailable
+      if (fellowId) {
+        const fellowSchedule = byFellow[fellowId] || {};
+        if (fellowSchedule[k] === "VAC") return true;
+      }
+      
+      return usedByRot[rot].has(k);
+    };
 
-    // Prime usedByRot from existing (ignore ELECTIVE)
+    // Prime usedByRot from existing (ignore ELECTIVE and VAC)
     for (const f of fellows) {
       const row = byFellow[f.id] || {};
       for (const [k, v] of Object.entries(row)) {
-        if (!v || v === "ELECTIVE") continue;
+        if (!v || v === "ELECTIVE" || v === "VAC") continue;
         usedByRot[v as Rotation]?.add(k);
       }
     }
@@ -1386,7 +1365,7 @@ export function placePGY6Rotations(
     };
 
     const canPlaceLacCathAt = (fid: string, k: string) => {
-      if (isUsed(k, "LAC_CATH")) return false;
+      if (isUsed(k, "LAC_CATH", fid)) return false;
       const row = byFellow[fid] || {};
       if (row[k]) return false;
       const total = (crossCounts.LAC_CATH.get(k) || 0) + (usedByRot.LAC_CATH.has(k) ? 1 : 0);
@@ -1411,7 +1390,7 @@ export function placePGY6Rotations(
       let need = n - Object.values(row).filter((x) => x === label).length;
       if (need <= 0) return true;
       const tryOnce = (preferUncovered: boolean) => {
-        const cands = blockKeys.filter((k) => !row[k] && !isUsed(k, label));
+        const cands = blockKeys.filter((k) => !row[k] && !isUsed(k, label, fid));
         // Sort by uncovered first if requested
         const scored = cands.map((k) => ({ k, covered: (crossCounts[label].get(k) || 0) > 0 ? 1 : 0 }));
         const ordered = (preferUncovered
@@ -1478,7 +1457,7 @@ export function placePGY6Rotations(
           if ((remain.get(fid) || 0) <= 0) continue;
           const row = byFellow[fid] || {};
           if (row[k]) continue;
-          if (isUsed(k, label)) continue;
+          if (isUsed(k, label, fid)) continue;
           if (!nonConsecutiveOk(fid, k, label)) continue;
           cands.push(fid);
         }
@@ -1496,7 +1475,7 @@ export function placePGY6Rotations(
           const row = byFellow[fid] || {};
           if ((remain.get(fid) || 0) <= 0) continue;
           if (row[k]) continue;
-          if (isUsed(k, label)) continue;
+          if (isUsed(k, label, fid)) continue;
           if (!nonConsecutiveOk(fid, k, label)) continue;
 
           placeSingle(fid, k, label);
@@ -1533,8 +1512,8 @@ export function placePGY6Rotations(
       const has = Object.values(row).filter((x) => x === "HF").length;
       if (has >= 1) continue;
       // try uncovered first
-      const cands0 = blockKeys.filter((k) => !row[k] && !isUsed(k, "HF") && (crossCounts.HF.get(k) || 0) === 0);
-      const cands1 = blockKeys.filter((k) => !row[k] && !isUsed(k, "HF") && (crossCounts.HF.get(k) || 0) >= 1);
+      const cands0 = blockKeys.filter((k) => !row[k] && !isUsed(k, "HF", f.id) && (crossCounts.HF.get(k) || 0) === 0);
+      const cands1 = blockKeys.filter((k) => !row[k] && !isUsed(k, "HF", f.id) && (crossCounts.HF.get(k) || 0) >= 1);
       const ordered0 = randomize ? shuffle(cands0) : cands0;
       const ordered1 = randomize ? shuffle(cands1) : cands1;
       const pick = ordered0[0] || ordered1[0];

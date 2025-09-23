@@ -231,7 +231,6 @@ export function buildVacationScheduleForPGY(
           const currentUsed = usedCount.get(block) || 0;
           const crossPGYUsed = crossPGYCounts[block] || 0;
           // Allow up to 2 fellows per PGY and up to 2 total across all PGY levels
-          console.log(`📊 Vacation capacity check for ${block}: currentUsed=${currentUsed}, crossPGYUsed=${crossPGYUsed}, total=${currentUsed + crossPGYUsed}`);
           return currentUsed < 2 && (currentUsed + crossPGYUsed) <= 2;
         });
         
@@ -298,7 +297,6 @@ export function buildVacationScheduleForPGY(
       // Check availability
       const currentUsed = usedCount.get(block) || 0;
       const crossPGYUsed = crossPGYCounts[block] || 0;
-      console.log(`📊 Single vacation capacity check for ${block}: currentUsed=${currentUsed}, crossPGYUsed=${crossPGYUsed}, total=${currentUsed + crossPGYUsed}`);
       if (currentUsed >= 2 || (currentUsed + crossPGYUsed) > 2) continue;
       
       result[fellow.id][block] = "VAC";
@@ -389,7 +387,6 @@ export function buildVacationScheduleForPGY(
       const crossPGYUsed = crossPGYCounts[block] || 0;
       
       // Very relaxed constraints for final assignments
-      console.log(`📊 Final phase vacation capacity check for ${block}: currentUsed=${currentUsed}, crossPGYUsed=${crossPGYUsed}, total=${currentUsed + crossPGYUsed}`);
       if (currentUsed < 2 && (currentUsed + crossPGYUsed) <= 2) {
         result[fellow.id][block] = "VAC";
         usedCount.set(block, currentUsed + 1);
