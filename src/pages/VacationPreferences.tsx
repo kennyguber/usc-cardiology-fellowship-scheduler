@@ -32,7 +32,7 @@ import { HeartPulse, GripVertical } from "lucide-react";
 import { computeAcademicYearHolidays } from "@/lib/holidays";
 
 export type PGY = "PGY-4" | "PGY-5" | "PGY-6";
-export type Fellow = { id: string; name: string; pgy: PGY; vacationPrefs: (string | undefined)[] };
+export type Fellow = { id: string; name: string; pgy: PGY; clinicDay?: "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday"; vacationPrefs: (string | undefined)[] };
 export type Holiday = { id: string; date: string; name: string };
 
 const STORAGE_KEY = "cfsa_setup_v1";
@@ -162,6 +162,23 @@ function FellowRow({
           </SelectContent>
         </Select>
       </TableCell>
+      <TableCell className="min-w-[140px]">
+        <Select
+          value={fellow.clinicDay || ""}
+          onValueChange={(v) => onChange({ ...fellow, clinicDay: v as any })}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Clinic Day" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="Monday">Monday</SelectItem>
+            <SelectItem value="Tuesday">Tuesday</SelectItem>
+            <SelectItem value="Wednesday">Wednesday</SelectItem>
+            <SelectItem value="Thursday">Thursday</SelectItem>
+            <SelectItem value="Friday">Friday</SelectItem>
+          </SelectContent>
+        </Select>
+      </TableCell>
       {[0, 1, 2, 3].map((i) => (
         <TableCell key={i} className="min-w-[160px]">
           <Select
@@ -232,7 +249,7 @@ export default function VacationPreferences() {
       ...setup,
       fellows: [
         ...setup.fellows,
-        { id, name: "", pgy: "PGY-4", vacationPrefs: [undefined, undefined, undefined, undefined] },
+        { id, name: "", pgy: "PGY-4", clinicDay: undefined, vacationPrefs: [undefined, undefined, undefined, undefined] },
       ],
     });
   };
@@ -413,6 +430,7 @@ export default function VacationPreferences() {
                         <TableHead className="w-8"></TableHead>
                         <TableHead className="w-[260px]">Name</TableHead>
                         <TableHead>PGY</TableHead>
+                        <TableHead>Clinic Day</TableHead>
                         <TableHead>Pref 1 (Jul–Dec)</TableHead>
                         <TableHead>Pref 2 (Jul–Dec)</TableHead>
                         <TableHead>Pref 3 (Jan–Jun)</TableHead>
@@ -423,7 +441,7 @@ export default function VacationPreferences() {
                     <TableBody>
                       {setup.fellows.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={8} className="text-center text-muted-foreground">
+                          <TableCell colSpan={9} className="text-center text-muted-foreground">
                             No fellows yet. Click "Add Fellow" to begin.
                           </TableCell>
                         </TableRow>
