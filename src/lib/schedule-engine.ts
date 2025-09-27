@@ -4,6 +4,7 @@ export type Fellow = {
   id: string;
   name: string;
   pgy: PGY;
+  clinicDay?: "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday";
   vacationPrefs: (string | undefined)[]; // keys like JUL1, JUL2, ...
 };
 

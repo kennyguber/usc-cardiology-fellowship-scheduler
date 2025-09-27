@@ -10,6 +10,7 @@ import { useSEO } from "@/lib/seo";
 import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, applyDragAndDrop, type CallSchedule } from "@/lib/call-engine";
 import { buildHFSchedule, loadHFSchedule, saveHFSchedule, clearHFSchedule, getEffectiveHFAssignment, type HFSchedule } from "@/lib/hf-engine";
 import { buildJeopardySchedule, loadJeopardySchedule, saveJeopardySchedule, clearJeopardySchedule, type JeopardySchedule } from "@/lib/jeopardy-engine";
+import { buildClinicSchedule, loadClinicSchedule, saveClinicSchedule, clearClinicSchedule, getClinicAssignmentsForDate, formatClinicAssignments, type ClinicSchedule } from "@/lib/clinic-engine";
 import { loadSchedule, loadSetup, type PGY, type StoredSchedule } from "@/lib/schedule-engine";
 import { computeAcademicYearHolidays } from "@/lib/holidays";
 import { monthAbbrForIndex } from "@/lib/block-utils";
@@ -67,6 +68,11 @@ export default function CallSchedule() {
   const [uncoveredJeopardy, setUncoveredJeopardy] = useState<string[]>([]);
   const [jeopardySuccess, setJeopardySuccess] = useState<boolean | null>(null);
   
+  // Clinic Schedule state
+  const [clinicSchedule, setClinicSchedule] = useState<ClinicSchedule | null>(null);
+  const [clinicLoading, setClinicLoading] = useState(false);
+  const [clinicSuccess, setClinicSuccess] = useState<boolean | null>(null);
+  
   const { toast } = useToast();
   const sensors = useSensors(useSensor(PointerSensor, {
     activationConstraint: {
@@ -99,6 +105,9 @@ export default function CallSchedule() {
     
     const existingJeopardy = loadJeopardySchedule();
     if (existingJeopardy) setJeopardySchedule(existingJeopardy);
+    
+    const existingClinic = loadClinicSchedule();
+    if (existingClinic) setClinicSchedule(existingClinic);
   }, []);
 
   useEffect(() => {
@@ -398,6 +407,43 @@ export default function CallSchedule() {
     });
   };
 
+  const handleGenerateClinic = async () => {
+    setClinicLoading(true);
+    setClinicSuccess(null);
+    
+    try {
+      const newSchedule = buildClinicSchedule(schedule, setup);
+      if (newSchedule) {
+        setClinicSchedule(newSchedule);
+        saveClinicSchedule(newSchedule);
+        setClinicSuccess(true);
+        toast({
+          title: "Clinic schedule generated",
+          description: "Clinic assignments have been generated successfully.",
+        });
+      } else {
+        setClinicSuccess(false);
+        toast({
+          title: "Failed to generate clinic schedule",
+          description: "Please ensure setup data is complete.",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setClinicLoading(false);
+    }
+  };
+
+  const handleClearClinic = () => {
+    setClinicSchedule(null);
+    setClinicSuccess(null);
+    clearClinicSchedule();
+    toast({
+      title: "Clinic schedule cleared",
+      description: "All clinic assignments have been reset.",
+    });
+  };
+
   const handleDragStart = (event: DragStartEvent) => {
     const { active } = event;
     const [iso, fellowId] = (active.id as string).split('|');
@@ -464,6 +510,12 @@ export default function CallSchedule() {
             </Button>
             <Button variant="outline" onClick={handleClearJeopardy} disabled={jeopardyLoading} size="sm">
               Clear Jeopardy
+            </Button>
+            <Button onClick={handleGenerateClinic} disabled={clinicLoading || !setup || !schedule} variant="secondary">
+              {clinicLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />} Generate Clinics
+            </Button>
+            <Button variant="outline" onClick={handleClearClinic} disabled={clinicLoading} size="sm">
+              Clear Clinics
             </Button>
           </div>
         </header>
@@ -793,7 +845,30 @@ export default function CallSchedule() {
               "—"
             )}
           </TableCell>
-          <TableCell>—</TableCell>
+          <TableCell>
+            {(() => {
+              const clinicAssignments = getClinicAssignmentsForDate(clinicSchedule, iso);
+              const formattedClinics = formatClinicAssignments(clinicAssignments);
+              
+              if (formattedClinics) {
+                return (
+                  <div className="flex flex-wrap gap-1">
+                    {clinicAssignments.map((assignment, index) => (
+                      <Badge 
+                        key={index} 
+                        variant={fellowColorById[assignment.fellowId]}
+                        className="text-xs"
+                      >
+                        {fellowById[assignment.fellowId]?.name ?? assignment.fellowId}: {assignment.clinicType === "GENERAL" ? "Gen" : assignment.clinicType === "HEART_FAILURE" ? "HF" : assignment.clinicType === "ACHD" ? "ACHD" : assignment.clinicType === "DEVICE" ? "Dev" : "EP"}
+                      </Badge>
+                    ))}
+                  </div>
+                );
+              }
+              
+              return "—";
+            })()}
+          </TableCell>
         </TableRow>
       );
     })}
