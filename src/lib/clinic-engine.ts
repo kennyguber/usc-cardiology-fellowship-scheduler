@@ -51,7 +51,37 @@ function isHoliday(dateISO: string, setup: SetupState): boolean {
   return holidays.some((h) => h.date === dateISO);
 }
 
+function dateToBlockKey(dateISO: string, yearStartISO: string): string | undefined {
+  const date = parseISO(dateISO);
+  const yearStart = parseISO(yearStartISO);
+  
+  if (isBefore(date, yearStart)) return undefined;
+  
+  // Check if date is beyond the academic year (after June 30 of next year)
+  const yearEnd = new Date(yearStart.getFullYear() + 1, 5, 30); // June 30 of next year
+  if (isAfter(date, yearEnd)) return undefined;
+  
+  const dayOfMonth = date.getDate();
+  const monthIndex = (date.getMonth() - yearStart.getMonth() + 12) % 12;
+  
+  const monthNames = ["JUL", "AUG", "SEP", "OCT", "NOV", "DEC", "JAN", "FEB", "MAR", "APR", "MAY", "JUN"];
+  const monthAbbr = monthNames[monthIndex];
+  
+  // First half (1-15) or second half (16-end)
+  const half = dayOfMonth <= 15 ? "1" : "2";
+  
+  return `${monthAbbr}${half}`;
+}
+
 function getFellowRotationOnDate(fellowId: string, dateISO: string): Rotation | undefined {
+  // Get setup to determine year start
+  const setup = loadSetup();
+  if (!setup) return undefined;
+  
+  // Convert date to block key
+  const blockKey = dateToBlockKey(dateISO, setup.yearStart);
+  if (!blockKey) return undefined;
+  
   // Get the fellow's rotation schedule for the date
   const pgy4Schedule = loadSchedule("PGY-4");
   const pgy5Schedule = loadSchedule("PGY-5");
@@ -65,9 +95,9 @@ function getFellowRotationOnDate(fellowId: string, dateISO: string): Rotation | 
     
   if (!fellowRotations) return undefined;
   
-  // Convert ISO date to block key (simplified - would need proper mapping)
-  // For now, return undefined as we need block mapping logic
-  return undefined;
+  // Get the rotation for this block
+  const rotation = fellowRotations[blockKey];
+  return rotation as Rotation | undefined;
 }
 
 function isPostCallDay(fellowId: string, dateISO: string, callSchedule: CallSchedule | null): boolean {
