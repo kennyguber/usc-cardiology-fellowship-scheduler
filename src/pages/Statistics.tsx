@@ -9,6 +9,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import PrimaryCallStatsTable from "@/components/PrimaryCallStatsTable";
 import HFCoverageStatsTable from "@/components/HFCoverageStatsTable";
 import JeopardyStatsTable from "@/components/JeopardyStatsTable";
+import ClinicStatsTable from "@/components/ClinicStatsTable";
 
 export default function Statistics() {
   useSEO({
@@ -198,7 +199,7 @@ export default function Statistics() {
                 <CardTitle>Clinic Statistics</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-muted-foreground">Coming soon.</div>
+                <ClinicStatsTable fellows={fellows} callSchedule={schedule} />
               </CardContent>
             </Card>
           </TabsContent>
