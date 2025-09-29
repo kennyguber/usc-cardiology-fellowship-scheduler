@@ -72,7 +72,7 @@ export function PrimaryCallEditDialog({
         <DialogHeader>
           <DialogTitle>Edit primary call</DialogTitle>
           <DialogDescription>
-            {iso} {currentName ? `— currently ${currentName}` : "— currently unassigned"}
+            {format(parseISO(iso), 'EEE MMM d-yyyy')} {currentName ? `— currently ${currentName}` : "— currently unassigned"}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
