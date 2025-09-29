@@ -149,6 +149,47 @@ function isFirstOrThirdWednesday(date: Date): boolean {
   return week === 1 || week === 3;
 }
 
+// Helper to get the start of the week (Monday) for a given date
+function getWeekStart(date: Date): Date {
+  const day = date.getDay();
+  const diff = date.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is Sunday
+  return new Date(date.getFullYear(), date.getMonth(), diff);
+}
+
+// Helper to get all dates in the same week
+function getDatesInSameWeek(date: Date): string[] {
+  const weekStart = getWeekStart(date);
+  const dates: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    const currentDate = new Date(weekStart);
+    currentDate.setDate(weekStart.getDate() + i);
+    dates.push(toISODate(currentDate));
+  }
+  return dates;
+}
+
+// Check if a fellow has a special clinic (ACHD or HF) in the same week
+function hasSpecialClinicInSameWeek(
+  fellowId: string, 
+  date: Date, 
+  schedule: ClinicSchedule
+): boolean {
+  const weekDates = getDatesInSameWeek(date);
+  
+  for (const weekDate of weekDates) {
+    const assignments = schedule.days[weekDate] || [];
+    const hasSpecialClinic = assignments.some(assignment => 
+      assignment.fellowId === fellowId && 
+      (assignment.clinicType === "HEART_FAILURE" || assignment.clinicType === "ACHD")
+    );
+    if (hasSpecialClinic) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
 export function buildClinicSchedule(
   callSchedule: CallSchedule | null,
   setup: SetupState | null
@@ -250,6 +291,12 @@ export function buildClinicSchedule(
         const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
         const currentDayName = dayNames[dayOfWeek];
         
+        // Check if this fellow has a special clinic (ACHD or HF) in the same week
+        // If so, skip general clinic assignment for this week
+        if (hasSpecialClinicInSameWeek(fellow.id, date, schedule)) {
+          continue;
+        }
+        
         // Assign if this is their preferred clinic day
         if (fellowClinicDay === currentDayName) {
           assignments.push({
@@ -331,12 +378,12 @@ export function getClinicNotesForDate(
   clinicSchedule: ClinicSchedule | null,
   setup: SetupState | null
 ): ClinicNote[] {
-  if (!setup || !fellows.length) return [];
+  if (!setup || !fellows.length || !clinicSchedule) return [];
 
   const notes: ClinicNote[] = [];
   const date = parseISO(dateISO);
   const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, etc.
-  const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const currentDay = dayNames[dayOfWeek];
 
   // Get clinic assignments for this date
@@ -351,30 +398,8 @@ export function getClinicNotesForDate(
                                    !isHoliday(dateISO, setup) &&
                                    fellowRotation !== 'VAC' as any;
 
-    // Check if fellow should have specialty clinic (ACHD, HF, EP)
-    const shouldHaveSpecialtyClinic = (() => {
-      if (!fellowRotation) return false;
-      
-      // PGY5/6 on LAC_CATH should get ACHD clinic on Wednesday
-      if ((fellow.pgy === 'PGY-5' || fellow.pgy === 'PGY-6') && 
-          fellowRotation === 'LAC_CATH' && 
-          currentDay === 'WEDNESDAY') {
-        return 'ACHD';
-      }
-      
-      // PGY5/6 on NONINVASIVE should get HF clinic on Tuesday
-      if ((fellow.pgy === 'PGY-5' || fellow.pgy === 'PGY-6') && 
-          fellowRotation === 'NONINVASIVE' && 
-          currentDay === 'TUESDAY') {
-        return 'HEART_FAILURE';
-      }
-      
-      return false;
-    })();
-
     // Check if fellow has clinic assignment
     const hasClinicAssignment = fellowsWithClinics.has(fellow.id);
-    const fellowClinicAssignments = clinicAssignments.filter(a => a.fellowId === fellow.id);
 
     // Determine if we need to show a note
     let noteReason = '';
@@ -382,7 +407,17 @@ export function getClinicNotesForDate(
 
     if (shouldHaveGeneralClinic && !hasClinicAssignment) {
       // Fellow should have general clinic but doesn't - find reason
-      if (isPostCallDay(fellow.id, dateISO, callSchedule)) {
+      
+      // Check if they have special clinic this week (LAC_CATH→ACHD or NONINVASIVE→HF)
+      if (hasSpecialClinicInSameWeek(fellow.id, date, clinicSchedule)) {
+        if (fellowRotation === 'LAC_CATH') {
+          noteReason = 'LAC_CATH→ACHD';
+          noteType = 'special-assignment';
+        } else if (fellowRotation === 'NONINVASIVE') {
+          noteReason = 'NONINVASIVE→HF';
+          noteType = 'special-assignment';
+        }
+      } else if (isPostCallDay(fellow.id, dateISO, callSchedule)) {
         noteReason = 'Post-Call';
         noteType = 'post-call';
       } else if (fellowRotation === 'CCU') {
@@ -395,25 +430,6 @@ export function getClinicNotesForDate(
         noteReason = 'Vacation';
         noteType = 'vacation';
       }
-    } else if (shouldHaveSpecialtyClinic && !isPostCallDay(fellow.id, dateISO, callSchedule)) {
-      // Fellow should have specialty clinic - check if they got it or their general clinic instead
-      const hasSpecialtyClinic = fellowClinicAssignments.some(a => a.clinicType === shouldHaveSpecialtyClinic);
-      const hasGeneralClinic = fellowClinicAssignments.some(a => a.clinicType === 'GENERAL');
-      
-      if (hasSpecialtyClinic && !hasGeneralClinic) {
-        // Got specialty clinic instead of general - show special assignment note
-        if (shouldHaveSpecialtyClinic === 'ACHD' && fellowRotation === 'LAC_CATH') {
-          noteReason = 'LAC_CATH→ACHD';
-          noteType = 'special-assignment';
-        } else if (shouldHaveSpecialtyClinic === 'HEART_FAILURE' && fellowRotation === 'NONINVASIVE') {
-          noteReason = 'NONINVASIVE→HF';
-          noteType = 'special-assignment';
-        }
-      }
-    } else if (shouldHaveSpecialtyClinic && isPostCallDay(fellow.id, dateISO, callSchedule)) {
-      // Fellow should have specialty clinic but is post-call
-      noteReason = 'Post-Call';
-      noteType = 'post-call';
     }
 
     if (noteReason && noteType) {
