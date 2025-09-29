@@ -7,6 +7,7 @@ import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/component
 import { listEligiblePrimaryFellows, listIneligiblePrimaryFellows, applyManualPrimaryAssignment, listPrimarySwapSuggestions, applyPrimarySwap, type CallSchedule, type SwapSuggestion } from "@/lib/call-engine";
 import { loadSetup } from "@/lib/schedule-engine";
 import { useToast } from "@/hooks/use-toast";
+import { parseISO, format } from "date-fns";
 
 export function PrimaryCallEditDialog({
   iso,
@@ -142,10 +143,10 @@ export function PrimaryCallEditDialog({
                       <div className="space-y-2">
                         {swapSuggestions.map((s) => (
                           <div key={s.date} className="rounded-md border p-2 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <Badge variant="secondary">{s.date}</Badge>
-                              <span className="text-sm">with {fellowById[s.fellowBId]?.name ?? s.fellowBId}</span>
-                            </div>
+                             <div className="flex items-center gap-2">
+                               <Badge variant="secondary">{format(parseISO(s.date), 'EEE MMM d-yyyy')}</Badge>
+                               <span className="text-sm">with {fellowById[s.fellowBId]?.name ?? s.fellowBId}</span>
+                             </div>
                             <Button size="sm" onClick={() => handleSwap(s.date)}>Swap</Button>
                           </div>
                         ))}
