@@ -876,7 +876,7 @@ export default function CallSchedule() {
                 id: f.id,
                 name: f.name,
                 pgy: f.pgy,
-                preferredClinicDay: f.clinicDay?.toUpperCase() || ''
+                preferredClinicDay: f.clinicDay || ''
               }));
               const clinicNotes = getClinicNotesForDate(iso, fellowsWithClinicDays, schedule, clinicSchedule, setup);
               
