@@ -111,7 +111,28 @@ function isPostCallDay(fellowId: string, dateISO: string, callSchedule: CallSche
   return callSchedule.days[prevDayISO] === fellowId;
 }
 
-function isExcludedFromClinic(
+// Exclusion logic for special clinic assignments (more lenient)
+function isExcludedFromSpecialClinic(
+  fellow: Fellow,
+  dateISO: string,
+  rotation: Rotation | undefined,
+  callSchedule: CallSchedule | null,
+  setup: SetupState
+): boolean {
+  // Rule: No clinics on holidays
+  if (isHoliday(dateISO, setup)) return true;
+  
+  // Rule: Exclude if on vacation
+  if (rotation === "VAC") return true;
+  
+  // Rule: Exclude if post-call (day after primary call)
+  if (isPostCallDay(fellow.id, dateISO, callSchedule)) return true;
+  
+  return false;
+}
+
+// Exclusion logic for general clinic assignments (stricter)
+function isExcludedFromGeneralClinic(
   fellow: Fellow,
   dateISO: string,
   rotation: Rotation | undefined,
@@ -228,65 +249,72 @@ export function buildClinicSchedule(
     
     for (const fellow of setup.fellows) {
       const rotation = getFellowRotationOnDate(fellow.id, dateISO);
+      const primaryRotation = rotation ? getPrimaryRotation(rotation) : undefined;
       
-      // Check exclusion conditions
-      if (isExcludedFromClinic(fellow, dateISO, rotation, callSchedule, setup)) {
-        continue;
-      }
-      
-      // Apply special rotation rules for PGY-5 and PGY-6
+      // PRIORITY 1: Apply special rotation rules for PGY-5 and PGY-6 (with special exclusion rules)
       if ((fellow.pgy === "PGY-5" || fellow.pgy === "PGY-6")) {
-        const primaryRotation = rotation ? getPrimaryRotation(rotation) : undefined;
-        
         // Rule 3a: NONINVASIVE rotation -> Heart Failure Clinic on Tuesday
         if (primaryRotation === "NONINVASIVE" && dayOfWeek === HEART_FAILURE_CLINIC_DAY) {
-          assignments.push({
-            fellowId: fellow.id,
-            clinicType: "HEART_FAILURE",
-            dayOfWeek: "Tuesday"
-          });
-          schedule.countsByFellow[fellow.id].HEART_FAILURE++;
-          continue; // Skip general clinic assignment
+          if (!isExcludedFromSpecialClinic(fellow, dateISO, rotation, callSchedule, setup)) {
+            assignments.push({
+              fellowId: fellow.id,
+              clinicType: "HEART_FAILURE",
+              dayOfWeek: "Tuesday"
+            });
+            schedule.countsByFellow[fellow.id].HEART_FAILURE++;
+            continue; // Skip other assignments for this fellow
+          }
         }
         
         // Rule 3b: LAC_CATH rotation -> ACHD Clinic on Monday
         if (primaryRotation === "LAC_CATH" && dayOfWeek === ACHD_CLINIC_DAY) {
-          assignments.push({
-            fellowId: fellow.id,
-            clinicType: "ACHD",
-            dayOfWeek: "Monday"
-          });
-          schedule.countsByFellow[fellow.id].ACHD++;
-          continue; // Skip general clinic assignment
+          if (!isExcludedFromSpecialClinic(fellow, dateISO, rotation, callSchedule, setup)) {
+            assignments.push({
+              fellowId: fellow.id,
+              clinicType: "ACHD",
+              dayOfWeek: "Monday"
+            });
+            schedule.countsByFellow[fellow.id].ACHD++;
+            continue; // Skip other assignments for this fellow
+          }
         }
       }
       
-      // Rule 4: EP rotation special assignments
-      const primaryRotation = rotation ? getPrimaryRotation(rotation) : undefined;
+      // PRIORITY 2: EP rotation special assignments (with special exclusion rules)
       if (primaryRotation === "EP") {
-        // Device Clinic every Friday
-        if (dayOfWeek === DEVICE_CLINIC_DAY) {
-          assignments.push({
-            fellowId: fellow.id,
-            clinicType: "DEVICE",
-            dayOfWeek: "Friday"
-          });
-          schedule.countsByFellow[fellow.id].DEVICE++;
+        if (!isExcludedFromSpecialClinic(fellow, dateISO, rotation, callSchedule, setup)) {
+          // Device Clinic every Friday
+          if (dayOfWeek === DEVICE_CLINIC_DAY) {
+            assignments.push({
+              fellowId: fellow.id,
+              clinicType: "DEVICE",
+              dayOfWeek: "Friday"
+            });
+            schedule.countsByFellow[fellow.id].DEVICE++;
+          }
+          
+          // EP Clinic every 1st and 3rd Wednesday
+          if (isFirstOrThirdWednesday(date)) {
+            assignments.push({
+              fellowId: fellow.id,
+              clinicType: "EP",
+              dayOfWeek: "Wednesday"
+            });
+            schedule.countsByFellow[fellow.id].EP++;
+          }
+          
+          // EP fellows can still have general clinics on their assigned days
+          // Fall through to general clinic logic
+        }
+      }
+      
+      // PRIORITY 3: General clinic assignment (with stricter exclusion rules)
+      if (GENERAL_CLINIC_DAYS.includes(dayOfWeek)) {
+        // Check general exclusion conditions
+        if (isExcludedFromGeneralClinic(fellow, dateISO, rotation, callSchedule, setup)) {
+          continue;
         }
         
-        // EP Clinic every 1st and 3rd Wednesday
-        if (isFirstOrThirdWednesday(date)) {
-          assignments.push({
-            fellowId: fellow.id,
-            clinicType: "EP",
-            dayOfWeek: "Wednesday"
-          });
-          schedule.countsByFellow[fellow.id].EP++;
-        }
-      }
-      
-      // General clinic assignment
-      if (GENERAL_CLINIC_DAYS.includes(dayOfWeek)) {
         const fellowClinicDay = fellow.clinicDay;
         const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
         const currentDayName = dayNames[dayOfWeek];
