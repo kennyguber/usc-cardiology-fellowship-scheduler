@@ -460,6 +460,16 @@ export function getClinicNotesForDate(
       }
     }
 
+    // Additional check: PGY-5/6 NONINVASIVE fellows missing Tuesday HF clinic due to post-call
+    if (dayOfWeek === 2 && // Tuesday
+        (fellow.pgy === 'PGY-5' || fellow.pgy === 'PGY-6') &&
+        fellowRotation === 'NONINVASIVE' &&
+        !hasClinicAssignment &&
+        isPostCallDay(fellow.id, dateISO, callSchedule)) {
+      noteReason = 'Post-Call (HF Clinic)';
+      noteType = 'post-call';
+    }
+
     if (noteReason && noteType) {
       notes.push({
         fellowId: fellow.id,

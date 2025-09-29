@@ -489,7 +489,7 @@ export default function CallSchedule() {
         
         const gapMessages = Object.entries(gapsByType).map(([type, dates]) => {
           const formattedDates = dates.map(dateISO => {
-            const date = new Date(dateISO);
+            const date = parseISO(dateISO);
             return date.toLocaleDateString('en-US', { 
               weekday: 'short', 
               month: 'short', 
