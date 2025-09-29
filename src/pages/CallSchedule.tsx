@@ -744,6 +744,7 @@ export default function CallSchedule() {
                 <TabsList>
                   <TabsTrigger value="table">Table</TabsTrigger>
                   <TabsTrigger value="calendar">Calendar</TabsTrigger>
+                  <TabsTrigger value="clinic-calendar">Clinic Calendar</TabsTrigger>
                 </TabsList>
                 <TabsContent value="table">
 <Table containerClassName="mt-4 max-h-[70vh] overflow-auto">
@@ -1058,6 +1059,58 @@ export default function CallSchedule() {
     </DroppableCalendarDay>
   );
 })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </TabsContent>
+                <TabsContent value="clinic-calendar">
+                  <div className="mt-4 grid gap-6">
+                    {months.map((m, idx) => (
+                      <div key={idx}>
+                        <div className="text-sm font-medium mb-2">{m.label}</div>
+                        <div className="grid grid-cols-7 gap-2">
+                          {Array.from({ length: m.firstWeekday }).map((_, i) => (
+                            <div key={`e-${i}`} className="h-20 rounded-md bg-muted/30" />
+                          ))}
+                          {Array.from({ length: m.daysInMonth }).map((_, i) => {
+                            const day = i + 1;
+                            const iso = toISO(new Date(m.year, m.month, day));
+                            const hol = holidayMap[iso];
+                            const weekend = isWeekend(new Date(m.year, m.month, day));
+                            const cellBg = hol ? "bg-[hsl(var(--holiday))]" : weekend ? "bg-muted/70" : "bg-card";
+                            
+                            // Get clinic assignments for this date
+                            const clinicAssignments = getClinicAssignmentsForDate(clinicSchedule, iso);
+                            
+                            return (
+                              <div key={iso} className={`h-20 rounded-md border ${cellBg} p-2 text-xs relative overflow-y-auto`}>
+                                <div className="font-medium">{day}</div>
+                                {hol && <div className="text-[0.65rem] text-red-600 truncate">{hol}</div>}
+                                
+                                {/* Clinic assignments */}
+                                {clinicAssignments.length > 0 && (
+                                  <div className="mt-1 space-y-1">
+                                    {clinicAssignments.map((assignment, index) => (
+                                      <Badge 
+                                        key={index}
+                                        variant={fellowColorById[assignment.fellowId]}
+                                        className="text-[0.55rem] px-1 py-0 h-auto block w-full"
+                                      >
+                                        <div className="truncate">
+                                          {lastNameOf(fellowById[assignment.fellowId]?.name ?? assignment.fellowId)}:
+                                          {assignment.clinicType === "GENERAL" ? "Gen" : 
+                                           assignment.clinicType === "HEART_FAILURE" ? "HF" : 
+                                           assignment.clinicType === "ACHD" ? "ACHD" : 
+                                           assignment.clinicType === "DEVICE" ? "Dev" : "EP"}
+                                        </div>
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     ))}
