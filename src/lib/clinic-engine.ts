@@ -443,3 +443,96 @@ export function getClinicNotesForDate(
 
   return notes;
 }
+
+export interface ClinicCoverageGap {
+  date: string;
+  dayOfWeek: string;
+  clinicType: ClinicType;
+  required: number;
+  assigned: number;
+}
+
+export function checkSpecialtyClinicCoverage(
+  clinicSchedule: ClinicSchedule | null,
+  setup: SetupState | null
+): { success: boolean; gaps: ClinicCoverageGap[] } {
+  if (!clinicSchedule || !setup) {
+    return { success: false, gaps: [] };
+  }
+
+  const { days } = july1ToJune30Window(setup.yearStart);
+  const gaps: ClinicCoverageGap[] = [];
+  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+  for (const date of days) {
+    const dateISO = toISODate(date);
+    const dayOfWeek = date.getDay(); // 0=Sunday, 1=Monday, etc.
+    const dayName = dayNames[dayOfWeek];
+    
+    // Skip holidays
+    if (isHoliday(dateISO, setup)) continue;
+    
+    const assignments = clinicSchedule.days[dateISO] || [];
+    
+    // Check Monday ACHD requirement
+    if (dayOfWeek === 1) { // Monday
+      const achdCount = assignments.filter(a => a.clinicType === "ACHD").length;
+      if (achdCount === 0) {
+        gaps.push({
+          date: dateISO,
+          dayOfWeek: dayName,
+          clinicType: "ACHD",
+          required: 1,
+          assigned: achdCount
+        });
+      }
+    }
+    
+    // Check Tuesday HF requirement
+    if (dayOfWeek === 2) { // Tuesday
+      const hfCount = assignments.filter(a => a.clinicType === "HEART_FAILURE").length;
+      if (hfCount === 0) {
+        gaps.push({
+          date: dateISO,
+          dayOfWeek: dayName,
+          clinicType: "HEART_FAILURE",
+          required: 1,
+          assigned: hfCount
+        });
+      }
+    }
+    
+    // Check Friday Device requirement
+    if (dayOfWeek === 5) { // Friday
+      const deviceCount = assignments.filter(a => a.clinicType === "DEVICE").length;
+      if (deviceCount === 0) {
+        gaps.push({
+          date: dateISO,
+          dayOfWeek: dayName,
+          clinicType: "DEVICE",
+          required: 1,
+          assigned: deviceCount
+        });
+      }
+    }
+    
+    // Check 1st and 3rd Wednesday EP requirement
+    if (dayOfWeek === 3 && isFirstOrThirdWednesday(date)) { // Wednesday
+      const epCount = assignments.filter(a => a.clinicType === "EP").length;
+      if (epCount === 0) {
+        gaps.push({
+          date: dateISO,
+          dayOfWeek: dayName,
+          clinicType: "EP",
+          required: 1,
+          assigned: epCount
+        });
+      }
+    }
+  }
+
+  return {
+    success: gaps.length === 0,
+    gaps
+  };
+}

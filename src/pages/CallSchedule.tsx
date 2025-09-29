@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { HeartPulse, Loader2, RefreshCcw, Trash2 } from "lucide-react";
+import { HeartPulse, Loader2, RefreshCcw, Trash2, CheckCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -10,7 +10,7 @@ import { useSEO } from "@/lib/seo";
 import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, applyDragAndDrop, type CallSchedule } from "@/lib/call-engine";
 import { buildHFSchedule, loadHFSchedule, saveHFSchedule, clearHFSchedule, getEffectiveHFAssignment, type HFSchedule } from "@/lib/hf-engine";
 import { buildJeopardySchedule, loadJeopardySchedule, saveJeopardySchedule, clearJeopardySchedule, type JeopardySchedule } from "@/lib/jeopardy-engine";
-import { buildClinicSchedule, loadClinicSchedule, saveClinicSchedule, clearClinicSchedule, getClinicAssignmentsForDate, formatClinicAssignments, getClinicNotesForDate, type ClinicSchedule, type ClinicNote } from "@/lib/clinic-engine";
+import { buildClinicSchedule, loadClinicSchedule, saveClinicSchedule, clearClinicSchedule, getClinicAssignmentsForDate, formatClinicAssignments, getClinicNotesForDate, checkSpecialtyClinicCoverage, type ClinicSchedule, type ClinicNote, type ClinicCoverageGap } from "@/lib/clinic-engine";
 import { loadSchedule, loadSetup, type PGY, type StoredSchedule } from "@/lib/schedule-engine";
 import { computeAcademicYearHolidays } from "@/lib/holidays";
 import { monthAbbrForIndex } from "@/lib/block-utils";
@@ -72,6 +72,8 @@ export default function CallSchedule() {
   const [clinicSchedule, setClinicSchedule] = useState<ClinicSchedule | null>(null);
   const [clinicLoading, setClinicLoading] = useState(false);
   const [clinicSuccess, setClinicSuccess] = useState<boolean | null>(null);
+  const [clinicCheckLoading, setClinicCheckLoading] = useState(false);
+  const [clinicCoverageGaps, setClinicCoverageGaps] = useState<ClinicCoverageGap[]>([]);
   
   const { toast } = useToast();
   const sensors = useSensors(useSensor(PointerSensor, {
@@ -437,11 +439,64 @@ export default function CallSchedule() {
   const handleClearClinic = () => {
     setClinicSchedule(null);
     setClinicSuccess(null);
+    setClinicCoverageGaps([]);
     clearClinicSchedule();
     toast({
       title: "Clinic schedule cleared",
       description: "All clinic assignments have been reset.",
     });
+  };
+
+  const handleCheckClinic = () => {
+    if (!clinicSchedule) {
+      toast({
+        title: "No clinic schedule",
+        description: "Please generate clinic assignments first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setClinicCheckLoading(true);
+    
+    try {
+      const result = checkSpecialtyClinicCoverage(clinicSchedule, setup);
+      setClinicCoverageGaps(result.gaps);
+      
+      if (result.success) {
+        toast({
+          title: "All specialty clinics covered",
+          description: "All required specialty clinic assignments are in place.",
+        });
+      } else {
+        const clinicTypeNames = {
+          ACHD: "ACHD",
+          HEART_FAILURE: "HF", 
+          DEVICE: "Device",
+          EP: "EP",
+          GENERAL: "General"
+        };
+        
+        // Group gaps by clinic type for summary
+        const gapsByType = result.gaps.reduce((acc, gap) => {
+          const typeName = clinicTypeNames[gap.clinicType];
+          acc[typeName] = (acc[typeName] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>);
+        
+        const gapSummary = Object.entries(gapsByType)
+          .map(([type, count]) => `${count} ${type}`)
+          .join(", ");
+        
+        toast({
+          title: "Coverage gaps found",
+          description: `Missing assignments: ${gapSummary}`,
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setClinicCheckLoading(false);
+    }
   };
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -516,6 +571,9 @@ export default function CallSchedule() {
             </Button>
             <Button variant="outline" onClick={handleClearClinic} disabled={clinicLoading} size="sm">
               Clear Clinics
+            </Button>
+            <Button onClick={handleCheckClinic} disabled={clinicCheckLoading || !clinicSchedule} variant="outline" size="sm">
+              {clinicCheckLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />} Check Clinics
             </Button>
           </div>
         </header>
