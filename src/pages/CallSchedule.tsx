@@ -10,7 +10,7 @@ import { useSEO } from "@/lib/seo";
 import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, applyDragAndDrop, type CallSchedule } from "@/lib/call-engine";
 import { buildHFSchedule, loadHFSchedule, saveHFSchedule, clearHFSchedule, getEffectiveHFAssignment, type HFSchedule } from "@/lib/hf-engine";
 import { buildJeopardySchedule, loadJeopardySchedule, saveJeopardySchedule, clearJeopardySchedule, type JeopardySchedule } from "@/lib/jeopardy-engine";
-import { buildClinicSchedule, loadClinicSchedule, saveClinicSchedule, clearClinicSchedule, getClinicAssignmentsForDate, formatClinicAssignments, type ClinicSchedule } from "@/lib/clinic-engine";
+import { buildClinicSchedule, loadClinicSchedule, saveClinicSchedule, clearClinicSchedule, getClinicAssignmentsForDate, formatClinicAssignments, getClinicNotesForDate, type ClinicSchedule, type ClinicNote } from "@/lib/clinic-engine";
 import { loadSchedule, loadSetup, type PGY, type StoredSchedule } from "@/lib/schedule-engine";
 import { computeAcademicYearHolidays } from "@/lib/holidays";
 import { monthAbbrForIndex } from "@/lib/block-utils";
@@ -689,6 +689,7 @@ export default function CallSchedule() {
       <TableHead className="sticky top-0 z-[1] bg-background">HF fellow</TableHead>
       <TableHead className="sticky top-0 z-[1] bg-background">Vacation</TableHead>
       <TableHead className="sticky top-0 z-[1] bg-background">Clinic</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background">Clinic Notes</TableHead>
     </TableRow>
   </TableHeader>
   <TableBody>
@@ -860,6 +861,35 @@ export default function CallSchedule() {
                         className="text-xs"
                       >
                         {fellowById[assignment.fellowId]?.name ?? assignment.fellowId}: {assignment.clinicType === "GENERAL" ? "Gen" : assignment.clinicType === "HEART_FAILURE" ? "HF" : assignment.clinicType === "ACHD" ? "ACHD" : assignment.clinicType === "DEVICE" ? "Dev" : "EP"}
+                      </Badge>
+                    ))}
+                  </div>
+                );
+              }
+              
+              return "—";
+            })()}
+          </TableCell>
+          <TableCell>
+            {(() => {
+              const fellowsWithClinicDays = fellows.map(f => ({
+                id: f.id,
+                name: f.name,
+                pgy: f.pgy,
+                preferredClinicDay: f.clinicDay?.toUpperCase() || ''
+              }));
+              const clinicNotes = getClinicNotesForDate(iso, fellowsWithClinicDays, schedule, clinicSchedule, setup);
+              
+              if (clinicNotes.length > 0) {
+                return (
+                  <div className="flex flex-wrap gap-1">
+                    {clinicNotes.map((note, index) => (
+                      <Badge 
+                        key={index} 
+                        variant={fellowColorById[note.fellowId]}
+                        className="text-xs"
+                      >
+                        {fellowById[note.fellowId]?.name ?? note.fellowId}: {note.reason}
                       </Badge>
                     ))}
                   </div>

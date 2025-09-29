@@ -317,3 +317,113 @@ export function formatClinicAssignments(assignments: ClinicAssignment[]): string
   
   return assignments.map(a => clinicNames[a.clinicType]).join(", ");
 }
+
+export interface ClinicNote {
+  fellowId: string;
+  reason: string;
+  type: 'post-call' | 'vacation' | 'ccu-rotation' | 'hf-rotation' | 'special-assignment';
+}
+
+export function getClinicNotesForDate(
+  dateISO: string,
+  fellows: Array<{ id: string; name: string; pgy: string; preferredClinicDay: string }>,
+  callSchedule: CallSchedule | null,
+  clinicSchedule: ClinicSchedule | null,
+  setup: SetupState | null
+): ClinicNote[] {
+  if (!setup || !fellows.length) return [];
+
+  const notes: ClinicNote[] = [];
+  const date = parseISO(dateISO);
+  const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, etc.
+  const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+  const currentDay = dayNames[dayOfWeek];
+
+  // Get clinic assignments for this date
+  const clinicAssignments = getClinicAssignmentsForDate(clinicSchedule, dateISO);
+  const fellowsWithClinics = new Set(clinicAssignments.map(a => a.fellowId));
+
+  for (const fellow of fellows) {
+    const fellowRotation = getFellowRotationOnDate(fellow.id, dateISO);
+    
+    // Check if fellow should have general clinic on this day
+    const shouldHaveGeneralClinic = fellow.preferredClinicDay === currentDay && 
+                                   !isHoliday(dateISO, setup) &&
+                                   fellowRotation !== 'VAC' as any;
+
+    // Check if fellow should have specialty clinic (ACHD, HF, EP)
+    const shouldHaveSpecialtyClinic = (() => {
+      if (!fellowRotation) return false;
+      
+      // PGY5/6 on LAC_CATH should get ACHD clinic on Wednesday
+      if ((fellow.pgy === 'PGY-5' || fellow.pgy === 'PGY-6') && 
+          fellowRotation === 'LAC_CATH' && 
+          currentDay === 'WEDNESDAY') {
+        return 'ACHD';
+      }
+      
+      // PGY5/6 on NONINVASIVE should get HF clinic on Tuesday
+      if ((fellow.pgy === 'PGY-5' || fellow.pgy === 'PGY-6') && 
+          fellowRotation === 'NONINVASIVE' && 
+          currentDay === 'TUESDAY') {
+        return 'HEART_FAILURE';
+      }
+      
+      return false;
+    })();
+
+    // Check if fellow has clinic assignment
+    const hasClinicAssignment = fellowsWithClinics.has(fellow.id);
+    const fellowClinicAssignments = clinicAssignments.filter(a => a.fellowId === fellow.id);
+
+    // Determine if we need to show a note
+    let noteReason = '';
+    let noteType: ClinicNote['type'] | null = null;
+
+    if (shouldHaveGeneralClinic && !hasClinicAssignment) {
+      // Fellow should have general clinic but doesn't - find reason
+      if (isPostCallDay(fellow.id, dateISO, callSchedule)) {
+        noteReason = 'Post-Call';
+        noteType = 'post-call';
+      } else if (fellowRotation === 'CCU') {
+        noteReason = 'CCU Rotation';
+        noteType = 'ccu-rotation';
+      } else if (fellowRotation === 'HF') {
+        noteReason = 'HF Rotation';
+        noteType = 'hf-rotation';
+      } else if (fellowRotation === 'VAC' as any) {
+        noteReason = 'Vacation';
+        noteType = 'vacation';
+      }
+    } else if (shouldHaveSpecialtyClinic && !isPostCallDay(fellow.id, dateISO, callSchedule)) {
+      // Fellow should have specialty clinic - check if they got it or their general clinic instead
+      const hasSpecialtyClinic = fellowClinicAssignments.some(a => a.clinicType === shouldHaveSpecialtyClinic);
+      const hasGeneralClinic = fellowClinicAssignments.some(a => a.clinicType === 'GENERAL');
+      
+      if (hasSpecialtyClinic && !hasGeneralClinic) {
+        // Got specialty clinic instead of general - show special assignment note
+        if (shouldHaveSpecialtyClinic === 'ACHD' && fellowRotation === 'LAC_CATH') {
+          noteReason = 'LAC_CATH→ACHD';
+          noteType = 'special-assignment';
+        } else if (shouldHaveSpecialtyClinic === 'HEART_FAILURE' && fellowRotation === 'NONINVASIVE') {
+          noteReason = 'NONINVASIVE→HF';
+          noteType = 'special-assignment';
+        }
+      }
+    } else if (shouldHaveSpecialtyClinic && isPostCallDay(fellow.id, dateISO, callSchedule)) {
+      // Fellow should have specialty clinic but is post-call
+      noteReason = 'Post-Call';
+      noteType = 'post-call';
+    }
+
+    if (noteReason && noteType) {
+      notes.push({
+        fellowId: fellow.id,
+        reason: noteReason,
+        type: noteType
+      });
+    }
+  }
+
+  return notes;
+}
