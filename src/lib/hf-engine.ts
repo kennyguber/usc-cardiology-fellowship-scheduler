@@ -1051,13 +1051,6 @@ export function validateManualHFAssignment(
     return false;
   });
 
-  // Only PGY-5s can be manually assigned to holiday weekends
-  if (isHolidayAssignment && fellow.pgy !== "PGY-5") {
-    return { 
-      isValid: false, 
-      reason: "Only PGY-5 fellows can be assigned to holiday weekends"
-    };
-  }
 
   // Check all dates in the assignment block
   for (const targetDateISO of targetDates) {
