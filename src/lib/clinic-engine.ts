@@ -452,6 +452,17 @@ export interface ClinicCoverageGap {
   assigned: number;
 }
 
+// Helper function to check if any fellow is on EP rotation for a given date
+function anyFellowOnEPRotation(dateISO: string, setup: SetupState): boolean {
+  for (const fellow of setup.fellows) {
+    const rotation = getFellowRotationOnDate(fellow.id, dateISO);
+    if (rotation && getPrimaryRotation(rotation) === "EP") {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function checkSpecialtyClinicCoverage(
   clinicSchedule: ClinicSchedule | null,
   setup: SetupState | null
@@ -502,31 +513,37 @@ export function checkSpecialtyClinicCoverage(
       }
     }
     
-    // Check Friday Device requirement
+    // Check Friday Device requirement (only if EP fellow is on rotation)
     if (dayOfWeek === 5) { // Friday
-      const deviceCount = assignments.filter(a => a.clinicType === "DEVICE").length;
-      if (deviceCount === 0) {
-        gaps.push({
-          date: dateISO,
-          dayOfWeek: dayName,
-          clinicType: "DEVICE",
-          required: 1,
-          assigned: deviceCount
-        });
+      const hasEPFellow = anyFellowOnEPRotation(dateISO, setup);
+      if (hasEPFellow) {
+        const deviceCount = assignments.filter(a => a.clinicType === "DEVICE").length;
+        if (deviceCount === 0) {
+          gaps.push({
+            date: dateISO,
+            dayOfWeek: dayName,
+            clinicType: "DEVICE",
+            required: 1,
+            assigned: deviceCount
+          });
+        }
       }
     }
     
-    // Check 1st and 3rd Wednesday EP requirement
+    // Check 1st and 3rd Wednesday EP requirement (only if EP fellow is on rotation)
     if (dayOfWeek === 3 && isFirstOrThirdWednesday(date)) { // Wednesday
-      const epCount = assignments.filter(a => a.clinicType === "EP").length;
-      if (epCount === 0) {
-        gaps.push({
-          date: dateISO,
-          dayOfWeek: dayName,
-          clinicType: "EP",
-          required: 1,
-          assigned: epCount
-        });
+      const hasEPFellow = anyFellowOnEPRotation(dateISO, setup);
+      if (hasEPFellow) {
+        const epCount = assignments.filter(a => a.clinicType === "EP").length;
+        if (epCount === 0) {
+          gaps.push({
+            date: dateISO,
+            dayOfWeek: dayName,
+            clinicType: "EP",
+            required: 1,
+            assigned: epCount
+          });
+        }
       }
     }
   }

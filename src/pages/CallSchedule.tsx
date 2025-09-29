@@ -477,20 +477,31 @@ export default function CallSchedule() {
           GENERAL: "General"
         };
         
-        // Group gaps by clinic type for summary
+        // Group gaps by clinic type and show specific dates
         const gapsByType = result.gaps.reduce((acc, gap) => {
           const typeName = clinicTypeNames[gap.clinicType];
-          acc[typeName] = (acc[typeName] || 0) + 1;
+          if (!acc[typeName]) {
+            acc[typeName] = [];
+          }
+          acc[typeName].push(gap.date);
           return acc;
-        }, {} as Record<string, number>);
+        }, {} as Record<string, string[]>);
         
-        const gapSummary = Object.entries(gapsByType)
-          .map(([type, count]) => `${count} ${type}`)
-          .join(", ");
+        const gapMessages = Object.entries(gapsByType).map(([type, dates]) => {
+          const formattedDates = dates.map(dateISO => {
+            const date = new Date(dateISO);
+            return date.toLocaleDateString('en-US', { 
+              weekday: 'short', 
+              month: 'short', 
+              day: 'numeric' 
+            });
+          }).join(", ");
+          return `${type} clinic missing on: ${formattedDates}`;
+        });
         
         toast({
           title: "Coverage gaps found",
-          description: `Missing assignments: ${gapSummary}`,
+          description: gapMessages.join(" | "),
           variant: "destructive",
         });
       }
