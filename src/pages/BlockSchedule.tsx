@@ -28,6 +28,7 @@ import { DraggableBadge } from "@/components/DraggableBadge";
 import { DroppableCell } from "@/components/DroppableCell";
 import { applyBlockDragAndDrop } from "@/lib/block-engine";
 import { getRotationDisplayName, getRotationBadgeVariant } from "@/lib/rotation-utils";
+import ExcelJS from "exceljs";
 
 export default function BlockSchedule() {
   useSEO({
@@ -875,18 +876,116 @@ const handlePlaceRotations = () => {
     toast({ title: "Rotations cleared", description: "Kept vacations; removed other assignments." });
   };
 
-  const exportCSV = () => {
-    const header = ["Fellow", ...sortedBlocks.map((b) => b.key)].join(",");
-    const rows = fellows.map((f) => {
-      const row = sortedBlocks.map((b) => displayByFellow[f.id]?.[b.key] ?? "");
-      return [quote(f.name || f.id), ...row.map(quote)].join(",");
+  // Convert HSL to hex color for Excel
+  const hslToHex = (hsl: string): string => {
+    const match = hsl.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/);
+    if (!match) return "#FFFFFF";
+    
+    const h = parseInt(match[1]) / 360;
+    const s = parseInt(match[2]) / 100;
+    const l = parseInt(match[3]) / 100;
+    
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const x = c * (1 - Math.abs((h * 6) % 2 - 1));
+    const m = l - c / 2;
+    
+    let r = 0, g = 0, b = 0;
+    if (0 <= h && h < 1/6) { r = c; g = x; b = 0; }
+    else if (1/6 <= h && h < 2/6) { r = x; g = c; b = 0; }
+    else if (2/6 <= h && h < 3/6) { r = 0; g = c; b = x; }
+    else if (3/6 <= h && h < 4/6) { r = 0; g = x; b = c; }
+    else if (4/6 <= h && h < 5/6) { r = x; g = 0; b = c; }
+    else if (5/6 <= h && h < 1) { r = c; g = 0; b = x; }
+    
+    r = Math.round((r + m) * 255);
+    g = Math.round((g + m) * 255);
+    b = Math.round((b + m) * 255);
+    
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+  };
+
+  // Get rotation color mapping
+  const getRotationColor = (rotation: string): string => {
+    const colorMap: Record<string, string> = {
+      'VAC': hslToHex('hsl(var(--secondary))'),
+      'LAC_CATH': hslToHex('hsl(215, 100%, 85%)'), // rot-lac-cath
+      'CCU': hslToHex('hsl(200, 95%, 80%)'), // rot-ccu
+      'LAC_CONSULT': hslToHex('hsl(45, 90%, 80%)'), // rot-lac-consult
+      'HF': hslToHex('hsl(280, 85%, 85%)'), // rot-hf
+      'KECK_CONSULT': hslToHex('hsl(25, 85%, 80%)'), // rot-keck-consult
+      'ECHO1': hslToHex('hsl(160, 75%, 80%)'), // rot-echo1
+      'ECHO2': hslToHex('hsl(140, 75%, 80%)'), // rot-echo2
+      'EP': hslToHex('hsl(350, 80%, 85%)'), // rot-ep
+      'NUCLEAR': hslToHex('hsl(60, 80%, 80%)'), // rot-nuclear
+      'NONINVASIVE': hslToHex('hsl(180, 70%, 80%)'), // rot-noninvasive
+      'ELECTIVE': hslToHex('hsl(120, 70%, 80%)'), // rot-elective
+    };
+    return colorMap[rotation] || '#FFFFFF';
+  };
+
+  const exportExcel = async () => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Block Schedule');
+
+    // Create headers
+    const headers = ['Fellow', 'Vacation Preferences', ...sortedBlocks.map(b => b.key)];
+    const headerRow = worksheet.addRow(headers);
+    
+    // Style headers
+    headerRow.eachCell((cell) => {
+      cell.font = { bold: true };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+      cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
     });
-    const csv = [header, ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+
+    // Add fellow data
+    fellows.forEach((fellow) => {
+      const vacationPrefs = fellow.vacationPrefs?.join(', ') || '';
+      const rowData = [
+        fellow.name || fellow.id,
+        vacationPrefs,
+        ...sortedBlocks.map(b => displayByFellow[fellow.id]?.[b.key] || '')
+      ];
+      
+      const row = worksheet.addRow(rowData);
+      
+      // Apply borders to all cells
+      row.eachCell((cell) => {
+        cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+      });
+      
+      // Apply colors to block assignments (starting from column 3)
+      sortedBlocks.forEach((block, index) => {
+        const rotation = displayByFellow[fellow.id]?.[block.key];
+        if (rotation && rotation !== '') {
+          const cell = row.getCell(index + 3); // +3 because we have Fellow and Vacation Preferences columns
+          const color = getRotationColor(rotation);
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: color.replace('#', 'FF') } };
+        }
+      });
+    });
+
+    // Auto-size columns
+    worksheet.columns.forEach((column) => {
+      let maxLength = 0;
+      if (column.eachCell) {
+        column.eachCell({ includeEmpty: true }, (cell) => {
+          const columnLength = cell.value ? cell.value.toString().length : 10;
+          if (columnLength > maxLength) {
+            maxLength = columnLength;
+          }
+        });
+      }
+      column.width = Math.min(Math.max(maxLength + 2, 10), 30);
+    });
+
+    // Generate and download file
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
+    const a = document.createElement('a');
     a.href = url;
-    a.download = `${activePGY}_block_schedule.csv`;
+    a.download = `${activePGY}_block_schedule.xlsx`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -974,8 +1073,8 @@ const handlePlaceRotations = () => {
                 >
                   <Eraser className="mr-2 h-4 w-4" /> Clear Rotations
                 </Button>
-                <Button variant="outline" onClick={exportCSV} disabled={fellows.length === 0}>
-                  <Download className="mr-2 h-4 w-4" /> Export CSV
+                <Button variant="outline" onClick={exportExcel} disabled={fellows.length === 0}>
+                  <Download className="mr-2 h-4 w-4" /> Export Excel
                 </Button>
               </div>
             </div>
