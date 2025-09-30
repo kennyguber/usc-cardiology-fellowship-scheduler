@@ -536,18 +536,26 @@ export default function CallSchedule() {
         return `${f(0)}${f(8)}${f(4)}`;
       };
 
+      // Extract real fellowship colors from CSS variables
       const getFellowshipColor = (variant: string): string => {
-        const colorMap: Record<string, string> = {
-          'f1': hslToHex(220, 91, 50),    // Blue
-          'f2': hslToHex(142, 76, 36),    // Green  
-          'f3': hslToHex(271, 91, 65),    // Purple
-          'f4': hslToHex(48, 96, 53),     // Yellow
-          'f5': hslToHex(0, 72, 51),      // Red
-          'f6': hslToHex(24, 95, 53),     // Orange
-          'f7': hslToHex(280, 100, 70),   // Pink
-          'f8': hslToHex(200, 89, 78),    // Light Blue
+        const fellowColorMap: Record<string, string> = {
+          'f1': hslToHex(0, 75, 80),      // --fellow-1 
+          'f2': hslToHex(20, 80, 80),     // --fellow-2
+          'f3': hslToHex(35, 85, 80),     // --fellow-3
+          'f4': hslToHex(50, 85, 78),     // --fellow-4
+          'f5': hslToHex(70, 65, 78),     // --fellow-5
+          'f6': hslToHex(90, 55, 78),     // --fellow-6
+          'f7': hslToHex(120, 55, 78),    // --fellow-7
+          'f8': hslToHex(150, 55, 78),    // --fellow-8
+          'f9': hslToHex(170, 60, 78),    // --fellow-9
+          'f10': hslToHex(190, 65, 80),   // --fellow-10
+          'f11': hslToHex(210, 70, 80),   // --fellow-11
+          'f12': hslToHex(230, 70, 80),   // --fellow-12
+          'f13': hslToHex(250, 70, 80),   // --fellow-13
+          'f14': hslToHex(270, 65, 80),   // --fellow-14
+          'f15': hslToHex(300, 70, 80),   // --fellow-15
         };
-        return colorMap[variant] || '000000';
+        return fellowColorMap[variant] || 'E2E8F0';
       };
 
       // Create workbook
@@ -590,7 +598,7 @@ export default function CallSchedule() {
         const jeopardyId = jeopardySchedule?.days?.[iso];
         const jeopardyFellow = jeopardyId ? fellowById[jeopardyId] : null;
         
-        // Get HF assignment
+        // Get HF assignment - use the same weekend detection logic as UI
         const getWeekendStart = (date: Date): string => {
           const day = date.getDay();
           if (day === 6) return iso; // Saturday
@@ -601,10 +609,10 @@ export default function CallSchedule() {
         const hfAssignedId = weekendStartISO && hfSchedule?.weekends?.[weekendStartISO];
         const hfFellow = hfAssignedId ? fellowById[hfAssignedId] : null;
 
-        // Get vacation fellows
+        // Get vacation fellows - use proper block key calculation
+        const blockKey = blockKeyForDate(d);
         const vacationFellows = fellows.filter(f => {
-          const blockKey = `block${Math.floor((d.getTime() - parseISO(setup.yearStart).getTime()) / (1000 * 60 * 60 * 24)) + 1}`;
-          const schedPGY = loadSchedule(f.pgy);
+          const schedPGY = schedByPGY[f.pgy];
           return schedPGY?.byFellow?.[f.id]?.[blockKey] === "VAC";
         }).map(f => f.name);
 
@@ -614,6 +622,19 @@ export default function CallSchedule() {
           const fellow = fellowById[a.fellowId];
           return `${fellow?.name || a.fellowId} (${a.clinicType})`;
         }).join(', ');
+
+        // Get clinic notes
+        const fellowsWithClinicDays = fellows.map(f => ({
+          id: f.id,
+          name: f.name,
+          pgy: f.pgy,
+          preferredClinicDay: f.clinicDay || ''
+        }));
+        const clinicNotes = getClinicNotesForDate(iso, fellowsWithClinicDays, schedule, clinicSchedule, setup);
+        const clinicNotesText = clinicNotes.map(note => {
+          const fellow = fellowById[note.fellowId];
+          return `${fellow?.name}: ${note.reason}`;
+        }).join('; ');
 
         const row = scheduleSheet.addRow({
           date: iso,
@@ -625,7 +646,7 @@ export default function CallSchedule() {
           hfFellow: hfFellow ? hfFellow.name : '—',
           vacation: vacationFellows.join(', '),
           clinic: clinicText,
-          clinicNotes: ''
+          clinicNotes: clinicNotesText
         });
 
         // Apply colors and formatting
@@ -673,54 +694,216 @@ export default function CallSchedule() {
         { header: 'PGY', key: 'pgy', width: 8 },
         { header: 'Total Calls', key: 'total', width: 12 },
         { header: 'Weekday Calls', key: 'weekday', width: 15 },
-        { header: 'Weekday Distribution', key: 'distribution', width: 25 },
+        { header: 'Weekday Distribution', key: 'distribution', width: 30 },
         { header: 'Weekend Calls', key: 'weekend', width: 15 },
         { header: 'Holiday Calls', key: 'holiday', width: 15 },
-        { header: 'Average Gap', key: 'avgGap', width: 15 },
-        { header: 'Longest Gap', key: 'longestGap', width: 15 },
-        { header: '4-Day Frequency', key: 'fourDayFreq', width: 18 },
-        { header: 'Most Calls Month', key: 'mostCallsMonth', width: 20 },
+        { header: 'Average Days Between Call', key: 'avgGap', width: 25 },
+        { header: 'Longest Gap Between Call', key: 'longestGap', width: 25 },
+        { header: 'Longest Call Gap Dates', key: 'longestGapDates', width: 30 },
+        { header: '4-Day Call Frequency', key: 'fourDayFreq', width: 18 },
+        { header: 'Most Calls in a Month', key: 'mostCallsMonth', width: 20 },
         { header: 'Calls During CCU', key: 'ccuCalls', width: 18 }
       ];
 
-      // Calculate primary stats (simplified version from PrimaryCallStatsTable)
-      const primaryStats = fellows.map(fellow => {
-        const calls = allDays.filter(iso => schedule.days?.[iso] === fellow.id);
-        const weekdayCalls = calls.filter(iso => {
-          const d = parseISO(iso);
-          return d.getDay() !== 0 && d.getDay() !== 6;
+      // Calculate primary stats using exact logic from PrimaryCallStatsTable
+      const order = ["M", "T", "W", "Th", "F", "Sa", "Su"] as const;
+      const blockKeyForISO = (iso: string) => blockKeyForDate(new Date(iso + "T00:00:00Z"));
+      const monthLabel = (m: number) => new Date(Date.UTC(2000, m, 1)).toLocaleString(undefined, { month: "long" });
+      const daysBetween = (a: Date, b: Date) => {
+        const ms = a.getTime() - b.getTime();
+        return Math.round(ms / (1000 * 60 * 60 * 24));
+      };
+
+      type Acc = {
+        id: string;
+        name: string;
+        pgy: any;
+        total: number;
+        weekday: number;
+        weekend: number;
+        holiday: number;
+        dow: Record<(typeof order)[number], number>;
+        dates: string[]; // ISO dates of calls
+      };
+
+      const byFellow: Record<string, Acc> = {};
+
+      for (const [iso, fid] of Object.entries(schedule.days)) {
+        if (!fid) continue;
+        const fellow = fellowById[fid];
+        if (!fellow) continue;
+
+        const acc = (byFellow[fid] ||= {
+          id: fid,
+          name: fellow.name,
+          pgy: fellow.pgy,
+          total: 0,
+          weekday: 0,
+          weekend: 0,
+          holiday: 0,
+          dow: { M: 0, T: 0, W: 0, Th: 0, F: 0, Sa: 0, Su: 0 },
+          dates: [],
         });
-        const weekendCalls = calls.filter(iso => {
-          const d = parseISO(iso);
-          return d.getDay() === 0 || d.getDay() === 6;
-        });
-        const holidayCalls = calls.filter(iso => holidayMap[iso]);
+
+        acc.total += 1;
+        acc.dates.push(iso);
+
+        const d = new Date(iso + "T00:00:00Z"); // force UTC to avoid TZ shifts
+        const dow = d.getUTCDay(); // 0=Sun ... 6=Sat in UTC
+        const isHoliday = holidayMap[iso];
+
+        // Weekday distribution (always count toward day of week)
+        const label =
+          dow === 0 ? "Su" :
+          dow === 1 ? "M" :
+          dow === 2 ? "T" :
+          dow === 3 ? "W" :
+          dow === 4 ? "Th" :
+          dow === 5 ? "F" : "Sa";
+        acc.dow[label as typeof order[number]] += 1;
+
+        // Mutually exclusive buckets for Weekday/Weekend/Holiday
+        if (isHoliday) acc.holiday += 1;
+        else if (dow === 0 || dow === 6) acc.weekend += 1;
+        else acc.weekday += 1;
+      }
+
+      const primaryStats = Object.values(byFellow).map((acc) => {
+        const sorted = [...acc.dates].sort();
+        const gaps: number[] = [];
+        let longest: number | null = null;
+        let longestPair: { start: string; end: string } | null = null;
+        let fourDay = 0;
+        for (let i = 1; i < sorted.length; i++) {
+          const gap = daysBetween(new Date(sorted[i]), new Date(sorted[i - 1]));
+          gaps.push(gap);
+          if (longest === null || gap > longest) {
+            longest = gap;
+            longestPair = { start: sorted[i - 1], end: sorted[i] };
+          }
+          if (gap <= 4) fourDay += 1;
+        }
+        const avg = gaps.length ? gaps.reduce((a, b) => a + b, 0) / gaps.length : null;
+
+        // Most calls in a month
+        const monthCounts: Record<number, number> = {};
+        for (const iso of sorted) {
+          const d = new Date(iso + "T00:00:00Z");
+          const m = d.getUTCMonth();
+          monthCounts[m] = (monthCounts[m] ?? 0) + 1;
+        }
+        let maxCount = 0;
+        let maxMonth: number | null = null;
+        for (const [mStr, count] of Object.entries(monthCounts)) {
+          const c = count as number;
+          const m = Number(mStr);
+          if (c > maxCount) {
+            maxCount = c;
+            maxMonth = m;
+          }
+        }
+        const mostLabel = maxMonth != null && maxCount > 0 ? `${maxCount} (${monthLabel(maxMonth)})` : null;
+
+        // Calls during CCU
+        let ccuCount = 0;
+        const pgy = acc.pgy as PGY;
+        const sched = schedByPGY[pgy];
+        const rowMap = sched?.byFellow?.[acc.id] || {};
+        for (const iso of sorted) {
+          const key = blockKeyForISO(iso);
+          if (rowMap[key] === "CCU") ccuCount += 1;
+        }
+
+        const fmtDist = `M: ${acc.dow.M}; T: ${acc.dow.T}; W: ${acc.dow.W}; Th: ${acc.dow.Th}; F: ${acc.dow.F}; Sa: ${acc.dow.Sa}; Su: ${acc.dow.Su}`;
 
         return {
-          fellow: fellow.name,
-          pgy: fellow.pgy,
-          total: calls.length,
-          weekday: weekdayCalls.length,
-          weekend: weekendCalls.length,
-          holiday: holidayCalls.length,
-          distribution: 'M:0; T:0; W:0; Th:0; F:0; Sa:0; Su:0', // Simplified
-          avgGap: calls.length > 1 ? '~7 days' : 'N/A',
-          longestGap: 'N/A',
-          fourDayFreq: 0,
-          mostCallsMonth: 'N/A',
-          ccuCalls: 0
+          fellow: acc.name,
+          pgy: acc.pgy,
+          total: acc.total,
+          weekday: acc.weekday,
+          weekend: acc.weekend,
+          holiday: acc.holiday,
+          distribution: fmtDist,
+          avgGap: avg !== null ? avg.toFixed(1) : 'N/A',
+          longestGap: longest !== null ? longest.toString() : 'N/A',
+          longestGapDates: longestPair ? `${longestPair.start} to ${longestPair.end}` : 'N/A',
+          fourDayFreq: fourDay,
+          mostCallsMonth: mostLabel ?? 'N/A',
+          ccuCalls: ccuCount
         };
+      });
+
+      // Include fellows with zero calls as well
+      for (const f of fellows) {
+        if (!byFellow[f.id]) {
+          primaryStats.push({
+            fellow: f.name,
+            pgy: f.pgy,
+            total: 0,
+            weekday: 0,
+            weekend: 0,
+            holiday: 0,
+            distribution: 'M: 0; T: 0; W: 0; Th: 0; F: 0; Sa: 0; Su: 0',
+            avgGap: 'N/A',
+            longestGap: 'N/A',
+            longestGapDates: 'N/A',
+            fourDayFreq: 0,
+            mostCallsMonth: 'N/A',
+            ccuCalls: 0
+          });
+        }
+      }
+
+      // Sort by PGY then by name
+      const pgyOrder = (p: any) => {
+        if (typeof p === "number") return p;
+        const m = String(p).match(/(\d+)/);
+        return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
+      };
+      primaryStats.sort((a, b) => {
+        const ap = pgyOrder(a.pgy);
+        const bp = pgyOrder(b.pgy);
+        if (ap !== bp) return ap - bp;
+        return a.fellow.localeCompare(b.fellow);
       });
 
       primaryStatsSheet.getRow(1).font = { bold: true };
       primaryStatsSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'E2E8F0' } };
 
       primaryStats.forEach(stat => {
-        const row = primaryStatsSheet.addRow(stat);
-        if (fellowColorById[fellows.find(f => f.name === stat.fellow)?.id || '']) {
-          const colorHex = getFellowshipColor(fellowColorById[fellows.find(f => f.name === stat.fellow)?.id || '']);
+        const row = primaryStatsSheet.addRow({
+          fellow: stat.fellow,
+          pgy: stat.pgy,
+          total: stat.total,
+          weekday: stat.weekday,
+          distribution: stat.distribution,
+          weekend: stat.weekend,
+          holiday: stat.holiday,
+          avgGap: stat.avgGap,
+          longestGap: stat.longestGap,
+          longestGapDates: stat.longestGapDates,
+          fourDayFreq: stat.fourDayFreq,
+          mostCallsMonth: stat.mostCallsMonth,
+          ccuCalls: stat.ccuCalls
+        });
+        
+        const fellowRecord = fellows.find(f => f.name === stat.fellow);
+        if (fellowRecord && fellowColorById[fellowRecord.id]) {
+          const colorHex = getFellowshipColor(fellowColorById[fellowRecord.id]);
           row.getCell('fellow').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colorHex } };
         }
+      });
+
+      // Add borders to primary stats
+      primaryStatsSheet.eachRow((row) => {
+        row.eachCell((cell) => {
+          cell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
+          };
+        });
       });
 
       // Tab 3: HF Coverage Statistics
@@ -754,6 +937,18 @@ export default function CallSchedule() {
             const colorHex = getFellowshipColor(fellowColorById[fellow.id]);
             row.getCell('fellow').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colorHex } };
           }
+        });
+
+        // Add borders to HF stats
+        hfStatsSheet.eachRow((row) => {
+          row.eachCell((cell) => {
+            cell.border = {
+              top: { style: 'thin' },
+              left: { style: 'thin' },
+              bottom: { style: 'thin' },
+              right: { style: 'thin' }
+            };
+          });
         });
       }
 
@@ -791,6 +986,18 @@ export default function CallSchedule() {
             row.getCell('fellow').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colorHex } };
           }
         });
+
+        // Add borders to jeopardy stats
+        jeopardyStatsSheet.eachRow((row) => {
+          row.eachCell((cell) => {
+            cell.border = {
+              top: { style: 'thin' },
+              left: { style: 'thin' },
+              bottom: { style: 'thin' },
+              right: { style: 'thin' }
+            };
+          });
+        });
       }
 
       // Tab 5: Clinic Statistics  
@@ -798,18 +1005,34 @@ export default function CallSchedule() {
         const clinicStatsSheet = workbook.addWorksheet('Clinic Statistics');
         clinicStatsSheet.columns = [
           { header: 'Fellow', key: 'fellow', width: 20 },
-          { header: 'PGY', key: 'pgy', width: 8 },
-          { header: 'General Clinic', key: 'general', width: 15 },
-          { header: 'Post-Call Exclusions', key: 'postCall', width: 20 },
-          { header: 'EP Clinic', key: 'ep', width: 12 },
-          { header: 'ACHD Clinic', key: 'achd', width: 15 },
-          { header: 'HF Clinic', key: 'hf', width: 12 },
-          { header: 'Total Clinics', key: 'total', width: 15 }
+          { header: 'PGY Level', key: 'pgy', width: 12 },
+          { header: 'General Clinic (Half Days)', key: 'general', width: 25 },
+          { header: 'General Clinic (Post-Call Exclusions)', key: 'postCall', width: 30 },
+          { header: 'Specialty Clinic (Half Days)', key: 'specialty', width: 25 },
+          { header: 'Specialty Clinic (Post-Call Exclusions)', key: 'specialtyPostCall', width: 30 },
+          { header: 'Total Clinic (Half Days)', key: 'totalHalfDays', width: 22 },
+          { header: 'Total Clinic (Post-Call Exclusions)', key: 'totalPostCall', width: 30 },
+          { header: 'Cumulative Clinic + Post-Call Exclusions', key: 'cumulative', width: 35 }
         ];
 
         clinicStatsSheet.getRow(1).font = { bold: true };
         clinicStatsSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'E2E8F0' } };
 
+        // Helper function to check if a day is a holiday
+        const isHoliday = (dateISO: string): boolean => {
+          return !!holidayMap[dateISO];
+        };
+
+        // Helper function to check if it's a post-call day
+        const isPostCallDay = (fellowId: string, dateISO: string): boolean => {
+          if (!schedule) return false;
+          const date = parseISO(dateISO);
+          const prevDay = new Date(date.getTime() - 24 * 60 * 60 * 1000);
+          const prevDayISO = format(prevDay, 'yyyy-MM-dd');
+          return schedule.days[prevDayISO] === fellowId;
+        };
+
+        // Calculate clinic statistics using exact logic from ClinicStatsTable
         fellows.forEach(fellow => {
           const counts = clinicSchedule.countsByFellow[fellow.id] || {
             GENERAL: 0,
@@ -818,26 +1041,78 @@ export default function CallSchedule() {
             HEART_FAILURE: 0,
             DEVICE: 0
           };
-          const general = counts.GENERAL || 0;
-          const ep = counts.EP || 0;
-          const achd = counts.ACHD || 0;
-          const hf = counts.HEART_FAILURE || 0;
+          
+          const generalClinicCount = counts.GENERAL || 0;
+          const epClinicCount = (counts.EP || 0) + (counts.DEVICE || 0);
+          const achdClinicCount = counts.ACHD || 0;
+          const hfClinicCount = counts.HEART_FAILURE || 0;
+          const specialtyTotal = epClinicCount + achdClinicCount + hfClinicCount;
+
+          // Calculate post-call exclusions
+          let postCallExclusions = 0;
+          let specialtyPostCallExclusions = 0;
+          
+          if (fellow.clinicDay && schedule) {
+            const dayOfWeekMap: Record<string, number> = {
+              'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 
+              'Thursday': 4, 'Friday': 5, 'Saturday': 6
+            };
+            const preferredDayOfWeek = dayOfWeekMap[fellow.clinicDay];
+
+            if (preferredDayOfWeek !== undefined) {
+              // Calculate for the academic year
+              const start = parseISO(clinicSchedule.yearStart);
+              const end = new Date(start.getFullYear() + 1, 5, 30); // June 30 of next year
+              let cur = start;
+              
+              while (cur <= end) {
+                const dayOfWeek = cur.getDay();
+                const dateISO = format(cur, 'yyyy-MM-dd');
+                
+                if (dayOfWeek === preferredDayOfWeek && 
+                    !isHoliday(dateISO) &&
+                    isPostCallDay(fellow.id, dateISO)) {
+                  postCallExclusions++;
+                  // For simplicity, assume all post-call exclusions affect general clinic
+                }
+                
+                cur = new Date(cur.getTime() + 24 * 60 * 60 * 1000);
+              }
+            }
+          }
+
+          const totalHalfDays = generalClinicCount + specialtyTotal;
+          const totalPostCallExclusions = postCallExclusions + specialtyPostCallExclusions;
+          const cumulativeTotal = totalHalfDays + totalPostCallExclusions;
 
           const row = clinicStatsSheet.addRow({
-            fellow: fellow.name,
+            fellow: fellow.name.split(' ').pop() || fellow.name, // Last name only like in UI
             pgy: fellow.pgy,
-            general: general,
-            postCall: 0, // Would need to calculate from call schedule
-            ep: ep,
-            achd: achd,
-            hf: hf,
-            total: general + ep + achd + hf
+            general: generalClinicCount,
+            postCall: postCallExclusions,
+            specialty: specialtyTotal,
+            specialtyPostCall: specialtyPostCallExclusions,
+            totalHalfDays: totalHalfDays,
+            totalPostCall: totalPostCallExclusions,
+            cumulative: cumulativeTotal
           });
 
           if (fellowColorById[fellow.id]) {
             const colorHex = getFellowshipColor(fellowColorById[fellow.id]);
             row.getCell('fellow').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colorHex } };
           }
+        });
+
+        // Add borders to clinic stats
+        clinicStatsSheet.eachRow((row) => {
+          row.eachCell((cell) => {
+            cell.border = {
+              top: { style: 'thin' },
+              left: { style: 'thin' },
+              bottom: { style: 'thin' },
+              right: { style: 'thin' }
+            };
+          });
         });
       }
 
