@@ -642,8 +642,31 @@ export default function CallSchedule() {
           holiday: holiday,
           primary: primaryFellow ? primaryFellow.name : '—',
           jeopardy: jeopardyFellow ? jeopardyFellow.name : '—',
-          hfCoverage: weekend ? 'Weekend' : '—',
-          hfFellow: hfFellow ? hfFellow.name : '—',
+          hfCoverage: (() => {
+            const effectiveAssignment = getEffectiveHFAssignment(iso, hfSchedule);
+            if (effectiveAssignment) {
+              const isHoliday = (() => {
+                if (hfSchedule?.holidays) {
+                  for (const [blockStart, blockData] of Object.entries(hfSchedule.holidays)) {
+                    const [fellowId, ...dates] = blockData;
+                    if (dates.includes(iso) && fellowId === effectiveAssignment) {
+                      return true;
+                    }
+                  }
+                }
+                return false;
+              })();
+              const fellow = fellowById[effectiveAssignment];
+              return fellow ? `${fellow.name}${isHoliday ? ' (Holiday)' : ''}` : effectiveAssignment;
+            }
+            return '—';
+          })(),
+          hfFellow: (() => {
+            const hfIds = fellows
+              .filter((f) => schedByPGY[f.pgy]?.byFellow?.[f.id]?.[blockKey] === "HF")
+              .map((f) => f.id);
+            return hfIds.length ? hfIds.map(id => fellowById[id]?.name ?? id).join(', ') : '—';
+          })(),
           vacation: vacationFellows.join(', '),
           clinic: clinicText,
           clinicNotes: clinicNotesText
