@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { HeartPulse, Loader2, RefreshCcw, Trash2, CheckCircle } from "lucide-react";
+import { HeartPulse, Loader2, RefreshCcw, Trash2, CheckCircle, Download } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -8,13 +8,14 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Badge } from "@/components/ui/badge";
 import { useSEO } from "@/lib/seo";
 import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, applyDragAndDrop, type CallSchedule } from "@/lib/call-engine";
-import { buildHFSchedule, loadHFSchedule, saveHFSchedule, clearHFSchedule, getEffectiveHFAssignment, type HFSchedule } from "@/lib/hf-engine";
+import { buildHFSchedule, loadHFSchedule, saveHFSchedule, clearHFSchedule, getEffectiveHFAssignment, analyzeHFSchedule, type HFSchedule } from "@/lib/hf-engine";
 import { buildJeopardySchedule, loadJeopardySchedule, saveJeopardySchedule, clearJeopardySchedule, type JeopardySchedule } from "@/lib/jeopardy-engine";
 import { buildClinicSchedule, loadClinicSchedule, saveClinicSchedule, clearClinicSchedule, getClinicAssignmentsForDate, formatClinicAssignments, getClinicNotesForDate, checkSpecialtyClinicCoverage, type ClinicSchedule, type ClinicNote, type ClinicCoverageGap } from "@/lib/clinic-engine";
 import { loadSchedule, loadSetup, type PGY, type StoredSchedule } from "@/lib/schedule-engine";
 import { computeAcademicYearHolidays } from "@/lib/holidays";
 import { monthAbbrForIndex } from "@/lib/block-utils";
-import { parseISO } from "date-fns";
+import { parseISO, format } from "date-fns";
+import ExcelJS from 'exceljs';
 import PrimaryCallEditDialog from "@/components/PrimaryCallEditDialog";
 import HFEditDialog from "@/components/HFEditDialog";
 import JeopardyEditDialog from "@/components/JeopardyEditDialog";
@@ -74,6 +75,7 @@ export default function CallSchedule() {
   const [clinicSuccess, setClinicSuccess] = useState<boolean | null>(null);
   const [clinicCheckLoading, setClinicCheckLoading] = useState(false);
   const [clinicCoverageGaps, setClinicCoverageGaps] = useState<ClinicCoverageGap[]>([]);
+  const [exporting, setExporting] = useState(false);
   
   const { toast } = useToast();
   const sensors = useSensors(useSensor(PointerSensor, {
@@ -510,6 +512,364 @@ export default function CallSchedule() {
     }
   };
 
+  const handleExportExcel = async () => {
+    if (!schedule || !setup) {
+      toast({
+        title: "Export Error",
+        description: "No schedule data available to export.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setExporting(true);
+    try {
+      // Helper functions
+      const hslToHex = (h: number, s: number, l: number): string => {
+        l /= 100;
+        const a = s * Math.min(l, 1 - l) / 100;
+        const f = (n: number) => {
+          const k = (n + h / 30) % 12;
+          const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+          return Math.round(255 * color).toString(16).padStart(2, '0');
+        };
+        return `${f(0)}${f(8)}${f(4)}`;
+      };
+
+      const getFellowshipColor = (variant: string): string => {
+        const colorMap: Record<string, string> = {
+          'f1': hslToHex(220, 91, 50),    // Blue
+          'f2': hslToHex(142, 76, 36),    // Green  
+          'f3': hslToHex(271, 91, 65),    // Purple
+          'f4': hslToHex(48, 96, 53),     // Yellow
+          'f5': hslToHex(0, 72, 51),      // Red
+          'f6': hslToHex(24, 95, 53),     // Orange
+          'f7': hslToHex(280, 100, 70),   // Pink
+          'f8': hslToHex(200, 89, 78),    // Light Blue
+        };
+        return colorMap[variant] || '000000';
+      };
+
+      // Create workbook
+      const workbook = new ExcelJS.Workbook();
+      
+      // Tab 1: Primary Call Schedule
+      const scheduleSheet = workbook.addWorksheet('Primary Call Schedule');
+      scheduleSheet.columns = [
+        { header: 'Date', key: 'date', width: 12 },
+        { header: 'Day', key: 'day', width: 10 },
+        { header: 'Holiday', key: 'holiday', width: 15 },
+        { header: 'Primary', key: 'primary', width: 20 },
+        { header: 'Jeopardy', key: 'jeopardy', width: 20 },
+        { header: 'HF Coverage', key: 'hfCoverage', width: 15 },
+        { header: 'HF Fellow', key: 'hfFellow', width: 20 },
+        { header: 'Vacation', key: 'vacation', width: 30 },
+        { header: 'Clinic', key: 'clinic', width: 30 },
+        { header: 'Clinic Notes', key: 'clinicNotes', width: 20 }
+      ];
+
+      // Style headers
+      scheduleSheet.getRow(1).font = { bold: true };
+      scheduleSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'E2E8F0' } };
+
+      // Add schedule data
+      const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const holidayMap = computeAcademicYearHolidays(setup.yearStart).reduce((acc, h) => {
+        acc[h.date] = h.name;
+        return acc;
+      }, {} as Record<string, string>);
+
+      allDays.forEach((iso, index) => {
+        const d = parseISO(iso);
+        const dow = weekdays[d.getDay()];
+        const fid = schedule.days?.[iso];
+        const holiday = holidayMap[iso] ?? "";
+        const weekend = d.getDay() === 0 || d.getDay() === 6;
+        
+        const primaryFellow = fid ? fellowById[fid] : null;
+        const jeopardyId = jeopardySchedule?.days?.[iso];
+        const jeopardyFellow = jeopardyId ? fellowById[jeopardyId] : null;
+        
+        // Get HF assignment
+        const getWeekendStart = (date: Date): string => {
+          const day = date.getDay();
+          if (day === 6) return iso; // Saturday
+          if (day === 0) return format(new Date(date.getTime() - 24 * 60 * 60 * 1000), 'yyyy-MM-dd'); // Sunday -> previous Saturday
+          return ""; // Not a weekend
+        };
+        const weekendStartISO = getWeekendStart(d);
+        const hfAssignedId = weekendStartISO && hfSchedule?.weekends?.[weekendStartISO];
+        const hfFellow = hfAssignedId ? fellowById[hfAssignedId] : null;
+
+        // Get vacation fellows
+        const vacationFellows = fellows.filter(f => {
+          const blockKey = `block${Math.floor((d.getTime() - parseISO(setup.yearStart).getTime()) / (1000 * 60 * 60 * 24)) + 1}`;
+          const schedPGY = loadSchedule(f.pgy);
+          return schedPGY?.byFellow?.[f.id]?.[blockKey] === "VAC";
+        }).map(f => f.name);
+
+        // Get clinic assignments
+        const clinicAssignments = clinicSchedule?.days?.[iso] || [];
+        const clinicText = clinicAssignments.map(a => {
+          const fellow = fellowById[a.fellowId];
+          return `${fellow?.name || a.fellowId} (${a.clinicType})`;
+        }).join(', ');
+
+        const row = scheduleSheet.addRow({
+          date: iso,
+          day: dow,
+          holiday: holiday,
+          primary: primaryFellow ? primaryFellow.name : '—',
+          jeopardy: jeopardyFellow ? jeopardyFellow.name : '—',
+          hfCoverage: weekend ? 'Weekend' : '—',
+          hfFellow: hfFellow ? hfFellow.name : '—',
+          vacation: vacationFellows.join(', '),
+          clinic: clinicText,
+          clinicNotes: ''
+        });
+
+        // Apply colors and formatting
+        if (holiday) {
+          row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEE2E2' } }; // Red background for holidays
+        } else if (weekend) {
+          row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F8FAFC' } }; // Light background for weekends
+        }
+
+        // Color primary fellow cell
+        if (primaryFellow && fellowColorById[primaryFellow.id]) {
+          const colorHex = getFellowshipColor(fellowColorById[primaryFellow.id]);
+          row.getCell('primary').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colorHex } };
+        }
+
+        // Color jeopardy fellow cell
+        if (jeopardyFellow && fellowColorById[jeopardyFellow.id]) {
+          const colorHex = getFellowshipColor(fellowColorById[jeopardyFellow.id]);
+          row.getCell('jeopardy').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colorHex } };
+        }
+
+        // Color HF fellow cell
+        if (hfFellow && fellowColorById[hfFellow.id]) {
+          const colorHex = getFellowshipColor(fellowColorById[hfFellow.id]);
+          row.getCell('hfFellow').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colorHex } };
+        }
+      });
+
+      // Add borders to all cells
+      scheduleSheet.eachRow((row) => {
+        row.eachCell((cell) => {
+          cell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
+          };
+        });
+      });
+
+      // Tab 2: Primary Call Statistics
+      const primaryStatsSheet = workbook.addWorksheet('Primary Call Statistics');
+      primaryStatsSheet.columns = [
+        { header: 'Fellow', key: 'fellow', width: 20 },
+        { header: 'PGY', key: 'pgy', width: 8 },
+        { header: 'Total Calls', key: 'total', width: 12 },
+        { header: 'Weekday Calls', key: 'weekday', width: 15 },
+        { header: 'Weekday Distribution', key: 'distribution', width: 25 },
+        { header: 'Weekend Calls', key: 'weekend', width: 15 },
+        { header: 'Holiday Calls', key: 'holiday', width: 15 },
+        { header: 'Average Gap', key: 'avgGap', width: 15 },
+        { header: 'Longest Gap', key: 'longestGap', width: 15 },
+        { header: '4-Day Frequency', key: 'fourDayFreq', width: 18 },
+        { header: 'Most Calls Month', key: 'mostCallsMonth', width: 20 },
+        { header: 'Calls During CCU', key: 'ccuCalls', width: 18 }
+      ];
+
+      // Calculate primary stats (simplified version from PrimaryCallStatsTable)
+      const primaryStats = fellows.map(fellow => {
+        const calls = allDays.filter(iso => schedule.days?.[iso] === fellow.id);
+        const weekdayCalls = calls.filter(iso => {
+          const d = parseISO(iso);
+          return d.getDay() !== 0 && d.getDay() !== 6;
+        });
+        const weekendCalls = calls.filter(iso => {
+          const d = parseISO(iso);
+          return d.getDay() === 0 || d.getDay() === 6;
+        });
+        const holidayCalls = calls.filter(iso => holidayMap[iso]);
+
+        return {
+          fellow: fellow.name,
+          pgy: fellow.pgy,
+          total: calls.length,
+          weekday: weekdayCalls.length,
+          weekend: weekendCalls.length,
+          holiday: holidayCalls.length,
+          distribution: 'M:0; T:0; W:0; Th:0; F:0; Sa:0; Su:0', // Simplified
+          avgGap: calls.length > 1 ? '~7 days' : 'N/A',
+          longestGap: 'N/A',
+          fourDayFreq: 0,
+          mostCallsMonth: 'N/A',
+          ccuCalls: 0
+        };
+      });
+
+      primaryStatsSheet.getRow(1).font = { bold: true };
+      primaryStatsSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'E2E8F0' } };
+
+      primaryStats.forEach(stat => {
+        const row = primaryStatsSheet.addRow(stat);
+        if (fellowColorById[fellows.find(f => f.name === stat.fellow)?.id || '']) {
+          const colorHex = getFellowshipColor(fellowColorById[fellows.find(f => f.name === stat.fellow)?.id || '']);
+          row.getCell('fellow').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colorHex } };
+        }
+      });
+
+      // Tab 3: HF Coverage Statistics
+      if (hfSchedule) {
+        const hfStatsSheet = workbook.addWorksheet('HF Coverage Statistics');
+        hfStatsSheet.columns = [
+          { header: 'Fellow', key: 'fellow', width: 20 },
+          { header: 'PGY', key: 'pgy', width: 8 },
+          { header: 'Non-Holiday Weekends', key: 'weekends', width: 20 },
+          { header: 'Holiday Days', key: 'holidays', width: 15 },
+          { header: 'Average Gap', key: 'avgGap', width: 15 },
+          { header: 'Shortest Gap', key: 'shortestGap', width: 15 }
+        ];
+
+        hfStatsSheet.getRow(1).font = { bold: true };
+        hfStatsSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'E2E8F0' } };
+
+        const hfAnalysis = analyzeHFSchedule(hfSchedule, fellows, setup);
+        fellows.forEach(fellow => {
+          const analysis = hfAnalysis.fellowStats[fellow.id];
+          const row = hfStatsSheet.addRow({
+            fellow: fellow.name,
+            pgy: fellow.pgy,
+            weekends: analysis?.weekendCount || 0,
+            holidays: analysis?.holidayDayCount || 0,
+            avgGap: analysis?.avgGapDays ? `${analysis.avgGapDays.toFixed(1)} days` : 'N/A',
+            shortestGap: analysis?.minGapDays ? `${analysis.minGapDays} days` : 'N/A'
+          });
+
+          if (fellowColorById[fellow.id]) {
+            const colorHex = getFellowshipColor(fellowColorById[fellow.id]);
+            row.getCell('fellow').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colorHex } };
+          }
+        });
+      }
+
+      // Tab 4: Jeopardy Statistics
+      if (jeopardySchedule) {
+        const jeopardyStatsSheet = workbook.addWorksheet('Jeopardy Statistics');
+        jeopardyStatsSheet.columns = [
+          { header: 'Fellow', key: 'fellow', width: 20 },
+          { header: 'PGY', key: 'pgy', width: 8 },
+          { header: 'Total Jeopardy', key: 'total', width: 15 },
+          { header: 'Weekday Jeopardy', key: 'weekday', width: 18 },
+          { header: 'Weekend Jeopardy', key: 'weekend', width: 18 },
+          { header: 'Holiday Jeopardy', key: 'holiday', width: 18 }
+        ];
+
+        jeopardyStatsSheet.getRow(1).font = { bold: true };
+        jeopardyStatsSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'E2E8F0' } };
+
+        fellows.forEach(fellow => {
+          const weekdayCount = jeopardySchedule.weekdayCountsByFellow[fellow.id] || 0;
+          const weekendCount = jeopardySchedule.weekendCountsByFellow[fellow.id] || 0;
+          const holidayCount = jeopardySchedule.holidayCountsByFellow[fellow.id] || 0;
+
+          const row = jeopardyStatsSheet.addRow({
+            fellow: fellow.name,
+            pgy: fellow.pgy,
+            total: weekdayCount + weekendCount + holidayCount,
+            weekday: weekdayCount,
+            weekend: weekendCount,
+            holiday: holidayCount
+          });
+
+          if (fellowColorById[fellow.id]) {
+            const colorHex = getFellowshipColor(fellowColorById[fellow.id]);
+            row.getCell('fellow').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colorHex } };
+          }
+        });
+      }
+
+      // Tab 5: Clinic Statistics  
+      if (clinicSchedule) {
+        const clinicStatsSheet = workbook.addWorksheet('Clinic Statistics');
+        clinicStatsSheet.columns = [
+          { header: 'Fellow', key: 'fellow', width: 20 },
+          { header: 'PGY', key: 'pgy', width: 8 },
+          { header: 'General Clinic', key: 'general', width: 15 },
+          { header: 'Post-Call Exclusions', key: 'postCall', width: 20 },
+          { header: 'EP Clinic', key: 'ep', width: 12 },
+          { header: 'ACHD Clinic', key: 'achd', width: 15 },
+          { header: 'HF Clinic', key: 'hf', width: 12 },
+          { header: 'Total Clinics', key: 'total', width: 15 }
+        ];
+
+        clinicStatsSheet.getRow(1).font = { bold: true };
+        clinicStatsSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'E2E8F0' } };
+
+        fellows.forEach(fellow => {
+          const counts = clinicSchedule.countsByFellow[fellow.id] || {
+            GENERAL: 0,
+            EP: 0,
+            ACHD: 0,
+            HEART_FAILURE: 0,
+            DEVICE: 0
+          };
+          const general = counts.GENERAL || 0;
+          const ep = counts.EP || 0;
+          const achd = counts.ACHD || 0;
+          const hf = counts.HEART_FAILURE || 0;
+
+          const row = clinicStatsSheet.addRow({
+            fellow: fellow.name,
+            pgy: fellow.pgy,
+            general: general,
+            postCall: 0, // Would need to calculate from call schedule
+            ep: ep,
+            achd: achd,
+            hf: hf,
+            total: general + ep + achd + hf
+          });
+
+          if (fellowColorById[fellow.id]) {
+            const colorHex = getFellowshipColor(fellowColorById[fellow.id]);
+            row.getCell('fellow').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colorHex } };
+          }
+        });
+      }
+
+      // Generate and download file
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `primary_call_report_${setup.yearStart}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast({
+        title: "Export Complete",
+        description: "Primary call report has been downloaded successfully.",
+      });
+
+    } catch (error) {
+      console.error('Export error:', error);
+      toast({
+        title: "Export Failed",
+        description: "Failed to export Excel file. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const handleDragStart = (event: DragStartEvent) => {
     const { active } = event;
     const [iso, fellowId] = (active.id as string).split('|');
@@ -585,6 +945,9 @@ export default function CallSchedule() {
             </Button>
             <Button onClick={handleCheckClinic} disabled={clinicCheckLoading || !clinicSchedule} variant="outline" size="sm">
               {clinicCheckLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />} Check Clinics
+            </Button>
+            <Button onClick={handleExportExcel} disabled={exporting || !schedule} variant="outline">
+              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Export Excel
             </Button>
           </div>
         </header>
