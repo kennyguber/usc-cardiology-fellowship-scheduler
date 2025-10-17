@@ -75,7 +75,7 @@ function dateToBlockKey(dateISO: string, yearStartISO: string): string | undefin
   return `${monthAbbr}${half}`;
 }
 
-function getFellowRotationOnDate(fellowId: string, dateISO: string): Rotation | undefined {
+export function getFellowRotationOnDate(fellowId: string, dateISO: string): Rotation | undefined {
   // Get setup to determine year start
   const setup = loadSetup();
   if (!setup) return undefined;
@@ -363,9 +363,10 @@ function assignAmbulatoryFellows(schedule: ClinicSchedule, setup: SetupState): v
   // Priority order for rotations
   const rotationPriority: Array<Rotation | string> = ['NUCLEAR', 'NONINVASIVE', 'ELECTIVE', 'EP'];
   
-  // Track current block assignments
+  // Track current block assignments and previous block's assigned fellow
   let currentBlockKey: string | undefined;
   let currentBlockStart: string | undefined;
+  let previousBlockFellow: string | undefined;
   
   for (const date of days) {
     const dateISO = toISODate(date);
@@ -388,8 +389,11 @@ function assignAmbulatoryFellows(schedule: ClinicSchedule, setup: SetupState): v
           // Must be PGY-5 or PGY-6
           if (fellow.pgy !== "PGY-5" && fellow.pgy !== "PGY-6") return false;
           
-          // Must not have 2 assignments already
-          if ((schedule.ambulatoryCountsByFellow?.[fellow.id] ?? 0) >= 2) return false;
+          // Must not have 3 assignments already
+          if ((schedule.ambulatoryCountsByFellow?.[fellow.id] ?? 0) >= 3) return false;
+          
+          // Cannot be the same fellow as the previous block (no consecutive assignments)
+          if (fellow.id === previousBlockFellow) return false;
           
           // Check if fellow is on the target rotation during this block
           const rotation = getFellowRotationOnDate(fellow.id, dateISO);
@@ -412,6 +416,7 @@ function assignAmbulatoryFellows(schedule: ClinicSchedule, setup: SetupState): v
       // Assign this fellow to all days in the block
       if (assignedFellow && schedule.ambulatoryCountsByFellow) {
         schedule.ambulatoryCountsByFellow[assignedFellow]++;
+        previousBlockFellow = assignedFellow;
         
         // Assign to all days in this block
         for (const blockDate of days) {
@@ -422,6 +427,9 @@ function assignAmbulatoryFellows(schedule: ClinicSchedule, setup: SetupState): v
             schedule.ambulatoryAssignments[blockDateISO] = assignedFellow;
           }
         }
+      } else {
+        // No fellow assigned for this block, reset previous block fellow
+        previousBlockFellow = undefined;
       }
     }
   }

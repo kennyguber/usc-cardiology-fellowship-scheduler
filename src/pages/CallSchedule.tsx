@@ -10,7 +10,8 @@ import { useSEO } from "@/lib/seo";
 import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, applyDragAndDrop, type CallSchedule } from "@/lib/call-engine";
 import { buildHFSchedule, loadHFSchedule, saveHFSchedule, clearHFSchedule, getEffectiveHFAssignment, analyzeHFSchedule, type HFSchedule } from "@/lib/hf-engine";
 import { buildJeopardySchedule, loadJeopardySchedule, saveJeopardySchedule, clearJeopardySchedule, type JeopardySchedule } from "@/lib/jeopardy-engine";
-import { buildClinicSchedule, loadClinicSchedule, saveClinicSchedule, clearClinicSchedule, getClinicAssignmentsForDate, formatClinicAssignments, getClinicNotesForDate, checkSpecialtyClinicCoverage, type ClinicSchedule, type ClinicNote, type ClinicCoverageGap } from "@/lib/clinic-engine";
+import { buildClinicSchedule, loadClinicSchedule, saveClinicSchedule, clearClinicSchedule, getClinicAssignmentsForDate, formatClinicAssignments, getClinicNotesForDate, checkSpecialtyClinicCoverage, getFellowRotationOnDate, type ClinicSchedule, type ClinicNote, type ClinicCoverageGap } from "@/lib/clinic-engine";
+import { getPrimaryRotation } from "@/lib/rotation-engine";
 import { loadSchedule, loadSetup, type PGY, type StoredSchedule } from "@/lib/schedule-engine";
 import { computeAcademicYearHolidays } from "@/lib/holidays";
 import { monthAbbrForIndex } from "@/lib/block-utils";
@@ -1648,9 +1649,12 @@ export default function CallSchedule() {
               const ambulatoryFellowId = clinicSchedule?.ambulatoryAssignments?.[iso];
               if (ambulatoryFellowId) {
                 const ambulatoryFellow = fellowById[ambulatoryFellowId];
+                const rotation = getFellowRotationOnDate(ambulatoryFellowId, iso);
+                const primaryRotation = rotation ? getPrimaryRotation(rotation) : undefined;
+                const rotationDisplay = primaryRotation ? ` (${primaryRotation})` : '';
                 return (
                   <Badge variant={fellowColorById[ambulatoryFellowId]} className="text-xs">
-                    {ambulatoryFellow?.name ?? ambulatoryFellowId}
+                    {ambulatoryFellow?.name ?? ambulatoryFellowId}{rotationDisplay}
                   </Badge>
                 );
               }
