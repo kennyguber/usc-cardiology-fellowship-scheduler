@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from "react-router-dom";
-import { CalendarClock, HeartPulse, PhoneCall, BarChart3 } from "lucide-react";
+import { CalendarClock, HeartPulse, PhoneCall, BarChart3, Settings } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -16,6 +16,7 @@ const items = [
   { title: "Block Schedule", url: "/blocks", icon: CalendarClock },
   { title: "Call Schedule", url: "/calls", icon: PhoneCall },
   { title: "Statistics", url: "/stats", icon: BarChart3 },
+  { title: "Settings", url: "/settings", icon: Settings },
 ];
 
 export function AppSidebar() {
