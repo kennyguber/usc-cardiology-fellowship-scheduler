@@ -477,7 +477,8 @@ export default function CallSchedule() {
           HEART_FAILURE: "HF", 
           DEVICE: "Device",
           EP: "EP",
-          GENERAL: "General"
+          GENERAL: "General",
+          AMBULATORY_FELLOW: "Ambulatory Fellow"
         };
         
         // Group gaps by clinic type and show specific dates

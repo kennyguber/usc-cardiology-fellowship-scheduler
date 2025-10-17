@@ -577,7 +577,7 @@ export function getClinicNotesForDate(
 export interface ClinicCoverageGap {
   date: string;
   dayOfWeek: string;
-  clinicType: ClinicType;
+  clinicType: ClinicType | 'AMBULATORY_FELLOW';
   required: number;
   assigned: number;
 }
@@ -605,10 +605,19 @@ export function checkSpecialtyClinicCoverage(
   const gaps: ClinicCoverageGap[] = [];
   const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
+  // Track which blocks have ambulatory fellow assignments
+  const blocksWithAmbulatoryFellow = new Set<string>();
+  
   for (const date of days) {
     const dateISO = toISODate(date);
     const dayOfWeek = date.getDay(); // 0=Sunday, 1=Monday, etc.
     const dayName = dayNames[dayOfWeek];
+    
+    // Track ambulatory fellow assignments by block
+    const blockKey = getBlockKeyForDate(dateISO, setup.yearStart);
+    if (blockKey && clinicSchedule.ambulatoryAssignments?.[dateISO]) {
+      blocksWithAmbulatoryFellow.add(blockKey);
+    }
     
     // Skip holidays
     if (isHoliday(dateISO, setup)) continue;
@@ -674,6 +683,42 @@ export function checkSpecialtyClinicCoverage(
             assigned: epCount
           });
         }
+      }
+    }
+  }
+  
+  // Check for ambulatory fellow gaps (unassigned blocks)
+  // Get all unique block keys from the year
+  const allBlockKeys = new Set<string>();
+  for (const date of days) {
+    const dateISO = toISODate(date);
+    const blockKey = getBlockKeyForDate(dateISO, setup.yearStart);
+    if (blockKey) {
+      allBlockKeys.add(blockKey);
+    }
+  }
+  
+  // Find blocks without ambulatory fellow assignments
+  for (const blockKey of allBlockKeys) {
+    if (!blocksWithAmbulatoryFellow.has(blockKey)) {
+      // Find the first date in this block to report the gap
+      const firstDateInBlock = days.find(date => {
+        const dateISO = toISODate(date);
+        return getBlockKeyForDate(dateISO, setup.yearStart) === blockKey;
+      });
+      
+      if (firstDateInBlock) {
+        const dateISO = toISODate(firstDateInBlock);
+        const dayOfWeek = firstDateInBlock.getDay();
+        const dayName = dayNames[dayOfWeek];
+        
+        gaps.push({
+          date: dateISO,
+          dayOfWeek: `${dayName} (${blockKey})`,
+          clinicType: "AMBULATORY_FELLOW",
+          required: 1,
+          assigned: 0
+        });
       }
     }
   }
