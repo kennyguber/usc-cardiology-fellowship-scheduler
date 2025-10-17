@@ -352,7 +352,7 @@ export function buildClinicSchedule(
 }
 
 // Helper to get the 2-week block key for a date
-function getBlockKeyForDate(dateISO: string, yearStartISO: string): string | undefined {
+export function getBlockKeyForDate(dateISO: string, yearStartISO: string): string | undefined {
   return dateToBlockKey(dateISO, yearStartISO);
 }
 
@@ -727,4 +727,189 @@ export function checkSpecialtyClinicCoverage(
     success: gaps.length === 0,
     gaps
   };
+}
+
+// Get eligible ambulatory fellows for a specific block
+export function getEligibleAmbulatoryFellows(blockKey: string, schedule: ClinicSchedule, setup: SetupState): Fellow[] {
+  const rotationPriority: Array<string> = ['NUCLEAR', 'NONINVASIVE', 'ELECTIVE', 'EP'];
+  
+  // Find the first date in this block to check rotations
+  const { days } = july1ToJune30Window(setup.yearStart);
+  const firstDateInBlock = days.find(date => {
+    const dateISO = toISODate(date);
+    return getBlockKeyForDate(dateISO, setup.yearStart) === blockKey;
+  });
+  
+  if (!firstDateInBlock) return [];
+  const dateISO = toISODate(firstDateInBlock);
+  
+  // Get the fellow assigned to the previous block (to prevent consecutive assignments)
+  const prevBlockFellow = getPreviousBlockFellow(blockKey, schedule, setup);
+  
+  const eligible: Fellow[] = [];
+  
+  for (const targetRotation of rotationPriority) {
+    const fellowsOnRotation = setup.fellows.filter(fellow => {
+      // Must be PGY-5 or PGY-6
+      if (fellow.pgy !== "PGY-5" && fellow.pgy !== "PGY-6") return false;
+      
+      // Must not have 3 assignments already
+      if ((schedule.ambulatoryCountsByFellow?.[fellow.id] ?? 0) >= 3) return false;
+      
+      // Cannot be the same fellow as the previous block
+      if (fellow.id === prevBlockFellow) return false;
+      
+      // Check if fellow is on the target rotation during this block
+      const rotation = getFellowRotationOnDate(fellow.id, dateISO);
+      const primaryRotation = rotation ? getPrimaryRotation(rotation) : undefined;
+      
+      return primaryRotation === targetRotation;
+    });
+    
+    eligible.push(...fellowsOnRotation);
+  }
+  
+  // Sort by assignment count (fewest first)
+  eligible.sort((a, b) => {
+    const aCount = schedule.ambulatoryCountsByFellow?.[a.id] ?? 0;
+    const bCount = schedule.ambulatoryCountsByFellow?.[b.id] ?? 0;
+    return aCount - bCount;
+  });
+  
+  return eligible;
+}
+
+// Get ineligible ambulatory fellows with reasons
+export function getIneligibleAmbulatoryReasons(blockKey: string, schedule: ClinicSchedule, setup: SetupState): Array<{ fellow: Fellow; reasons: string[] }> {
+  const { days } = july1ToJune30Window(setup.yearStart);
+  const firstDateInBlock = days.find(date => {
+    const dateISO = toISODate(date);
+    return getBlockKeyForDate(dateISO, setup.yearStart) === blockKey;
+  });
+  
+  if (!firstDateInBlock) return [];
+  const dateISO = toISODate(firstDateInBlock);
+  
+  const prevBlockFellow = getPreviousBlockFellow(blockKey, schedule, setup);
+  const eligibleIds = new Set(getEligibleAmbulatoryFellows(blockKey, schedule, setup).map(f => f.id));
+  
+  const ineligible: Array<{ fellow: Fellow; reasons: string[] }> = [];
+  
+  for (const fellow of setup.fellows) {
+    if (eligibleIds.has(fellow.id)) continue;
+    
+    const reasons: string[] = [];
+    
+    // Check PGY level
+    if (fellow.pgy !== "PGY-5" && fellow.pgy !== "PGY-6") {
+      reasons.push("Not PGY-5 or PGY-6");
+    }
+    
+    // Check assignment count
+    const count = schedule.ambulatoryCountsByFellow?.[fellow.id] ?? 0;
+    if (count >= 3) {
+      reasons.push(`Already has maximum 3 assignments (${count})`);
+    }
+    
+    // Check consecutive block rule
+    if (fellow.id === prevBlockFellow) {
+      reasons.push("Assigned to previous block (no consecutive assignments allowed)");
+    }
+    
+    // Check rotation
+    const rotation = getFellowRotationOnDate(fellow.id, dateISO);
+    const primaryRotation = rotation ? getPrimaryRotation(rotation) : undefined;
+    const eligibleRotations = ['NUCLEAR', 'NONINVASIVE', 'ELECTIVE', 'EP'];
+    if (primaryRotation && !eligibleRotations.includes(primaryRotation)) {
+      reasons.push(`Not on eligible rotation (on ${primaryRotation})`);
+    } else if (!primaryRotation) {
+      reasons.push("Rotation not found for this block");
+    }
+    
+    if (reasons.length > 0) {
+      ineligible.push({ fellow, reasons });
+    }
+  }
+  
+  return ineligible;
+}
+
+// Apply ambulatory assignment for a block
+export function applyAmbulatoryAssignment(
+  schedule: ClinicSchedule, 
+  blockKey: string, 
+  fellowId: string | null, 
+  setup: SetupState
+): { success: boolean; schedule?: ClinicSchedule; error?: string } {
+  const newSchedule = JSON.parse(JSON.stringify(schedule)) as ClinicSchedule;
+  
+  if (!newSchedule.ambulatoryAssignments) {
+    newSchedule.ambulatoryAssignments = {};
+  }
+  if (!newSchedule.ambulatoryCountsByFellow) {
+    newSchedule.ambulatoryCountsByFellow = {};
+  }
+  
+  const { days } = july1ToJune30Window(setup.yearStart);
+  
+  // Get all dates in this block
+  const blockDates = days.filter(date => {
+    const dateISO = toISODate(date);
+    return getBlockKeyForDate(dateISO, setup.yearStart) === blockKey;
+  }).map(d => toISODate(d));
+  
+  if (blockDates.length === 0) {
+    return { success: false, error: "Invalid block key" };
+  }
+  
+  // Get current assignment (check first date in block)
+  const currentFellowId = newSchedule.ambulatoryAssignments[blockDates[0]];
+  
+  // Clear old assignment if exists
+  if (currentFellowId) {
+    // Decrement count for old fellow
+    if (newSchedule.ambulatoryCountsByFellow[currentFellowId]) {
+      newSchedule.ambulatoryCountsByFellow[currentFellowId]--;
+    }
+    
+    // Clear all dates in the block
+    for (const dateISO of blockDates) {
+      delete newSchedule.ambulatoryAssignments[dateISO];
+    }
+  }
+  
+  // Apply new assignment if provided
+  if (fellowId) {
+    // Increment count for new fellow
+    if (!newSchedule.ambulatoryCountsByFellow[fellowId]) {
+      newSchedule.ambulatoryCountsByFellow[fellowId] = 0;
+    }
+    newSchedule.ambulatoryCountsByFellow[fellowId]++;
+    
+    // Assign to all dates in the block
+    for (const dateISO of blockDates) {
+      newSchedule.ambulatoryAssignments[dateISO] = fellowId;
+    }
+  }
+  
+  return { success: true, schedule: newSchedule };
+}
+
+// Helper to get the fellow assigned to the previous block
+function getPreviousBlockFellow(blockKey: string, schedule: ClinicSchedule, setup: SetupState): string | undefined {
+  const { days } = july1ToJune30Window(setup.yearStart);
+  
+  // Find the first date in the current block
+  const firstDateInBlock = days.find(date => {
+    const dateISO = toISODate(date);
+    return getBlockKeyForDate(dateISO, setup.yearStart) === blockKey;
+  });
+  
+  if (!firstDateInBlock) return undefined;
+  
+  // Go back one day to find the previous block
+  const prevDate = addDays(firstDateInBlock, -1);
+  const prevDateISO = toISODate(prevDate);
+  
+  return schedule.ambulatoryAssignments?.[prevDateISO];
 }

@@ -20,6 +20,7 @@ import ExcelJS from 'exceljs';
 import PrimaryCallEditDialog from "@/components/PrimaryCallEditDialog";
 import HFEditDialog from "@/components/HFEditDialog";
 import JeopardyEditDialog from "@/components/JeopardyEditDialog";
+import AmbulatoryEditDialog from "@/components/AmbulatoryEditDialog";
 import { DraggableBadge } from "@/components/DraggableBadge";
 import { DroppableCell } from "@/components/DroppableCell";
 import { DroppableCalendarDay } from "@/components/DroppableCalendarDay";
@@ -63,6 +64,9 @@ export default function CallSchedule() {
   
   // Jeopardy Edit Dialog state
   const [jeopardyEditISO, setJeopardyEditISO] = useState<string | null>(null);
+  
+  // Ambulatory Edit Dialog state
+  const [ambulatoryEditISO, setAmbulatoryEditISO] = useState<string | null>(null);
   
   // Jeopardy Schedule state
   const [jeopardySchedule, setJeopardySchedule] = useState<JeopardySchedule | null>(null);
@@ -409,6 +413,16 @@ export default function CallSchedule() {
     toast({
       title: "Jeopardy assignment updated",
       description: "Jeopardy assignment has been updated.",
+    });
+  };
+
+  const handleAmbulatoryScheduleUpdate = (newSchedule: ClinicSchedule) => {
+    setClinicSchedule(newSchedule);
+    saveClinicSchedule(newSchedule);
+    setAmbulatoryEditISO(null);
+    toast({
+      title: "Ambulatory assignment updated",
+      description: "The ambulatory fellow assignment has been updated successfully.",
     });
   };
 
@@ -1654,12 +1668,25 @@ export default function CallSchedule() {
                 const primaryRotation = rotation ? getPrimaryRotation(rotation) : undefined;
                 const rotationDisplay = primaryRotation ? ` (${primaryRotation})` : '';
                 return (
-                  <Badge variant={fellowColorById[ambulatoryFellowId]} className="text-xs">
+                  <Badge 
+                    variant={fellowColorById[ambulatoryFellowId]} 
+                    className="text-xs cursor-pointer hover:opacity-80"
+                    onClick={() => setAmbulatoryEditISO(iso)}
+                  >
                     {ambulatoryFellow?.name ?? ambulatoryFellowId}{rotationDisplay}
                   </Badge>
                 );
               }
-              return "—";
+              return (
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="h-6 text-xs"
+                  onClick={() => setAmbulatoryEditISO(iso)}
+                >
+                  Assign
+                </Button>
+              );
             })()}
           </TableCell>
         </TableRow>
@@ -1844,6 +1871,16 @@ export default function CallSchedule() {
                   open={true}
                   onClose={() => setJeopardyEditISO(null)}
                   onApply={handleJeopardyScheduleUpdate}
+                />
+              )}
+              
+              {ambulatoryEditISO && clinicSchedule && (
+                <AmbulatoryEditDialog
+                  iso={ambulatoryEditISO}
+                  schedule={clinicSchedule}
+                  open={true}
+                  onClose={() => setAmbulatoryEditISO(null)}
+                  onApply={handleAmbulatoryScheduleUpdate}
                 />
               )}
               </>
