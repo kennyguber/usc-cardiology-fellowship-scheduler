@@ -21,6 +21,7 @@ type ClinicStats = {
   epClinicCount: number;
   achdClinicCount: number;
   hfClinicCount: number;
+  ambulatoryAssignments: number;
   cumulativeTotal: number;
 };
 
@@ -82,6 +83,7 @@ export default function ClinicStatsTable({ fellows, callSchedule }: Props) {
       const epClinicCount = (clinicCounts.EP || 0) + (clinicCounts.DEVICE || 0);
       const achdClinicCount = clinicCounts.ACHD || 0;
       const hfClinicCount = clinicCounts.HEART_FAILURE || 0;
+      const ambulatoryAssignments = clinicSchedule.ambulatoryCountsByFellow?.[fellowId] || 0;
 
       // Calculate post-call exclusions
       let postCallExclusions = 0;
@@ -121,6 +123,7 @@ export default function ClinicStatsTable({ fellows, callSchedule }: Props) {
         epClinicCount,
         achdClinicCount,
         hfClinicCount,
+        ambulatoryAssignments,
         cumulativeTotal
       });
     }
@@ -148,6 +151,7 @@ export default function ClinicStatsTable({ fellows, callSchedule }: Props) {
               <TableHead>Total EP Clinics</TableHead>
               <TableHead>Total ACHD Clinics</TableHead>
               <TableHead>Total HF Clinics</TableHead>
+              <TableHead>Total Ambulatory Fellow Assignments</TableHead>
               <TableHead>Cumulative Tally</TableHead>
             </TableRow>
           </TableHeader>
@@ -163,6 +167,7 @@ export default function ClinicStatsTable({ fellows, callSchedule }: Props) {
                 <TableCell>{stat.epClinicCount}</TableCell>
                 <TableCell>{stat.achdClinicCount}</TableCell>
                 <TableCell>{stat.hfClinicCount}</TableCell>
+                <TableCell>{stat.ambulatoryAssignments}</TableCell>
                 <TableCell className="font-medium">{stat.cumulativeTotal}</TableCell>
               </TableRow>
             ))}

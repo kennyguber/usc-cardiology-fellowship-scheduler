@@ -17,6 +17,8 @@ export type ClinicSchedule = {
   yearStart: string; // ISO date (YYYY-MM-DD)
   days: Record<string, ClinicAssignment[]>; // date ISO -> clinic assignments
   countsByFellow: Record<string, Record<ClinicType, number>>; // fellowId -> clinicType -> count
+  ambulatoryAssignments?: Record<string, string>; // date ISO -> fellowId
+  ambulatoryCountsByFellow?: Record<string, number>; // fellowId -> count
 };
 
 const CLINIC_SCHEDULE_STORAGE_KEY = "cfsa_clinics_v1" as const;
@@ -222,7 +224,9 @@ export function buildClinicSchedule(
     version: 1,
     yearStart: setup.yearStart,
     days: {},
-    countsByFellow: {}
+    countsByFellow: {},
+    ambulatoryAssignments: {},
+    ambulatoryCountsByFellow: {}
   };
   
   // Initialize counts
@@ -234,6 +238,7 @@ export function buildClinicSchedule(
       DEVICE: 0,
       EP: 0
     };
+    schedule.ambulatoryCountsByFellow![fellow.id] = 0;
   }
   
   for (const date of days) {
@@ -340,7 +345,86 @@ export function buildClinicSchedule(
     schedule.days[dateISO] = assignments;
   }
   
+  // Assign Ambulatory Fellows after all clinic assignments are done
+  assignAmbulatoryFellows(schedule, setup);
+  
   return schedule;
+}
+
+// Helper to get the 2-week block key for a date
+function getBlockKeyForDate(dateISO: string, yearStartISO: string): string | undefined {
+  return dateToBlockKey(dateISO, yearStartISO);
+}
+
+// Assign Ambulatory Fellows according to the rules
+function assignAmbulatoryFellows(schedule: ClinicSchedule, setup: SetupState): void {
+  const { days } = july1ToJune30Window(setup.yearStart);
+  
+  // Priority order for rotations
+  const rotationPriority: Array<Rotation | string> = ['NUCLEAR', 'NONINVASIVE', 'ELECTIVE', 'EP'];
+  
+  // Track current block assignments
+  let currentBlockKey: string | undefined;
+  let currentBlockStart: string | undefined;
+  
+  for (const date of days) {
+    const dateISO = toISODate(date);
+    const blockKey = getBlockKeyForDate(dateISO, setup.yearStart);
+    
+    // Check if we're starting a new 2-week block
+    if (blockKey !== currentBlockKey) {
+      currentBlockKey = blockKey;
+      currentBlockStart = dateISO;
+      
+      // Try to assign an ambulatory fellow for this block
+      let assignedFellow: string | null = null;
+      
+      // Try each rotation in priority order
+      for (const targetRotation of rotationPriority) {
+        if (assignedFellow) break;
+        
+        // Find PGY-5 or PGY-6 fellows on this rotation during this block
+        const eligibleFellows = setup.fellows.filter(fellow => {
+          // Must be PGY-5 or PGY-6
+          if (fellow.pgy !== "PGY-5" && fellow.pgy !== "PGY-6") return false;
+          
+          // Must not have 2 assignments already
+          if ((schedule.ambulatoryCountsByFellow?.[fellow.id] ?? 0) >= 2) return false;
+          
+          // Check if fellow is on the target rotation during this block
+          const rotation = getFellowRotationOnDate(fellow.id, dateISO);
+          const primaryRotation = rotation ? getPrimaryRotation(rotation) : undefined;
+          
+          return primaryRotation === targetRotation;
+        });
+        
+        // If we have eligible fellows, pick the one with fewest assignments
+        if (eligibleFellows.length > 0) {
+          eligibleFellows.sort((a, b) => {
+            const aCount = schedule.ambulatoryCountsByFellow?.[a.id] ?? 0;
+            const bCount = schedule.ambulatoryCountsByFellow?.[b.id] ?? 0;
+            return aCount - bCount;
+          });
+          assignedFellow = eligibleFellows[0].id;
+        }
+      }
+      
+      // Assign this fellow to all days in the block
+      if (assignedFellow && schedule.ambulatoryCountsByFellow) {
+        schedule.ambulatoryCountsByFellow[assignedFellow]++;
+        
+        // Assign to all days in this block
+        for (const blockDate of days) {
+          const blockDateISO = toISODate(blockDate);
+          const blockDateKey = getBlockKeyForDate(blockDateISO, setup.yearStart);
+          
+          if (blockDateKey === blockKey && schedule.ambulatoryAssignments) {
+            schedule.ambulatoryAssignments[blockDateISO] = assignedFellow;
+          }
+        }
+      }
+    }
+  }
 }
 
 export function loadClinicSchedule(): ClinicSchedule | null {

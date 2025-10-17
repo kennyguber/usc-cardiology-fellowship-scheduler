@@ -573,7 +573,8 @@ export default function CallSchedule() {
         { header: 'HF Fellow', key: 'hfFellow', width: 20 },
         { header: 'Vacation', key: 'vacation', width: 30 },
         { header: 'Clinic', key: 'clinic', width: 30 },
-        { header: 'Clinic Notes', key: 'clinicNotes', width: 20 }
+        { header: 'Clinic Notes', key: 'clinicNotes', width: 20 },
+        { header: 'Ambulatory Fellow', key: 'ambulatoryFellow', width: 20 }
       ];
 
       // Style headers
@@ -669,7 +670,11 @@ export default function CallSchedule() {
           })(),
           vacation: vacationFellows.join(', '),
           clinic: clinicText,
-          clinicNotes: clinicNotesText
+          clinicNotes: clinicNotesText,
+          ambulatoryFellow: (() => {
+            const ambulatoryFellowId = clinicSchedule?.ambulatoryAssignments?.[iso];
+            return ambulatoryFellowId ? (fellowById[ambulatoryFellowId]?.name ?? ambulatoryFellowId) : '—';
+          })()
         });
 
         // Apply colors and formatting
@@ -695,6 +700,13 @@ export default function CallSchedule() {
         if (hfFellow && fellowColorById[hfFellow.id]) {
           const colorHex = getFellowshipColor(fellowColorById[hfFellow.id]);
           row.getCell('hfFellow').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colorHex } };
+        }
+
+        // Color ambulatory fellow cell
+        const ambulatoryFellowId = clinicSchedule?.ambulatoryAssignments?.[iso];
+        if (ambulatoryFellowId && fellowColorById[ambulatoryFellowId]) {
+          const colorHex = getFellowshipColor(fellowColorById[ambulatoryFellowId]);
+          row.getCell('ambulatoryFellow').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colorHex } };
         }
       });
 
@@ -1421,6 +1433,7 @@ export default function CallSchedule() {
       <TableHead className="sticky top-0 z-[1] bg-background">Vacation</TableHead>
       <TableHead className="sticky top-0 z-[1] bg-background">Clinic</TableHead>
       <TableHead className="sticky top-0 z-[1] bg-background">Clinic Notes</TableHead>
+      <TableHead className="sticky top-0 z-[1] bg-background">Ambulatory Fellow</TableHead>
     </TableRow>
   </TableHeader>
   <TableBody>
@@ -1627,6 +1640,20 @@ export default function CallSchedule() {
                 );
               }
               
+              return "—";
+            })()}
+          </TableCell>
+          <TableCell>
+            {(() => {
+              const ambulatoryFellowId = clinicSchedule?.ambulatoryAssignments?.[iso];
+              if (ambulatoryFellowId) {
+                const ambulatoryFellow = fellowById[ambulatoryFellowId];
+                return (
+                  <Badge variant={fellowColorById[ambulatoryFellowId]} className="text-xs">
+                    {ambulatoryFellow?.name ?? ambulatoryFellowId}
+                  </Badge>
+                );
+              }
               return "—";
             })()}
           </TableCell>
