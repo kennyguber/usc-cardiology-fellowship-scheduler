@@ -22,6 +22,7 @@ import { JeopardySettings } from "@/components/settings/JeopardySettings";
 import { HFSettings } from "@/components/settings/HFSettings";
 import { ClinicSettings } from "@/components/settings/ClinicSettings";
 import { AmbulatorySettings } from "@/components/settings/AmbulatorySettings";
+import { BlockRotationSettings } from "@/components/settings/BlockRotationSettings";
 
 export default function Settings() {
   const {
@@ -147,8 +148,9 @@ export default function Settings() {
       )}
 
       <Tabs defaultValue="vacation" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="vacation">Vacation</TabsTrigger>
+          <TabsTrigger value="blocks">Block Rotations</TabsTrigger>
           <TabsTrigger value="primary">Primary Call</TabsTrigger>
           <TabsTrigger value="jeopardy">Jeopardy</TabsTrigger>
           <TabsTrigger value="hf">HF Coverage</TabsTrigger>
@@ -161,6 +163,10 @@ export default function Settings() {
             settings={settings.vacation}
             onUpdate={(data) => updateSection("vacation", data)}
           />
+        </TabsContent>
+
+        <TabsContent value="blocks">
+          <BlockRotationSettings settings={settings.blockRotations} />
         </TabsContent>
 
         <TabsContent value="primary">
