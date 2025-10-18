@@ -93,6 +93,17 @@ export function BlockRotationSettings({ settings }: BlockRotationSettingsProps) 
             <li>LAC Consult: Only 4 of 5 fellows receive 1 block (the non-CCU fellow + 3 CCU fellows)</li>
             <li>Elective: Variable (3-4 blocks) depending on CCU/LAC Consult assignment</li>
           </ul>
+          
+          <p className="font-semibold mt-3">* PGY-6 Special Rules:</p>
+          <ul className="list-disc list-inside ml-2 space-y-1">
+            <li>CCU, LAC Consult, ECHO1: PGY-6 fellows do not perform these rotations</li>
+            <li>LAC Cath: Variable distribution [2,2,2,1,1] blocks per fellow</li>
+            <li>HF & Keck Consult: 4 of 5 fellows receive 1 block each</li>
+            <li>ECHO2: Variable distribution [2,2,2,2,1] blocks per fellow</li>
+            <li>Nuclear & Noninvasive: Variable distribution [3,3,3,3,2] blocks per fellow each</li>
+            <li>EP: All 5 fellows receive 2 blocks each</li>
+            <li>Elective: Fills all remaining blocks (~8 blocks per fellow on average)</li>
+          </ul>
         </div>
       </CardContent>
     </Card>

@@ -200,17 +200,17 @@ export const DEFAULT_SETTINGS: SchedulerSettings = {
       enforceNonConsecutiveMonths: true,
     },
     pgy6: {
-      lacCathBlocks: 6,
-      ccuBlocks: 2,
-      lacConsultBlocks: 2,
-      hfBlocks: 2,
-      keckConsultBlocks: 2,
-      echo1Blocks: 2,
-      echo2Blocks: 2,
-      epBlocks: 2,
-      nuclearBlocks: 2,
-      nonInvasiveBlocks: 2,
-      electiveBlocks: 2,
+      lacCathBlocks: 2,  // Variable distribution [2,2,2,1,1]
+      ccuBlocks: 0,      // PGY-6 doesn't do CCU
+      lacConsultBlocks: 0, // PGY-6 doesn't do LAC_CONSULT
+      hfBlocks: 1,       // 4 of 5 fellows get 1
+      keckConsultBlocks: 1, // 4 of 5 fellows get 1
+      echo1Blocks: 0,    // PGY-6 doesn't do ECHO1
+      echo2Blocks: 2,    // Variable distribution [2,2,2,2,1]
+      epBlocks: 2,       // All 5 fellows get 2
+      nuclearBlocks: 3,  // Variable distribution [3,3,3,3,2]
+      nonInvasiveBlocks: 3, // Variable distribution [3,3,3,3,2]
+      electiveBlocks: 8, // Fills remaining blocks
       enforceNonConsecutiveMonths: true,
     },
   },
