@@ -21,10 +21,10 @@ export function validateSettings(settings: SchedulerSettings): ValidationResult 
     errors.push("Max fellows per block must be at least 1");
   }
 
-  // Block rotation validation (total blocks should be 24 per year)
+  // Block rotation validation (rotation blocks + vacation blocks = 24 total)
   const validateBlockTotal = (pgy: "pgy4" | "pgy5" | "pgy6") => {
     const blocks = settings.blockRotations[pgy];
-    const total = 
+    let rotationTotal = 
       blocks.lacCathBlocks +
       blocks.ccuBlocks +
       blocks.lacConsultBlocks +
@@ -36,8 +36,15 @@ export function validateSettings(settings: SchedulerSettings): ValidationResult 
       blocks.nuclearBlocks +
       blocks.electiveBlocks;
     
-    if (total !== 24) {
-      errors.push(`${pgy.toUpperCase()} total blocks must equal 24 (currently ${total})`);
+    // PGY-5 and PGY-6 have nonInvasiveBlocks, PGY-4 does not
+    if (pgy === "pgy5" || pgy === "pgy6") {
+      rotationTotal += (blocks as typeof settings.blockRotations.pgy5 | typeof settings.blockRotations.pgy6).nonInvasiveBlocks;
+    }
+    
+    const expectedRotationBlocks = 24 - settings.vacation.maxVacationsPerYear;
+    
+    if (rotationTotal !== expectedRotationBlocks) {
+      errors.push(`${pgy.toUpperCase()} rotation blocks must equal ${expectedRotationBlocks} (currently ${rotationTotal}). Total with ${settings.vacation.maxVacationsPerYear} vacation blocks = 24.`);
     }
   };
   
