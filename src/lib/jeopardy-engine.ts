@@ -3,6 +3,7 @@ import { computeAcademicYearHolidays } from "@/lib/holidays";
 import { loadSchedule, loadSetup, type Fellow, type PGY, type StoredSchedule, type SetupState } from "@/lib/schedule-engine";
 import { loadCallSchedule, type CallSchedule } from "@/lib/call-engine";
 import { loadHFSchedule } from "@/lib/hf-engine";
+import { loadSettings } from "@/lib/settings-engine";
 
 export type JeopardySchedule = {
   version: 1;
@@ -418,6 +419,7 @@ export function buildJeopardySchedule(): { schedule: JeopardySchedule; success: 
     };
   }
   
+  const settings = loadSettings();
   const primarySchedule = loadCallSchedule();
   if (!primarySchedule) {
     return {
@@ -466,7 +468,7 @@ export function buildJeopardySchedule(): { schedule: JeopardySchedule; success: 
     const eligibleFellows = setup.fellows.filter(fellow => 
       isEligibleForBlock(fellow, block, setup, schedByPGY, primarySchedule) &&
       isWithinQuotaLimits(fellow, block, currentCounts, dynamicQuotas) &&
-      !wouldCreateConsecutiveConflict(fellow, block, assignments, sortedBlocks)
+      (!settings.jeopardyCall.noConsecutiveDays || !wouldCreateConsecutiveConflict(fellow, block, assignments, sortedBlocks))
     );
     
     const selectedFellow = selectFellowFair(eligibleFellows, currentCounts, dynamicQuotas, lastAssignedDate);
@@ -583,6 +585,7 @@ export function clearJeopardySchedule(): void {
 // Manual assignment helpers
 export function applyJeopardyAssignment(schedule: JeopardySchedule, dateISO: string, fellowId: string | null): { success: boolean; schedule?: JeopardySchedule; error?: string } {
   const setup = loadSetup();
+  const settings = loadSettings();
   const primarySchedule = loadCallSchedule();
   
   if (!setup || !primarySchedule) {
@@ -646,10 +649,12 @@ export function applyJeopardyAssignment(schedule: JeopardySchedule, dateISO: str
     return { success: false, error: "Fellow not eligible for this date" };
   }
   
-  // Get all blocks for consecutive check
-  const allBlocks = generateJeopardyBlocks(newSchedule.yearStart, setup);
-  if (wouldCreateConsecutiveConflict(fellow, block, newSchedule.days, allBlocks)) {
-    return { success: false, error: "Would create consecutive jeopardy assignment" };
+  // Check consecutive conflict only if the setting is enabled
+  if (settings.jeopardyCall.noConsecutiveDays) {
+    const allBlocks = generateJeopardyBlocks(newSchedule.yearStart, setup);
+    if (wouldCreateConsecutiveConflict(fellow, block, newSchedule.days, allBlocks)) {
+      return { success: false, error: "Would create consecutive jeopardy assignment" };
+    }
   }
   
   // Apply assignment
@@ -796,6 +801,7 @@ export function applyJeopardyAssignmentScoped(
   }
   
   const setup = loadSetup();
+  const settings = loadSettings();
   const primarySchedule = loadCallSchedule();
   
   if (!setup || !primarySchedule) {
@@ -855,10 +861,12 @@ export function applyJeopardyAssignmentScoped(
     return { success: false, error: "Fellow not eligible for this block" };
   }
   
-  // Get all blocks for consecutive check
-  const allBlocks = generateJeopardyBlocks(newSchedule.yearStart, setup);
-  if (wouldCreateConsecutiveConflict(fellow, block, newSchedule.days, allBlocks)) {
-    return { success: false, error: "Would create consecutive jeopardy assignment" };
+  // Check consecutive conflict only if the setting is enabled
+  if (settings.jeopardyCall.noConsecutiveDays) {
+    const allBlocks = generateJeopardyBlocks(newSchedule.yearStart, setup);
+    if (wouldCreateConsecutiveConflict(fellow, block, newSchedule.days, allBlocks)) {
+      return { success: false, error: "Would create consecutive jeopardy assignment" };
+    }
   }
   
   // Apply assignments for all dates in the block
