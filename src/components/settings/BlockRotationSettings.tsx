@@ -17,6 +17,7 @@ export function BlockRotationSettings({ settings }: BlockRotationSettingsProps) 
     echo2Blocks: "ECHO2",
     epBlocks: "EP",
     nuclearBlocks: "Nuclear",
+    nonInvasiveBlocks: "Noninvasive",
     electiveBlocks: "Elective",
   };
 
@@ -31,6 +32,7 @@ export function BlockRotationSettings({ settings }: BlockRotationSettingsProps) 
       pgySettings.echo2Blocks +
       pgySettings.epBlocks +
       pgySettings.nuclearBlocks +
+      (pgySettings.nonInvasiveBlocks || 0) +
       pgySettings.electiveBlocks
     );
   };
@@ -84,6 +86,14 @@ export function BlockRotationSettings({ settings }: BlockRotationSettingsProps) 
             </TableRow>
           </TableBody>
         </Table>
+        <div className="mt-4 text-sm text-muted-foreground space-y-1">
+          <p className="font-semibold">* PGY-5 Special Rules:</p>
+          <ul className="list-disc list-inside ml-2 space-y-1">
+            <li>CCU: Only 4 of 5 fellows receive 1 block each</li>
+            <li>LAC Consult: Only 4 of 5 fellows receive 1 block (the non-CCU fellow + 3 CCU fellows)</li>
+            <li>Elective: Variable (3-4 blocks) depending on CCU/LAC Consult assignment</li>
+          </ul>
+        </div>
       </CardContent>
     </Card>
   );

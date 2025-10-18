@@ -39,6 +39,7 @@ export interface SchedulerSettings {
       echo2Blocks: number;
       epBlocks: number;
       nuclearBlocks: number;
+      nonInvasiveBlocks: number;
       electiveBlocks: number;
       enforceNonConsecutiveMonths: boolean;
     };
@@ -52,6 +53,7 @@ export interface SchedulerSettings {
       echo2Blocks: number;
       epBlocks: number;
       nuclearBlocks: number;
+      nonInvasiveBlocks: number;
       electiveBlocks: number;
       enforceNonConsecutiveMonths: boolean;
     };
@@ -184,16 +186,17 @@ export const DEFAULT_SETTINGS: SchedulerSettings = {
       enforceNonConsecutiveMonths: true,
     },
     pgy5: {
-      lacCathBlocks: 6,
-      ccuBlocks: 2,
-      lacConsultBlocks: 2,
+      lacCathBlocks: 4,
+      ccuBlocks: 1,
+      lacConsultBlocks: 1,
       hfBlocks: 2,
       keckConsultBlocks: 2,
-      echo1Blocks: 2,
-      echo2Blocks: 2,
+      echo1Blocks: 0,
+      echo2Blocks: 3,
       epBlocks: 2,
       nuclearBlocks: 2,
-      electiveBlocks: 2,
+      nonInvasiveBlocks: 2,
+      electiveBlocks: 3,
       enforceNonConsecutiveMonths: true,
     },
     pgy6: {
@@ -206,6 +209,7 @@ export const DEFAULT_SETTINGS: SchedulerSettings = {
       echo2Blocks: 2,
       epBlocks: 2,
       nuclearBlocks: 2,
+      nonInvasiveBlocks: 2,
       electiveBlocks: 2,
       enforceNonConsecutiveMonths: true,
     },
