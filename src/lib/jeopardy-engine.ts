@@ -318,7 +318,18 @@ function isEligibleForBlock(fellow: Fellow, block: JeopardyBlock, setup: SetupSt
 }
 
 // Check if assigning this block would violate consecutive jeopardy rule
-function wouldCreateConsecutiveConflict(fellow: Fellow, block: JeopardyBlock, currentAssignments: Record<string, string>): boolean {
+function wouldCreateConsecutiveConflict(
+  fellow: Fellow, 
+  block: JeopardyBlock, 
+  currentAssignments: Record<string, string>,
+  allBlocks: JeopardyBlock[]
+): boolean {
+  // Helper to determine if two block types can be consecutive
+  const canBeConsecutive = (type1: JeopardyAssignmentType, type2: JeopardyAssignmentType): boolean => {
+    // Only allow consecutive if both are holidays or both are weekends
+    return (type1 === "holiday" && type2 === "holiday") || (type1 === "weekend" && type2 === "weekend");
+  };
+  
   for (const dateISO of block.dates) {
     const date = parseISO(dateISO);
     
@@ -326,14 +337,22 @@ function wouldCreateConsecutiveConflict(fellow: Fellow, block: JeopardyBlock, cu
     const dayBefore = addDays(date, -1);
     const dayBeforeISO = toISODate(dayBefore);
     if (currentAssignments[dayBeforeISO] === fellow.id) {
-      return true;
+      // Find the block type for the day before
+      const dayBeforeBlock = allBlocks.find(b => b.dates.includes(dayBeforeISO));
+      if (dayBeforeBlock && !canBeConsecutive(dayBeforeBlock.type, block.type)) {
+        return true;
+      }
     }
     
     // Check day after
     const dayAfter = addDays(date, 1);
     const dayAfterISO = toISODate(dayAfter);
     if (currentAssignments[dayAfterISO] === fellow.id) {
-      return true;
+      // Find the block type for the day after
+      const dayAfterBlock = allBlocks.find(b => b.dates.includes(dayAfterISO));
+      if (dayAfterBlock && !canBeConsecutive(block.type, dayAfterBlock.type)) {
+        return true;
+      }
     }
   }
   
@@ -447,7 +466,7 @@ export function buildJeopardySchedule(): { schedule: JeopardySchedule; success: 
     const eligibleFellows = setup.fellows.filter(fellow => 
       isEligibleForBlock(fellow, block, setup, schedByPGY, primarySchedule) &&
       isWithinQuotaLimits(fellow, block, currentCounts, dynamicQuotas) &&
-      !wouldCreateConsecutiveConflict(fellow, block, assignments)
+      !wouldCreateConsecutiveConflict(fellow, block, assignments, sortedBlocks)
     );
     
     const selectedFellow = selectFellowFair(eligibleFellows, currentCounts, dynamicQuotas, lastAssignedDate);
@@ -627,7 +646,9 @@ export function applyJeopardyAssignment(schedule: JeopardySchedule, dateISO: str
     return { success: false, error: "Fellow not eligible for this date" };
   }
   
-  if (wouldCreateConsecutiveConflict(fellow, block, newSchedule.days)) {
+  // Get all blocks for consecutive check
+  const allBlocks = generateJeopardyBlocks(newSchedule.yearStart, setup);
+  if (wouldCreateConsecutiveConflict(fellow, block, newSchedule.days, allBlocks)) {
     return { success: false, error: "Would create consecutive jeopardy assignment" };
   }
   
@@ -834,7 +855,9 @@ export function applyJeopardyAssignmentScoped(
     return { success: false, error: "Fellow not eligible for this block" };
   }
   
-  if (wouldCreateConsecutiveConflict(fellow, block, newSchedule.days)) {
+  // Get all blocks for consecutive check
+  const allBlocks = generateJeopardyBlocks(newSchedule.yearStart, setup);
+  if (wouldCreateConsecutiveConflict(fellow, block, newSchedule.days, allBlocks)) {
     return { success: false, error: "Would create consecutive jeopardy assignment" };
   }
   
