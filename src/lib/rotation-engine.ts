@@ -1,6 +1,5 @@
 import { type BlockInfo } from "@/lib/block-utils";
 import { type Fellow, type FellowSchedule, loadSchedule } from "@/lib/schedule-engine";
-import { loadSettings } from "@/lib/settings-engine";
 
 export type Rotation =
   | "VAC"
@@ -93,21 +92,12 @@ export function placePGY4Rotations(
   existingByFellow: FellowSchedule | undefined,
   opts?: { randomize?: boolean; maxTries?: number; lockVacations?: boolean; timeout?: number }
 ): SolveRotationsResult {
-  const settings = loadSettings();
   const randomize = !!opts?.randomize;
   const maxTries = opts?.maxTries ?? 500;
   const lockVacations = opts?.lockVacations ?? true;
   const timeout = opts?.timeout ?? 45000; // 45 seconds
   
   const startTime = Date.now();
-  
-  // Load settings for PGY-4 block rotations
-  const lacCathBlocks = settings.blockRotations.pgy4.lacCathBlocks;
-  const ccuBlocks = settings.blockRotations.pgy4.ccuBlocks;
-  const lacConsultBlocks = settings.blockRotations.pgy4.lacConsultBlocks;
-  const hfBlocks = settings.blockRotations.pgy4.hfBlocks;
-  const enforceEarlyLacCathRule = settings.blockRotations.pgy4.enforceEarlyLacCathRule;
-  const enforceNonConsecutiveMonths = settings.blockRotations.pgy4.enforceNonConsecutiveMonths;
   const diagnostics = {
     failureReasons: {} as Record<string, number>,
     constraintViolations: [] as string[],
@@ -196,18 +186,16 @@ export function placePGY4Rotations(
         if (vacsInFirst.length === 0) continue;
 
         // Helper: can place a vacation at candidate key?
-        const otherVacs = vacs.filter((k) => !vacsInFirst.includes(k));
+        const otherVac = vacs.find((k) => !vacsInFirst.includes(k));
         const canPlaceVacAt = (cand: string) => {
           if (isBlocked(cand, "VAC", f.id)) return false;
           if (row[cand]) return false;
-          // spacing with ALL other vacations
-          if (otherVacs.length > 0) {
-            for (const otherVac of otherVacs) {
-              const ia = keyToIndex.get(otherVac) ?? -1;
-              const ib = keyToIndex.get(cand) ?? -1;
-              if (ia < 0 || ib < 0) return false;
-              if (Math.abs(ib - ia) < settings.vacation.minSpacingBlocks) return false;
-            }
+          // spacing with the other vacation
+          if (otherVac) {
+            const ia = keyToIndex.get(otherVac) ?? -1;
+            const ib = keyToIndex.get(cand) ?? -1;
+            if (ia < 0 || ib < 0) return false;
+            if (Math.abs(ib - ia) < 6) return false;
           }
           return true;
         };
@@ -349,22 +337,20 @@ export function placePGY4Rotations(
     for (const f of fellows) {
       const row = (byFellow[f.id] = byFellow[f.id] || {});
 
-      // LAC_CATH remaining: need configured blocks after early one
+      // LAC_CATH remaining: need 3 blocks after early one; try one full month (2 blocks) + one single
       const lacCathMonths = monthSetFor(f.id, "LAC_CATH");
-      const targetLacCathBlocks = lacCathBlocks; // from settings
+      const targetLacCathBlocks = 4; // total blocks
       const currentLacCathBlocks = Object.values(row).filter((x) => x === "LAC_CATH").length;
       let needLC = targetLacCathBlocks - currentLacCathBlocks;
       if (needLC > 0) {
         // try a pair month first
-          const candidateMonths = [...monthToKeys.keys()].filter((mi) => {
-            if (!pairFree(f.id, mi, "LAC_CATH")) return false;
-            if (lacCathMonths.has(mi)) return false;
-            // non-consecutive months rule (if enforced)
-            if (enforceNonConsecutiveMonths) {
-              for (const m of lacCathMonths) if (isAdjacentMonth(mi, m)) return false;
-            }
-            return true;
-          });
+        const candidateMonths = [...monthToKeys.keys()].filter((mi) => {
+          if (!pairFree(f.id, mi, "LAC_CATH")) return false;
+          if (lacCathMonths.has(mi)) return false;
+          // non-consecutive months rule
+          for (const m of lacCathMonths) if (isAdjacentMonth(mi, m)) return false;
+          return true;
+        });
         const ordered = randomize ? shuffle(candidateMonths) : candidateMonths;
         if (needLC >= 2) {
           for (const mi of ordered) {
@@ -379,12 +365,10 @@ export function placePGY4Rotations(
           const singles: { k: string; mi: number }[] = [];
           for (const [mi, keys] of monthToKeys) {
             if (lacCathMonths.has(mi)) continue; // don't place twice in same month
-            // enforce non-consecutive with existing (if enabled)
-            if (enforceNonConsecutiveMonths) {
-              let ok = true;
-              for (const m of lacCathMonths) if (isAdjacentMonth(mi, m)) ok = false;
-              if (!ok) continue;
-            }
+            // enforce non-consecutive with existing
+            let ok = true;
+            for (const m of lacCathMonths) if (isAdjacentMonth(mi, m)) ok = false;
+            if (!ok) continue;
             for (const k of keys) {
               if (!isBlocked(k, "LAC_CATH", f.id) && !row[k]) singles.push({ k, mi });
             }
@@ -409,15 +393,13 @@ export function placePGY4Rotations(
         }
       }
 
-      // CCU: configured blocks -> months, non-consecutive months (if enforced)
+      // CCU: 4 blocks -> 2 months, non-consecutive months
       const ccuMonths = monthSetFor(f.id, "CCU");
-      let needCCU = ccuBlocks - [...ccuMonths].reduce((acc, mi) => acc + (monthToKeys.get(mi)?.length || 0), 0);
+      let needCCU = 4 - [...ccuMonths].reduce((acc, mi) => acc + (monthToKeys.get(mi)?.length || 0), 0);
 if (needCCU > 0) {
         const candidateMonths = [...monthToKeys.keys()].filter((mi) => {
           if (!pairFree(f.id, mi, "CCU")) return false;
-          if (enforceNonConsecutiveMonths) {
-            for (const m of ccuMonths) if (isAdjacentMonth(mi, m)) return false;
-          }
+          for (const m of ccuMonths) if (isAdjacentMonth(mi, m)) return false;
           return true;
         });
         // If there are any pre-existing HF months, prefer CCU months not adjacent to them
@@ -452,15 +434,13 @@ if (needCCU > 0) {
         }
       }
 
-      // LAC_CONSULT: configured blocks -> months, non-consecutive months (if enforced)
+      // LAC_CONSULT: 4 blocks -> 2 months, non-consecutive months
       const lacConsMonths = monthSetFor(f.id, "LAC_CONSULT");
-      let needLCON = lacConsultBlocks - [...lacConsMonths].reduce((acc, mi) => acc + (monthToKeys.get(mi)?.length || 0), 0);
+      let needLCON = 4 - [...lacConsMonths].reduce((acc, mi) => acc + (monthToKeys.get(mi)?.length || 0), 0);
       if (needLCON > 0) {
         const candidateMonths = [...monthToKeys.keys()].filter((mi) => {
           if (!pairFree(f.id, mi, "LAC_CONSULT")) return false;
-          if (enforceNonConsecutiveMonths) {
-            for (const m of lacConsMonths) if (isAdjacentMonth(mi, m)) return false;
-          }
+          for (const m of lacConsMonths) if (isAdjacentMonth(mi, m)) return false;
           return true;
         });
         const ordered = randomize ? shuffle(candidateMonths) : candidateMonths;
