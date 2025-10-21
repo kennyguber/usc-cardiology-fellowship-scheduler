@@ -891,6 +891,21 @@ const handlePlaceRotations = () => {
     toast({ title: "Rotations cleared", description: "Kept vacations; removed other assignments." });
   };
 
+  const handleClearVacations = () => {
+    if (activePGY !== "PGY-4" && activePGY !== "PGY-5" && activePGY !== "PGY-6") return;
+    if (!schedule) return;
+    const cleaned: Record<string, Record<string, string | undefined>> = {};
+    for (const [fid, row] of Object.entries(schedule.byFellow || {})) {
+      const nr: Record<string, string | undefined> = {};
+      for (const [k, v] of Object.entries(row)) if (v !== "VAC") nr[k] = v;
+      cleaned[fid] = nr;
+    }
+    const next: StoredSchedule = { version: 1, pgy: activePGY, byFellow: cleaned };
+    saveSchedule(activePGY, next);
+    setSchedule(next);
+    toast({ title: "Vacations cleared", description: "Kept rotations; removed vacation assignments." });
+  };
+
   // Convert HSL to hex color for Excel
   const hslToHex = (hsl: string): string => {
     const match = hsl.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/);
@@ -1087,6 +1102,13 @@ const handlePlaceRotations = () => {
                   disabled={(activePGY !== "PGY-4" && activePGY !== "PGY-5" && activePGY !== "PGY-6") || !schedule}
                 >
                   <Eraser className="mr-2 h-4 w-4" /> Clear Rotations
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleClearVacations}
+                  disabled={(activePGY !== "PGY-4" && activePGY !== "PGY-5" && activePGY !== "PGY-6") || !schedule}
+                >
+                  <Eraser className="mr-2 h-4 w-4" /> Clear Vacations
                 </Button>
                 <Button variant="outline" onClick={exportExcel} disabled={fellows.length === 0}>
                   <Download className="mr-2 h-4 w-4" /> Export Excel
