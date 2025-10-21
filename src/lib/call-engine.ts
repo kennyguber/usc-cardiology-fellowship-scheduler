@@ -2,6 +2,7 @@ import { differenceInCalendarDays, addDays, isBefore, isAfter, isEqual, parseISO
 import { monthAbbrForIndex } from "@/lib/block-utils";
 import { computeAcademicYearHolidays } from "@/lib/holidays";
 import { loadSchedule, loadSetup, type Fellow, type PGY, type StoredSchedule, type SetupState } from "@/lib/schedule-engine";
+import { loadSettings } from "@/lib/settings-engine";
 
 type CallSchedule = {
   version: 1;
@@ -11,14 +12,6 @@ type CallSchedule = {
 };
 
 const CALL_SCHEDULE_STORAGE_KEY = "cfsa_calls_v1" as const;
-
-const MAX_CALLS: Record<PGY, number> = {
-  "PGY-4": 47,
-  "PGY-5": 16,
-  "PGY-6": 11,
-};
-
-const MIN_SPACING_DAYS = 4; // strict 4-day min for ALL PGYs
 
 function toISODate(d: Date) {
   return format(d, "yyyy-MM-dd");
@@ -47,10 +40,8 @@ function isWeekendDate(d: Date): boolean {
   return day === 0 || day === 6; // Sun or Sat
 }
 
-function afterAug15(d: Date, yearStartISO: string): boolean {
-  const start = parseISO(yearStartISO);
-  const aug15 = new Date(start.getFullYear(), 7, 15); // Aug is month 7
-  return isAfter(d, addDays(aug15, -1)); // on or after Aug 15
+function afterPGY4Start(d: Date, startDate: Date): boolean {
+  return isAfter(d, addDays(startDate, -1)); // on or after start date
 }
 
 function dateToBlockKey(d: Date, yearStartISO: string): string {
@@ -68,16 +59,16 @@ function getRotationOnDate(fellow: Fellow, date: Date, schedByPGY: Record<PGY, S
   return row[key];
 }
 
-function withinCallLimit(fellow: Fellow, counts: Record<string, number>): boolean {
-  const max = MAX_CALLS[fellow.pgy];
+function withinCallLimit(fellow: Fellow, counts: Record<string, number>, maxCalls: Record<PGY, number>): boolean {
+  const max = maxCalls[fellow.pgy];
   return (counts[fellow.id] ?? 0) < max;
 }
 
-function hasSpacingOK(fellow: Fellow, lastAssigned: Record<string, string | undefined>, date: Date): boolean {
+function hasSpacingOK(fellow: Fellow, lastAssigned: Record<string, string | undefined>, date: Date, minSpacing: number): boolean {
   const lastISO = lastAssigned[fellow.id];
   if (!lastISO) return true;
   const lastDate = parseISO(lastISO);
-  return differenceInCalendarDays(date, lastDate) >= MIN_SPACING_DAYS;
+  return differenceInCalendarDays(date, lastDate) >= minSpacing;
 }
 
 function isFriday(d: Date): boolean {
@@ -100,15 +91,26 @@ function getEquityCategory(date: Date, setup: SetupState): "weekday" | "wkndHol"
 function okNoConsecutiveSaturday(
   fellow: Fellow,
   date: Date,
-  lastSaturday: Record<string, string | undefined>
+  lastSaturday: Record<string, string | undefined>,
+  noConsecutiveSaturdays: boolean
 ): boolean {
+  if (!noConsecutiveSaturdays) return true; // Rule disabled
   if (date.getDay() !== 6) return true; // Only care about Saturdays
   const prevSatISO = toISODate(addDays(date, -7));
   return lastSaturday[fellow.id] !== prevSatISO;
 }
 
-function eligiblePoolByPGY(date: Date, setup: SetupState, schedByPGY: Record<PGY, StoredSchedule | null>) {
-  const afterAug = afterAug15(date, setup.yearStart);
+function eligiblePoolByPGY(
+  date: Date, 
+  setup: SetupState, 
+  schedByPGY: Record<PGY, StoredSchedule | null>,
+  pgy4StartDate: Date,
+  excludeRotations: string[],
+  excludeEPOnDays: number[],
+  weekdayPriority: Record<number, PGY[]>,
+  weekendPriority: PGY[]
+) {
+  const afterPGY4Eligible = afterPGY4Start(date, pgy4StartDate);
   const isWeekend = isWeekendDate(date);
   const iso = toISODate(date);
   const holiday = isHoliday(iso, setup);
@@ -116,49 +118,31 @@ function eligiblePoolByPGY(date: Date, setup: SetupState, schedByPGY: Record<PGY
   const pools: Record<PGY, Fellow[]> = { "PGY-4": [], "PGY-5": [], "PGY-6": [] };
   for (const f of setup.fellows) {
     // Time period eligibility
-    if (f.pgy === "PGY-4" && !afterAug) continue; // PGY-4 completely ineligible before Aug 15
+    if (f.pgy === "PGY-4" && !afterPGY4Eligible) continue; // PGY-4 ineligible before start date
     // Rotation exclusions
     const rot = getRotationOnDate(f, date, schedByPGY, setup.yearStart);
-    if (rot === "VAC" || rot === "HF") continue;
-    // Exclude EP rotation on Tuesdays and Thursdays
+    if (rot && excludeRotations.includes(rot)) continue;
+    // Exclude EP rotation on configured days
     const dow = date.getDay(); // 0=Sun ... 6=Sat
-    if (rot === "EP" && (dow === 2 || dow === 4)) continue;
+    if (rot === "EP" && excludeEPOnDays.includes(dow)) continue;
     pools[f.pgy].push(f);
   }
 
   // Determine PGY priority list
   let priority: PGY[] = ["PGY-5", "PGY-4", "PGY-6"]; // default fallback order
   if (isWeekend || holiday) {
-    // Exclude PGY-6 from weekend/holiday primary calls entirely
-    pools["PGY-6"] = [];
-    if (afterAug) {
-      priority = ["PGY-4", "PGY-5"]; // After Aug 15: weekends/holidays shared by PGY-4 then PGY-5
-    } else {
-      priority = ["PGY-5"]; // Pre-Aug 15: only PGY-5 eligible on weekends/holidays
+    priority = weekendPriority;
+    // Filter pools to only include eligible PGYs
+    const eligiblePGYs = new Set(priority);
+    for (const pgy of ["PGY-4", "PGY-5", "PGY-6"] as PGY[]) {
+      if (!eligiblePGYs.has(pgy)) {
+        pools[pgy] = [];
+      }
     }
   } else {
     // Weekdays
-    const dow = date.getDay(); // 1=Mon ... 5=Fri
-    if (afterAug) {
-      switch (dow) {
-        case 1: // Monday
-          priority = ["PGY-5", "PGY-4", "PGY-6"]; break;
-        case 2: // Tuesday
-          priority = ["PGY-5", "PGY-4", "PGY-6"]; break;
-        case 3: // Wednesday
-          priority = ["PGY-4", "PGY-5", "PGY-6"]; break;
-        case 4: // Thursday
-          priority = ["PGY-6", "PGY-4", "PGY-5"]; break;
-        case 5: // Friday
-          priority = ["PGY-4", "PGY-5", "PGY-6"]; break;
-        default:
-          priority = ["PGY-5", "PGY-4", "PGY-6"]; // should not hit (Mon-Fri only)
-      }
-    } else {
-      // Pre-Aug15 weekdays: Thursday=PGY-6 preference, others=PGY-5; PGY-4 excluded entirely already
-      const dow = date.getDay();
-      if (dow === 4) priority = ["PGY-6", "PGY-5"]; else priority = ["PGY-5", "PGY-6"];
-    }
+    const dow = date.getDay(); // 0=Sun, 1=Mon ... 6=Sat
+    priority = weekdayPriority[dow] || ["PGY-5", "PGY-4", "PGY-6"];
   }
 
   return { pools, priority, isWeekend: isWeekend || holiday };
@@ -184,6 +168,8 @@ type BuildCallResult = {
 
 function buildPrimaryCallSchedule(opts?: { priorPrimarySeeds?: Record<string, string> }): BuildCallResult {
   const setup = loadSetup();
+  const settings = loadSettings();
+  
   if (!setup) {
     return {
       schedule: { version: 1, yearStart: toISODate(new Date()), days: {}, countsByFellow: {} },
@@ -197,6 +183,16 @@ function buildPrimaryCallSchedule(opts?: { priorPrimarySeeds?: Record<string, st
     "PGY-5": loadSchedule("PGY-5"),
     "PGY-6": loadSchedule("PGY-6"),
   };
+  
+  // Load settings
+  const maxCalls = settings.primaryCall.maxCalls;
+  const minSpacing = settings.primaryCall.minSpacingDays;
+  const pgy4StartDate = parseISO(settings.primaryCall.pgy4StartDate);
+  const excludeRotations = settings.primaryCall.excludeRotations;
+  const excludeEPOnDays = settings.primaryCall.excludeEPOnDays;
+  const weekdayPriority = settings.primaryCall.weekdayPriority;
+  const weekendPriority = settings.primaryCall.weekendPriority;
+  const noConsecutiveSaturdays = settings.primaryCall.noConsecutiveSaturdays;
 
   const { days } = july1ToJune30Window(setup.yearStart);
   const assignments: Record<string, string> = {};
@@ -217,21 +213,21 @@ function buildPrimaryCallSchedule(opts?: { priorPrimarySeeds?: Record<string, st
 
   function tryAssign(date: Date): boolean {
     const iso = toISODate(date);
-    const { pools, priority } = eligiblePoolByPGY(date, setup, schedByPGY);
+    const { pools, priority } = eligiblePoolByPGY(date, setup, schedByPGY, pgy4StartDate, excludeRotations, excludeEPOnDays, weekdayPriority, weekendPriority);
     const cat = getEquityCategory(date, setup);
 
     // Iterate PGY preference order
     for (const pgy of priority) {
       const candidates = pools[pgy]
-        .filter((f) => withinCallLimit(f, counts))
-        .filter((f) => hasSpacingOK(f, lastByFellow, date))
-        .filter((f) => okNoConsecutiveSaturday(f, date, lastSaturdayByFellow));
+        .filter((f) => withinCallLimit(f, counts, maxCalls))
+        .filter((f) => hasSpacingOK(f, lastByFellow, date, minSpacing))
+        .filter((f) => okNoConsecutiveSaturday(f, date, lastSaturdayByFellow, noConsecutiveSaturdays));
 
       if (candidates.length === 0) continue;
 
       const picked = pickWeighted(candidates, (f) => {
-        // Special PGY-4 weekend/holiday equity optimization after Aug 15
-        if (pgy === "PGY-4" && cat === "wkndHol" && afterAug15(date, setup.yearStart)) {
+        // Special PGY-4 weekend/holiday equity optimization after start date
+        if (pgy === "PGY-4" && cat === "wkndHol" && afterPGY4Start(date, pgy4StartDate)) {
           const wkndHolCount = wkndHolCatCounts[f.id] ?? 0;
           // Strongly prefer fellows with lowest weekend/holiday count
           return 1 / (wkndHolCount * 10 + 1);
@@ -256,14 +252,14 @@ function buildPrimaryCallSchedule(opts?: { priorPrimarySeeds?: Record<string, st
 
     // As a secondary attempt, pool across all eligible fellows ignoring PGY preference (but keeping all rules)
     const allCandidates = [...pools["PGY-4"], ...pools["PGY-5"], ...pools["PGY-6"]]
-      .filter((f) => withinCallLimit(f, counts))
-      .filter((f) => hasSpacingOK(f, lastByFellow, date))
-      .filter((f) => okNoConsecutiveSaturday(f, date, lastSaturdayByFellow));
+      .filter((f) => withinCallLimit(f, counts, maxCalls))
+      .filter((f) => hasSpacingOK(f, lastByFellow, date, minSpacing))
+      .filter((f) => okNoConsecutiveSaturday(f, date, lastSaturdayByFellow, noConsecutiveSaturdays));
 
     if (allCandidates.length) {
       const picked = pickWeighted(allCandidates, (f) => {
         // Apply PGY-4 weekend/holiday equity optimization in fallback too
-        if (f.pgy === "PGY-4" && cat === "wkndHol" && afterAug15(date, setup.yearStart)) {
+        if (f.pgy === "PGY-4" && cat === "wkndHol" && afterPGY4Start(date, pgy4StartDate)) {
           const wkndHolCount = wkndHolCatCounts[f.id] ?? 0;
           return 1 / (wkndHolCount * 10 + 1);
         }
@@ -320,15 +316,15 @@ function buildPrimaryCallSchedule(opts?: { priorPrimarySeeds?: Record<string, st
         if (i >= isos.length) return true;
         const iso = isos[i];
         const date = parseISO(iso);
-        const { pools, priority } = eligiblePoolByPGY(date, setup, schedByPGY);
+        const { pools, priority } = eligiblePoolByPGY(date, setup, schedByPGY, pgy4StartDate, excludeRotations, excludeEPOnDays, weekdayPriority, weekendPriority);
         const groups: Fellow[] = [
           ...priority.flatMap((p) => pools[p]),
         ];
         const cat = getEquityCategory(date, setup);
         const candidates = groups
-          .filter((f) => withinCallLimit(f, counts))
-          .filter((f) => hasSpacingOK(f, lastByFellow, date))
-          .filter((f) => okNoConsecutiveSaturday(f, date, lastSaturdayByFellow))
+          .filter((f) => withinCallLimit(f, counts, maxCalls))
+          .filter((f) => hasSpacingOK(f, lastByFellow, date, minSpacing))
+          .filter((f) => okNoConsecutiveSaturday(f, date, lastSaturdayByFellow, noConsecutiveSaturdays))
           .sort((a, b) => {
             const ac = cat === "wkndHol" ? (wkndHolCatCounts[a.id] ?? 0) : (weekdayCatCounts[a.id] ?? 0);
             const bc = cat === "wkndHol" ? (wkndHolCatCounts[b.id] ?? 0) : (weekdayCatCounts[b.id] ?? 0);
@@ -545,6 +541,7 @@ function computeStateForDate(schedule: CallSchedule, dateISO: string) {
 
 function validatePrimaryAssignment(schedule: CallSchedule, dateISO: string, fellowId: string): { ok: boolean; reasons?: string[] } {
   const setup = loadSetup();
+  const settings = loadSettings();
   if (!setup) return { ok: false, reasons: ["Setup not completed"] };
   const schedByPGY: Record<PGY, StoredSchedule | null> = {
     "PGY-4": loadSchedule("PGY-4"),
@@ -555,13 +552,22 @@ function validatePrimaryAssignment(schedule: CallSchedule, dateISO: string, fell
   const fellow = setup.fellows.find((f) => f.id === fellowId);
   if (!fellow) return { ok: false, reasons: ["Unknown fellow"] };
 
-  const { pools } = eligiblePoolByPGY(date, setup, schedByPGY);
+  const maxCalls = settings.primaryCall.maxCalls;
+  const minSpacing = settings.primaryCall.minSpacingDays;
+  const pgy4StartDate = parseISO(settings.primaryCall.pgy4StartDate);
+  const excludeRotations = settings.primaryCall.excludeRotations;
+  const excludeEPOnDays = settings.primaryCall.excludeEPOnDays;
+  const weekdayPriority = settings.primaryCall.weekdayPriority;
+  const weekendPriority = settings.primaryCall.weekendPriority;
+  const noConsecutiveSaturdays = settings.primaryCall.noConsecutiveSaturdays;
+
+  const { pools } = eligiblePoolByPGY(date, setup, schedByPGY, pgy4StartDate, excludeRotations, excludeEPOnDays, weekdayPriority, weekendPriority);
   const eligibleBase = pools[fellow.pgy].some((f) => f.id === fellowId);
   const reasons: string[] = [];
   if (!eligibleBase) reasons.push("Rotation or time-window ineligible for this date");
 
   const { counts, lastByFellow, lastSaturdayByFellow } = computeStateForDate(schedule, dateISO);
-  if (!withinCallLimit(fellow, counts)) reasons.push("Exceeds annual call cap for this PGY");
+  if (!withinCallLimit(fellow, counts, maxCalls)) reasons.push("Exceeds annual call cap for this PGY");
 
   // Enforce bidirectional spacing (both previous and next assignments for this fellow)
   const entries = Object.entries(schedule.days)
@@ -577,29 +583,29 @@ function validatePrimaryAssignment(schedule: CallSchedule, dateISO: string, fell
 
   if (prevISO) {
     const prevDate = parseISO(prevISO);
-    if (differenceInCalendarDays(date, prevDate) < MIN_SPACING_DAYS) {
-      reasons.push(`Must be at least ${MIN_SPACING_DAYS} days from previous call (${prevISO})`);
+    if (differenceInCalendarDays(date, prevDate) < minSpacing) {
+      reasons.push(`Must be at least ${minSpacing} days from previous call (${prevISO})`);
     }
   } else {
     // Fallback to computed last state if available (covers cases where current date is being reassigned)
     const lastISO = lastByFellow[fellow.id];
     if (lastISO) {
       const lastDate = parseISO(lastISO);
-      if (differenceInCalendarDays(date, lastDate) < MIN_SPACING_DAYS) {
-        reasons.push(`Must be at least ${MIN_SPACING_DAYS} days from previous call (${lastISO})`);
+      if (differenceInCalendarDays(date, lastDate) < minSpacing) {
+        reasons.push(`Must be at least ${minSpacing} days from previous call (${lastISO})`);
       }
     }
   }
 
   if (nextISO) {
     const nextDate = parseISO(nextISO);
-    if (differenceInCalendarDays(nextDate, date) < MIN_SPACING_DAYS) {
-      reasons.push(`Must be at least ${MIN_SPACING_DAYS} days before next call (${nextISO})`);
+    if (differenceInCalendarDays(nextDate, date) < minSpacing) {
+      reasons.push(`Must be at least ${minSpacing} days before next call (${nextISO})`);
     }
   }
 
   // Consecutive Saturday rule in both directions
-  if (!okNoConsecutiveSaturday(fellow, date, lastSaturdayByFellow)) {
+  if (!okNoConsecutiveSaturday(fellow, date, lastSaturdayByFellow, noConsecutiveSaturdays)) {
     reasons.push("Cannot take consecutive Saturdays");
   }
   if (date.getDay() === 6) {
@@ -614,6 +620,7 @@ function validatePrimaryAssignment(schedule: CallSchedule, dateISO: string, fell
 
 function listEligiblePrimaryFellows(dateISO: string, schedule: CallSchedule): { id: string; name: string; pgy: PGY }[] {
   const setup = loadSetup();
+  const settings = loadSettings();
   if (!setup) return [];
   const schedByPGY: Record<PGY, StoredSchedule | null> = {
     "PGY-4": loadSchedule("PGY-4"),
@@ -621,7 +628,12 @@ function listEligiblePrimaryFellows(dateISO: string, schedule: CallSchedule): { 
     "PGY-6": loadSchedule("PGY-6"),
   };
   const date = parseISO(dateISO);
-  const { pools } = eligiblePoolByPGY(date, setup, schedByPGY);
+  const pgy4StartDate = parseISO(settings.primaryCall.pgy4StartDate);
+  const excludeRotations = settings.primaryCall.excludeRotations;
+  const excludeEPOnDays = settings.primaryCall.excludeEPOnDays;
+  const weekdayPriority = settings.primaryCall.weekdayPriority;
+  const weekendPriority = settings.primaryCall.weekendPriority;
+  const { pools } = eligiblePoolByPGY(date, setup, schedByPGY, pgy4StartDate, excludeRotations, excludeEPOnDays, weekdayPriority, weekendPriority);
   const all = [...pools["PGY-4"], ...pools["PGY-5"], ...pools["PGY-6"]];
   const eligible = all.filter((f) => validatePrimaryAssignment(schedule, dateISO, f.id).ok);
   return eligible
