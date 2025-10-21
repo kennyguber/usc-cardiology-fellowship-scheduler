@@ -196,16 +196,18 @@ export function placePGY4Rotations(
         if (vacsInFirst.length === 0) continue;
 
         // Helper: can place a vacation at candidate key?
-        const otherVac = vacs.find((k) => !vacsInFirst.includes(k));
+        const otherVacs = vacs.filter((k) => !vacsInFirst.includes(k));
         const canPlaceVacAt = (cand: string) => {
           if (isBlocked(cand, "VAC", f.id)) return false;
           if (row[cand]) return false;
-          // spacing with the other vacation
-          if (otherVac) {
-            const ia = keyToIndex.get(otherVac) ?? -1;
-            const ib = keyToIndex.get(cand) ?? -1;
-            if (ia < 0 || ib < 0) return false;
-            if (Math.abs(ib - ia) < settings.vacation.minSpacingBlocks) return false;
+          // spacing with ALL other vacations
+          if (otherVacs.length > 0) {
+            for (const otherVac of otherVacs) {
+              const ia = keyToIndex.get(otherVac) ?? -1;
+              const ib = keyToIndex.get(cand) ?? -1;
+              if (ia < 0 || ib < 0) return false;
+              if (Math.abs(ib - ia) < settings.vacation.minSpacingBlocks) return false;
+            }
           }
           return true;
         };
