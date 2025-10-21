@@ -2,6 +2,7 @@ import type { BlockInfo } from "@/lib/block-utils";
 import type { Fellow, StoredSchedule } from "@/lib/schedule-engine";
 import type { Rotation } from "@/lib/rotation-engine";
 import { loadSchedule, getAllPGYVacationCounts } from "@/lib/schedule-engine";
+import { loadSettings } from "@/lib/settings-engine";
 
 export type BlockSwapResult = {
   success: boolean;
@@ -45,6 +46,7 @@ export function validateBlockScheduleChange(
   fellows: Fellow[],
   allowVacationConflicts: boolean = false
 ): { success: boolean; error?: string; vacationConflict?: { fellowId: string; blockKey: string; conflictingFellow: string } } {
+  const settings = loadSettings();
   const previewByFellow = previewBlockScheduleChange(currentSchedule, changes);
   const pgy = currentSchedule.pgy;
   
@@ -72,7 +74,7 @@ export function validateBlockScheduleChange(
       .filter(([, v]) => v === "VAC")
       .map(([k]) => k);
     
-    // Check vacation conflicts (max 2 vacations per block within PGY, max 2 total across all PGYs)
+    // Check vacation conflicts (configurable max vacations per block within PGY and across all PGYs)
     if (!allowVacationConflicts) {
       for (const vacKey of vacKeys) {
         // Count within current PGY
@@ -80,7 +82,7 @@ export function validateBlockScheduleChange(
           ([fid, frow]) => fid !== fellowId && frow?.[vacKey] === "VAC"
         ).length;
         
-        if (samePGYCount >= 2) {
+        if (samePGYCount >= settings.vacation.maxFellowsPerBlock) {
           const conflictingFellow = Object.entries(previewByFellow).find(
             ([fid, frow]) => fid !== fellowId && frow?.[vacKey] === "VAC"
           );
@@ -89,7 +91,7 @@ export function validateBlockScheduleChange(
             "Unknown";
           return { 
             success: false, 
-            error: `Vacation conflict: Block ${vacKey} already has 2 fellows on vacation`,
+            error: `Vacation conflict: Block ${vacKey} already has ${settings.vacation.maxFellowsPerBlock} fellows on vacation`,
             vacationConflict: { fellowId, blockKey: vacKey, conflictingFellow: conflictName }
           };
         }
@@ -98,29 +100,35 @@ export function validateBlockScheduleChange(
         const allPGYCounts = getAllPGYVacationCounts();
         const crossPGYCount = allPGYCounts[vacKey] || 0;
         
-        if (samePGYCount + crossPGYCount >= 2) {
+        if (samePGYCount + crossPGYCount >= settings.vacation.maxTotalPerBlock) {
           return { 
             success: false, 
-            error: `Vacation conflict: Block ${vacKey} would exceed limit of 2 total fellows on vacation across all PGY levels`,
+            error: `Vacation conflict: Block ${vacKey} would exceed limit of ${settings.vacation.maxTotalPerBlock} total fellows on vacation across all PGY levels`,
           };
         }
       }
     }
     
-    // Max 2 vacations per fellow
-    if (vacKeys.length > 2) {
-      return { success: false, error: `Vacation limit: Fellow would have ${vacKeys.length} vacations (max 2 allowed)` };
+    // Max vacations per fellow (from settings)
+    if (vacKeys.length > settings.vacation.maxVacationsPerYear) {
+      return { 
+        success: false, 
+        error: `Vacation limit: Fellow would have ${vacKeys.length} vacations (max ${settings.vacation.maxVacationsPerYear} allowed)` 
+      };
     }
     
-    // Vacation spacing (≥6 blocks apart)
+    // Vacation spacing (use settings value)
     if (vacKeys.length > 1) {
       const indices = vacKeys
         .map(k => blocks.findIndex(b => b.key === k))
         .filter(i => i >= 0)
         .sort((a, b) => a - b);
       for (let i = 1; i < indices.length; i++) {
-        if (indices[i] - indices[i - 1] < 6) {
-          return { success: false, error: "Vacations must be at least 6 blocks apart" };
+        if (indices[i] - indices[i - 1] < settings.vacation.minSpacingBlocks) {
+          return { 
+            success: false, 
+            error: `Vacations must be at least ${settings.vacation.minSpacingBlocks} blocks apart` 
+          };
         }
       }
     }

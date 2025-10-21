@@ -1,5 +1,6 @@
 import { type BlockInfo } from "@/lib/block-utils";
 import { type Fellow, type FellowSchedule, loadSchedule } from "@/lib/schedule-engine";
+import { loadSettings } from "@/lib/settings-engine";
 
 export type Rotation =
   | "VAC"
@@ -176,6 +177,20 @@ export function placePGY4Rotations(
 
     // Step A: Respect existing vacations unless explicitly unlocked
     if (!lockVacations) {
+      // Get settings for vacation rules
+      const settings = loadSettings();
+      const usedVac = new Map<string, number>();
+      
+      // Initialize vacation usage count
+      for (const f of fellows) {
+        const row = byFellow[f.id] || {};
+        for (const [k, v] of Object.entries(row)) {
+          if (v === "VAC") {
+            usedVac.set(k, (usedVac.get(k) || 0) + 1);
+          }
+        }
+      }
+      
       // Reseat vacations out of first five keys if present
       for (const f of fellows) {
         const row = (byFellow[f.id] = byFellow[f.id] || {});
@@ -186,18 +201,26 @@ export function placePGY4Rotations(
         if (vacsInFirst.length === 0) continue;
 
         // Helper: can place a vacation at candidate key?
-        const otherVac = vacs.find((k) => !vacsInFirst.includes(k));
-        const canPlaceVacAt = (cand: string) => {
+        const canPlaceVacAt = (cand: string): boolean => {
+          const vacsInFirst = vacs.filter((v) => !vacs.includes(v));
+          const otherVacs = vacs.filter((k) => !vacsInFirst.includes(k)); // Get ALL other vacations
+          
           if (isBlocked(cand, "VAC", f.id)) return false;
           if (row[cand]) return false;
-          // spacing with the other vacation
-          if (otherVac) {
-            const ia = keyToIndex.get(otherVac) ?? -1;
-            const ib = keyToIndex.get(cand) ?? -1;
-            if (ia < 0 || ib < 0) return false;
-            if (Math.abs(ib - ia) < 6) return false;
+          
+          // spacing with ALL other vacations
+          if (otherVacs.length > 0) {
+            for (const otherVac of otherVacs) {
+              const ia = keyToIndex.get(otherVac) ?? -1;
+              const ib = keyToIndex.get(cand) ?? -1;
+              if (ia < 0 || ib < 0) return false;
+              if (Math.abs(ib - ia) < settings.vacation.minSpacingBlocks) return false;
+            }
           }
-          return true;
+          
+          // count limit check
+          const curCount = usedVac.get(cand) || 0;
+          return curCount < settings.vacation.maxFellowsPerBlock;
         };
 
         for (const k of vacsInFirst) {

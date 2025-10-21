@@ -58,24 +58,30 @@ export function saveSchedule(pgy: PGY, schedule: StoredSchedule) {
 }
 
 import { hasMinSpacing, type BlockInfo } from "@/lib/block-utils";
-
-export const MAX_VACATIONS_PER_YEAR = 2;
-export const VACATION_MIN_SPACING_BLOCKS = 6; // 3 months (2-week blocks)
+import { loadSettings } from "@/lib/settings-engine";
 
 // Helper function to check if a vacation is allowed based on restrictions
 function isVacationAllowed(blockKey: string, pgy: PGY): boolean {
-  // No fellow can be granted vacation in July
-  if (blockKey.startsWith('JUL')) return false;
+  const settings = loadSettings();
   
-  // No PGY4 fellow can be granted vacation in July or August
-  if (pgy === 'PGY-4' && blockKey.startsWith('AUG')) return false;
+  // Check July restriction setting
+  if (settings.vacation.julyRestriction && blockKey.startsWith('JUL')) {
+    return false;
+  }
+  
+  // Check PGY-4 August restriction setting
+  if (settings.vacation.pgy4AugustRestriction && pgy === 'PGY-4' && blockKey.startsWith('AUG')) {
+    return false;
+  }
   
   return true;
 }
 
-// Step 1 engine: place vacations only: at most 2 per fellow, >= 6 blocks apart, honoring preference order
+// Step 1 engine: place vacations only: honoring preferences and spacing settings
 export function buildVacationOnlySchedule(fellows: Fellow[], blocks: BlockInfo[]): FellowSchedule {
+  const settings = loadSettings();
   const byFellow: FellowSchedule = {};
+  
   for (const f of fellows) {
     const row: Record<string, string | undefined> = {};
     const seen = new Set<string>();
@@ -88,9 +94,9 @@ export function buildVacationOnlySchedule(fellows: Fellow[], blocks: BlockInfo[]
       if (!isVacationAllowed(pref, f.pgy)) continue;
       seen.add(pref);
       const next = [...selected, pref];
-      if (hasMinSpacing(blocks, next, VACATION_MIN_SPACING_BLOCKS)) {
+      if (hasMinSpacing(blocks, next, settings.vacation.minSpacingBlocks)) {
         selected.push(pref);
-        if (selected.length >= MAX_VACATIONS_PER_YEAR) break;
+        if (selected.length >= settings.vacation.maxVacationsPerYear) break;
       }
     }
 
@@ -167,11 +173,12 @@ export function buildVacationScheduleForPGY(
   minOrOpts?: number | { randomize?: boolean; maxAttempts?: number; timeout?: number },
   maybeOpts?: { randomize?: boolean; maxAttempts?: number; timeout?: number }
 ): VacationSolveResult {
+  const settings = loadSettings();
   const opts = (typeof minOrOpts === "object" && minOrOpts !== null ? minOrOpts : maybeOpts) || {};
   const randomize = !!opts.randomize;
   const maxAttempts = opts.maxAttempts || 50000;
   const timeout = opts.timeout || 120000; // 2 minutes
-  const initialMinSpacing = typeof minOrOpts === "number" ? minOrOpts : VACATION_MIN_SPACING_BLOCKS;
+  const initialMinSpacing = typeof minOrOpts === "number" ? minOrOpts : settings.vacation.minSpacingBlocks;
 
   const blockKeys = blocks.map((b) => b.key);
   const indexByKey = new Map<string, number>(blockKeys.map((k, i) => [k, i] as const));
@@ -209,7 +216,7 @@ export function buildVacationScheduleForPGY(
   }
 
   // Phase 1: Primary preference pairs with optimal spacing
-  phaseResults.push("Phase 1: Assigning preference pairs with 6-block spacing");
+  phaseResults.push(`Phase 1: Assigning preference pairs with ${settings.vacation.minSpacingBlocks}-block spacing`);
   let phase1Success = 0;
   
   for (const data of fellowData.sort((a, b) => a.validPrefs.length - b.validPrefs.length)) {
@@ -218,7 +225,7 @@ export function buildVacationScheduleForPGY(
     const { fellow, validPrefs } = data;
     if (validPrefs.length < 2) continue;
 
-    // Find best preference pair with 6-block spacing
+    // Find best preference pair with configured spacing
     let bestPair: { blocks: [string, string]; score: number } | null = null;
     
     for (let i = 0; i < validPrefs.length && !bestPair; i++) {
@@ -226,13 +233,12 @@ export function buildVacationScheduleForPGY(
         const block1 = validPrefs[i].block;
         const block2 = validPrefs[j].block;
         
-        if (!hasSpacing(block1, block2, 6)) continue;
+        if (!hasSpacing(block1, block2, settings.vacation.minSpacingBlocks)) continue;
         
         const canAssign = [block1, block2].every(block => {
           const currentUsed = usedCount.get(block) || 0;
           const crossPGYUsed = crossPGYCounts[block] || 0;
-          // Allow up to 2 fellows per PGY and up to 2 total across all PGY levels
-          return currentUsed < 2 && (currentUsed + crossPGYUsed) <= 2;
+          return currentUsed < settings.vacation.maxFellowsPerBlock && (currentUsed + crossPGYUsed) <= settings.vacation.maxTotalPerBlock;
         });
         
         if (canAssign) {
@@ -250,27 +256,27 @@ export function buildVacationScheduleForPGY(
         usedCount.set(block, (usedCount.get(block) || 0) + 1);
         data.assignments.push(block);
       }
-      data.vacationCount = 2;
+      data.vacationCount = settings.vacation.maxVacationsPerYear;
       phase1Success++;
       totalTried++;
     }
   }
   
-  phaseResults.push(`Phase 1 completed: ${phase1Success} fellows got 2 vacations`);
+  phaseResults.push(`Phase 1 completed: ${phase1Success} fellows got ${settings.vacation.maxVacationsPerYear} vacations`);
 
   // Phase 2: Single preferences for remaining fellows and those with only 1 vacation
   phaseResults.push("Phase 2: Assigning single preferences");
   let phase2Success = 0;
   
   const fellowsNeedingMore = fellowData
-    .filter(data => data.vacationCount < 2)
+    .filter(data => data.vacationCount < settings.vacation.maxVacationsPerYear)
     .sort((a, b) => (a.vacationCount - b.vacationCount) || (a.validPrefs.length - b.validPrefs.length));
   
   for (const data of fellowsNeedingMore) {
     if (Date.now() - startTime > timeout) break;
     
     const { fellow, validPrefs, assignments } = data;
-    const remainingSlots = 2 - data.vacationCount;
+    const remainingSlots = settings.vacation.maxVacationsPerYear - data.vacationCount;
     let assigned = 0;
     
     // Sort preferences by score, prioritizing first half/second half balance
@@ -292,13 +298,13 @@ export function buildVacationScheduleForPGY(
       if (assigned >= remainingSlots) break;
       
       // Check spacing with existing assignments
-      const hasValidSpacing = assignments.every(existing => hasSpacing(block, existing, 6));
+      const hasValidSpacing = assignments.every(existing => hasSpacing(block, existing, settings.vacation.minSpacingBlocks));
       if (!hasValidSpacing) continue;
       
       // Check availability
       const currentUsed = usedCount.get(block) || 0;
       const crossPGYUsed = crossPGYCounts[block] || 0;
-      if (currentUsed >= 2 || (currentUsed + crossPGYUsed) > 2) continue;
+      if (currentUsed >= settings.vacation.maxFellowsPerBlock || (currentUsed + crossPGYUsed) > settings.vacation.maxTotalPerBlock) continue;
       
       result[fellow.id][block] = "VAC";
       usedCount.set(block, currentUsed + 1);
@@ -316,7 +322,12 @@ export function buildVacationScheduleForPGY(
   // Phase 3: Progressive constraint relaxation for remaining fellows
   phaseResults.push("Phase 3: Progressive constraint relaxation");
   let phase3Success = 0;
-  const spacingLevels = [5, 4, 3]; // Progressively relax spacing requirements
+  
+  // Build dynamic spacing levels based on configured minimum spacing
+  const spacingLevels = [];
+  for (let i = settings.vacation.minSpacingBlocks - 1; i >= 3; i--) {
+    spacingLevels.push(i);
+  }
   
   for (const minSpacing of spacingLevels) {
     if (Date.now() - startTime > timeout) break;
@@ -324,7 +335,7 @@ export function buildVacationScheduleForPGY(
     const stillNeedingVacations = fellowData.filter(data => data.vacationCount === 0);
     if (stillNeedingVacations.length === 0) break;
     
-    phaseResults.push(`Phase 3.${6-minSpacing}: Trying ${minSpacing}-block minimum spacing`);
+    phaseResults.push(`Phase 3: Trying ${minSpacing}-block minimum spacing`);
     
     for (const data of stillNeedingVacations) {
       const { fellow, validPrefs } = data;
@@ -344,7 +355,7 @@ export function buildVacationScheduleForPGY(
           const canAssign = [block1, block2].every(block => {
             const currentUsed = usedCount.get(block) || 0;
             const crossPGYUsed = crossPGYCounts[block] || 0;
-            return currentUsed < 2 && (currentUsed + crossPGYUsed) <= 2; // Allow exactly 2 total
+            return currentUsed < settings.vacation.maxFellowsPerBlock && (currentUsed + crossPGYUsed) <= settings.vacation.maxTotalPerBlock;
           });
           
           if (canAssign) {
@@ -363,7 +374,7 @@ export function buildVacationScheduleForPGY(
           usedCount.set(block, (usedCount.get(block) || 0) + 1);
           data.assignments.push(block);
         }
-        data.vacationCount = 2;
+        data.vacationCount = settings.vacation.maxVacationsPerYear;
         phase3Success++;
         totalTried++;
       }
@@ -388,7 +399,7 @@ export function buildVacationScheduleForPGY(
       const crossPGYUsed = crossPGYCounts[block] || 0;
       
       // Very relaxed constraints for final assignments
-      if (currentUsed < 2 && (currentUsed + crossPGYUsed) <= 2) {
+      if (currentUsed < settings.vacation.maxFellowsPerBlock && (currentUsed + crossPGYUsed) <= settings.vacation.maxTotalPerBlock) {
         result[fellow.id][block] = "VAC";
         usedCount.set(block, currentUsed + 1);
         data.assignments.push(block);
@@ -403,14 +414,14 @@ export function buildVacationScheduleForPGY(
   phaseResults.push(`Phase 4 completed: ${phase4Success} fellows got at least one vacation`);
 
   // Calculate success metrics
-  const fellowsWith2Vacations = fellowData.filter(data => data.vacationCount === 2).length;
-  const fellowsWith1Vacation = fellowData.filter(data => data.vacationCount === 1).length;
+  const fellowsWithMaxVacations = fellowData.filter(data => data.vacationCount === settings.vacation.maxVacationsPerYear).length;
+  const fellowsWithPartialVacations = fellowData.filter(data => data.vacationCount > 0 && data.vacationCount < settings.vacation.maxVacationsPerYear).length;
   const fellowsWith0Vacations = fellowData.filter(data => data.vacationCount === 0).length;
   
-  phaseResults.push(`Final results: ${fellowsWith2Vacations} fellows with 2 vacations, ${fellowsWith1Vacation} with 1 vacation, ${fellowsWith0Vacations} with 0 vacations`);
+  phaseResults.push(`Final results: ${fellowsWithMaxVacations} fellows with ${settings.vacation.maxVacationsPerYear} vacations, ${fellowsWithPartialVacations} with partial vacations, ${fellowsWith0Vacations} with 0 vacations`);
   
   const partialAssignments = fellowData
-    .filter(data => data.vacationCount > 0 && data.vacationCount < 2)
+    .filter(data => data.vacationCount > 0 && data.vacationCount < settings.vacation.maxVacationsPerYear)
     .map(data => data.fellow.name || data.fellow.id);
 
   const conflicts = fellowsWith0Vacations > 0 ? 

@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSEO } from "@/lib/seo";
 import { generateAcademicYearBlocks, type BlockInfo, hasMinSpacing } from "@/lib/block-utils";
+import { loadSettings } from "@/lib/settings-engine";
 import {
   buildVacationScheduleForPGY,
   countByBlock,
@@ -199,18 +200,32 @@ const rotationOptions = useMemo<Rotation[]>(
           });
           return;
         }
-        // Max 2 vacations per fellow, with >= 6-block spacing
+        
+        // Get current settings
+        const settings = loadSettings();
+        
+        // Max vacations per fellow (from settings)
         const existingVacKeys = Object.entries(row)
           .filter(([, v]) => v === "VAC")
           .map(([kk]) => kk);
         const alreadyVacHere = row[k] === "VAC";
         const prospectiveVacKeys = alreadyVacHere ? existingVacKeys : [...existingVacKeys, k];
-        if (prospectiveVacKeys.length > 2) {
-          toast({ variant: "destructive", title: "Vacation limit", description: "A fellow can have at most two vacations." });
+        
+        if (prospectiveVacKeys.length > settings.vacation.maxVacationsPerYear) {
+          toast({ 
+            variant: "destructive", 
+            title: "Vacation limit", 
+            description: `A fellow can have at most ${settings.vacation.maxVacationsPerYear} vacations.` 
+          });
           return;
         }
-        if (!hasMinSpacing(sortedBlocks, prospectiveVacKeys, 6)) {
-          toast({ variant: "destructive", title: "Vacation spacing", description: "Vacations must be at least 6 blocks apart." });
+        
+        if (!hasMinSpacing(sortedBlocks, prospectiveVacKeys, settings.vacation.minSpacingBlocks)) {
+          toast({ 
+            variant: "destructive", 
+            title: "Vacation spacing", 
+            description: `Vacations must be at least ${settings.vacation.minSpacingBlocks} blocks apart.` 
+          });
           return;
         }
         applyVacationAssignment(fid, k, action.rotation);
