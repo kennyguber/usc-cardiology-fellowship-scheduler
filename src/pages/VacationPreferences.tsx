@@ -30,6 +30,7 @@ import { useSEO } from "@/lib/seo";
 import { BlockInfo, generateAcademicYearBlocks } from "@/lib/block-utils";
 import { HeartPulse, GripVertical } from "lucide-react";
 import { computeAcademicYearHolidays } from "@/lib/holidays";
+import { loadSettings } from "@/lib/settings-engine";
 
 export type PGY = "PGY-4" | "PGY-5" | "PGY-6";
 export type Fellow = { id: string; name: string; pgy: PGY; clinicDay?: "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday"; vacationPrefs: (string | undefined)[] };
@@ -108,10 +109,13 @@ function FellowRow({
     blocks.filter((b) => monthsJanJun.includes(b.key.slice(0, 3))),
     monthsJanJun
   );
+  const settings = loadSettings();
   const firstHalfAllowed = firstHalf.filter((b) => {
     const month = b.key.slice(0, 3);
-    if (month === "JUL") return false;
-    if (fellow.pgy === "PGY-4" && month === "AUG") return false;
+    // Check July restriction from settings
+    if (settings.vacation.julyRestriction && month === "JUL") return false;
+    // Check PGY-4 August restriction from settings
+    if (settings.vacation.pgy4AugustRestriction && fellow.pgy === "PGY-4" && month === "AUG") return false;
     return true;
   });
   const rowTone =
@@ -269,8 +273,16 @@ export default function VacationPreferences() {
       return shuffled.slice(0, count).map(b => b.key);
     };
 
+    const settings = loadSettings();
+    
     const updatedFellows = setup.fellows.map(fellow => {
-      const allowedFirstHalfMonths = monthsJulDec.filter(m => m !== "JUL" && !(fellow.pgy === "PGY-4" && m === "AUG"));
+      const allowedFirstHalfMonths = monthsJulDec.filter(m => {
+        // Check July restriction from settings
+        if (settings.vacation.julyRestriction && m === "JUL") return false;
+        // Check PGY-4 August restriction from settings
+        if (settings.vacation.pgy4AugustRestriction && fellow.pgy === "PGY-4" && m === "AUG") return false;
+        return true;
+      });
       const firstHalfPrefs = getRandomBlocksForHalf(allowedFirstHalfMonths, 2);
       const secondHalfPrefs = getRandomBlocksForHalf(monthsJanJun, 2);
       
