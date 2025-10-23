@@ -2,6 +2,7 @@ import { differenceInCalendarDays, addDays, isBefore, isAfter, isEqual, parseISO
 import { monthAbbrForIndex } from "@/lib/block-utils";
 import { computeAcademicYearHolidays } from "@/lib/holidays";
 import { loadSchedule, loadSetup, type Fellow, type PGY, type StoredSchedule, type SetupState } from "@/lib/schedule-engine";
+import { loadSettings } from "./settings-engine";
 
 type CallSchedule = {
   version: 1;
@@ -11,12 +12,6 @@ type CallSchedule = {
 };
 
 const CALL_SCHEDULE_STORAGE_KEY = "cfsa_calls_v1" as const;
-
-const MAX_CALLS: Record<PGY, number> = {
-  "PGY-4": 47,
-  "PGY-5": 16,
-  "PGY-6": 11,
-};
 
 const MIN_SPACING_DAYS = 4; // strict 4-day min for ALL PGYs
 
@@ -69,7 +64,8 @@ function getRotationOnDate(fellow: Fellow, date: Date, schedByPGY: Record<PGY, S
 }
 
 function withinCallLimit(fellow: Fellow, counts: Record<string, number>): boolean {
-  const max = MAX_CALLS[fellow.pgy];
+  const settings = loadSettings();
+  const max = settings.primaryCall.maxCalls[fellow.pgy];
   return (counts[fellow.id] ?? 0) < max;
 }
 
@@ -561,7 +557,10 @@ function validatePrimaryAssignment(schedule: CallSchedule, dateISO: string, fell
   if (!eligibleBase) reasons.push("Rotation or time-window ineligible for this date");
 
   const { counts, lastByFellow, lastSaturdayByFellow } = computeStateForDate(schedule, dateISO);
-  if (!withinCallLimit(fellow, counts)) reasons.push("Exceeds annual call cap for this PGY");
+  if (!withinCallLimit(fellow, counts)) {
+    const settings = loadSettings();
+    reasons.push(`Exceeds annual call cap for ${fellow.pgy} (${settings.primaryCall.maxCalls[fellow.pgy]} calls)`);
+  }
 
   // Enforce bidirectional spacing (both previous and next assignments for this fellow)
   const entries = Object.entries(schedule.days)
