@@ -96,10 +96,16 @@ function isHolidayDate(dateISO: string, setup: SetupState): boolean {
   return holidays.some((h) => h.date === dateISO);
 }
 
-function afterAug15(d: Date, yearStartISO: string): boolean {
+// Check if a date is on or after the PGY-4 jeopardy start date (from settings)
+function afterPGY4StartDate(d: Date, yearStartISO: string): boolean {
+  const settings = loadSettings();
   const start = parseISO(yearStartISO);
-  const aug15 = new Date(start.getFullYear(), 7, 15); // Aug is month 7
-  return d >= aug15; // on or after Aug 15
+  
+  // Parse the MM-DD format from settings (e.g., "08-15")
+  const [month, day] = settings.jeopardyCall.pgy4StartDate.split('-').map(Number);
+  const pgy4Start = new Date(start.getFullYear(), month - 1, day); // month is 0-indexed
+  
+  return d >= pgy4Start;
 }
 
 function dateToBlockKey(d: Date): string {
@@ -121,8 +127,11 @@ function getRotationOnDate(fellow: Fellow, date: Date, schedByPGY: Record<PGY, S
 function hasPostCallConflict(fellow: Fellow, date: Date, primarySchedule: CallSchedule): boolean {
   if (!primarySchedule) return false;
   
-  // Check if fellow has primary call in the 2 days before this jeopardy date
-  for (let i = 1; i <= 2; i++) {
+  const settings = loadSettings();
+  const minSpacing = settings.jeopardyCall.minSpacingDays;
+  
+  // Check if fellow has primary call within minSpacing days before this jeopardy date
+  for (let i = 1; i <= minSpacing; i++) {
     const checkDate = addDays(date, -i);
     const checkISO = toISODate(checkDate);
     if (primarySchedule.days[checkISO] === fellow.id) {
@@ -289,10 +298,10 @@ function generateHolidayBlocks(holidays: Array<{ date: string; name: string }>):
 
 // Check if fellow is eligible for a jeopardy block
 function isEligibleForBlock(fellow: Fellow, block: JeopardyBlock, setup: SetupState, schedByPGY: Record<PGY, StoredSchedule | null>, primarySchedule: CallSchedule): boolean {
-  // Basic eligibility: PGY-4 after August 15th
+  // Basic eligibility: PGY-4 after their start date (from settings)
   if (fellow.pgy === "PGY-4") {
     const firstDate = parseISO(block.dates[0]);
-    if (!afterAug15(firstDate, setup.yearStart)) {
+    if (!afterPGY4StartDate(firstDate, setup.yearStart)) {
       return false;
     }
   }
@@ -935,8 +944,9 @@ export function getIneligibleJeopardyReasons(dateISO: string): Array<{ fellow: F
     const reasons: string[] = [];
     
     // Check basic eligibility
-    if (fellow.pgy === "PGY-4" && !afterAug15(date, setup.yearStart)) {
-      reasons.push("PGY-4 not eligible before August 15th");
+    if (fellow.pgy === "PGY-4" && !afterPGY4StartDate(date, setup.yearStart)) {
+      const settings = loadSettings();
+      reasons.push(`PGY-4 not eligible before ${settings.jeopardyCall.pgy4StartDate}`);
     }
     
     // Check holiday restrictions by PGY
