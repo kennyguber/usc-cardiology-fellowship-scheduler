@@ -40,10 +40,16 @@ function isWeekendDate(d: Date): boolean {
   return day === 0 || day === 6; // Sun or Sat
 }
 
-function afterAug15(d: Date, yearStartISO: string): boolean {
+// Check if a date is on or after the PGY-4 primary call start date (from settings)
+function afterPGY4StartDate(d: Date, yearStartISO: string): boolean {
+  const settings = loadSettings();
   const start = parseISO(yearStartISO);
-  const aug15 = new Date(start.getFullYear(), 7, 15); // Aug is month 7
-  return isAfter(d, addDays(aug15, -1)); // on or after Aug 15
+  
+  // Parse MM-DD format from settings (e.g., "08-15")
+  const [month, day] = settings.primaryCall.pgy4StartDate.split('-').map(Number);
+  const pgy4Start = new Date(start.getFullYear(), month - 1, day); // month is 0-indexed
+  
+  return isAfter(d, addDays(pgy4Start, -1)); // on or after the start date
 }
 
 function dateToBlockKey(d: Date, yearStartISO: string): string {
@@ -103,7 +109,7 @@ function okNoConsecutiveSaturday(
 }
 
 function eligiblePoolByPGY(date: Date, setup: SetupState, schedByPGY: Record<PGY, StoredSchedule | null>) {
-  const afterAug = afterAug15(date, setup.yearStart);
+  const afterPGY4Start = afterPGY4StartDate(date, setup.yearStart);
   const isWeekend = isWeekendDate(date);
   const iso = toISODate(date);
   const holiday = isHoliday(iso, setup);
@@ -111,7 +117,7 @@ function eligiblePoolByPGY(date: Date, setup: SetupState, schedByPGY: Record<PGY
   const pools: Record<PGY, Fellow[]> = { "PGY-4": [], "PGY-5": [], "PGY-6": [] };
   for (const f of setup.fellows) {
     // Time period eligibility
-    if (f.pgy === "PGY-4" && !afterAug) continue; // PGY-4 completely ineligible before Aug 15
+    if (f.pgy === "PGY-4" && !afterPGY4Start) continue; // PGY-4 completely ineligible before start date
     // Rotation exclusions
     const rot = getRotationOnDate(f, date, schedByPGY, setup.yearStart);
     if (rot === "VAC" || rot === "HF") continue;
@@ -126,15 +132,17 @@ function eligiblePoolByPGY(date: Date, setup: SetupState, schedByPGY: Record<PGY
   if (isWeekend || holiday) {
     // Exclude PGY-6 from weekend/holiday primary calls entirely
     pools["PGY-6"] = [];
-    if (afterAug) {
-      priority = ["PGY-4", "PGY-5"]; // After Aug 15: weekends/holidays shared by PGY-4 then PGY-5
+    if (afterPGY4Start) {
+      // CRITICAL: After PGY-4 start date, weekends/holidays are EXCLUSIVELY PGY-4
+      // No PGY-5 fallback allowed
+      priority = ["PGY-4"];
     } else {
-      priority = ["PGY-5"]; // Pre-Aug 15: only PGY-5 eligible on weekends/holidays
+      priority = ["PGY-5"]; // Pre-start date: only PGY-5 eligible on weekends/holidays
     }
   } else {
     // Weekdays
     const dow = date.getDay(); // 1=Mon ... 5=Fri
-    if (afterAug) {
+    if (afterPGY4Start) {
       switch (dow) {
         case 1: // Monday
           priority = ["PGY-5", "PGY-4", "PGY-6"]; break;
@@ -150,7 +158,7 @@ function eligiblePoolByPGY(date: Date, setup: SetupState, schedByPGY: Record<PGY
           priority = ["PGY-5", "PGY-4", "PGY-6"]; // should not hit (Mon-Fri only)
       }
     } else {
-      // Pre-Aug15 weekdays: Thursday=PGY-6 preference, others=PGY-5; PGY-4 excluded entirely already
+      // Pre-start date weekdays: Thursday=PGY-6 preference, others=PGY-5; PGY-4 excluded entirely already
       const dow = date.getDay();
       if (dow === 4) priority = ["PGY-6", "PGY-5"]; else priority = ["PGY-5", "PGY-6"];
     }
@@ -225,8 +233,8 @@ function buildPrimaryCallSchedule(opts?: { priorPrimarySeeds?: Record<string, st
       if (candidates.length === 0) continue;
 
       const picked = pickWeighted(candidates, (f) => {
-        // Special PGY-4 weekend/holiday equity optimization after Aug 15
-        if (pgy === "PGY-4" && cat === "wkndHol" && afterAug15(date, setup.yearStart)) {
+        // Special PGY-4 weekend/holiday equity optimization after start date
+        if (pgy === "PGY-4" && cat === "wkndHol" && afterPGY4StartDate(date, setup.yearStart)) {
           const wkndHolCount = wkndHolCatCounts[f.id] ?? 0;
           // Strongly prefer fellows with lowest weekend/holiday count
           return 1 / (wkndHolCount * 10 + 1);
@@ -250,6 +258,15 @@ function buildPrimaryCallSchedule(opts?: { priorPrimarySeeds?: Record<string, st
     }
 
     // As a secondary attempt, pool across all eligible fellows ignoring PGY preference (but keeping all rules)
+    // CRITICAL: Skip fallback for weekends/holidays after PGY-4 start - these MUST be PGY-4 only
+    const isWeekendOrHoliday = cat === "wkndHol";
+    const afterPGY4Start = afterPGY4StartDate(date, setup.yearStart);
+    
+    if (isWeekendOrHoliday && afterPGY4Start) {
+      // No fallback allowed - weekend/holiday must be PGY-4 exclusive after start date
+      return false;
+    }
+
     const allCandidates = [...pools["PGY-4"], ...pools["PGY-5"], ...pools["PGY-6"]]
       .filter((f) => withinCallLimit(f, counts))
       .filter((f) => hasSpacingOK(f, lastByFellow, date))
@@ -258,7 +275,7 @@ function buildPrimaryCallSchedule(opts?: { priorPrimarySeeds?: Record<string, st
     if (allCandidates.length) {
       const picked = pickWeighted(allCandidates, (f) => {
         // Apply PGY-4 weekend/holiday equity optimization in fallback too
-        if (f.pgy === "PGY-4" && cat === "wkndHol" && afterAug15(date, setup.yearStart)) {
+        if (f.pgy === "PGY-4" && cat === "wkndHol" && afterPGY4StartDate(date, setup.yearStart)) {
           const wkndHolCount = wkndHolCatCounts[f.id] ?? 0;
           return 1 / (wkndHolCount * 10 + 1);
         }
