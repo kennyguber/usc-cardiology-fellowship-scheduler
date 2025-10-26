@@ -103,9 +103,30 @@ function okNoConsecutiveSaturday(
   date: Date,
   lastSaturday: Record<string, string | undefined>
 ): boolean {
+  const settings = loadSettings();
+  
+  // If the rule is disabled, allow consecutive Saturdays
+  if (!settings.primaryCall.noConsecutiveSaturdays) {
+    return true;
+  }
+  
+  // Original logic when rule is enabled
   if (date.getDay() !== 6) return true; // Only care about Saturdays
   const prevSatISO = toISODate(addDays(date, -7));
   return lastSaturday[fellow.id] !== prevSatISO;
+}
+
+function isChristmasEveOrNewYearsEve(date: Date): boolean {
+  const month = date.getMonth(); // 0-indexed (11 = December, 0 = January)
+  const day = date.getDate();
+  
+  // Christmas Eve: December 24th
+  if (month === 11 && day === 24) return true;
+  
+  // New Year's Eve: December 31st
+  if (month === 11 && day === 31) return true;
+  
+  return false;
 }
 
 function eligiblePoolByPGY(date: Date, setup: SetupState, schedByPGY: Record<PGY, StoredSchedule | null>) {
@@ -113,11 +134,18 @@ function eligiblePoolByPGY(date: Date, setup: SetupState, schedByPGY: Record<PGY
   const isWeekend = isWeekendDate(date);
   const iso = toISODate(date);
   const holiday = isHoliday(iso, setup);
+  const settings = loadSettings();
 
   const pools: Record<PGY, Fellow[]> = { "PGY-4": [], "PGY-5": [], "PGY-6": [] };
   for (const f of setup.fellows) {
     // Time period eligibility
     if (f.pgy === "PGY-4" && !afterPGY4Start) continue; // PGY-4 completely ineligible before start date
+    
+    // NEW RULE: Exclude PGY-6 from Christmas Eve and New Year's Eve if setting enabled
+    if (f.pgy === "PGY-6" && settings.primaryCall.noPGY6OnHolidayEves && isChristmasEveOrNewYearsEve(date)) {
+      continue; // Skip this PGY-6 fellow
+    }
+    
     // Rotation exclusions
     const rot = getRotationOnDate(f, date, schedByPGY, setup.yearStart);
     if (rot === "VAC" || rot === "HF") continue;
@@ -573,13 +601,15 @@ function validatePrimaryAssignment(schedule: CallSchedule, dateISO: string, fell
   if (!eligibleBase) reasons.push("Rotation or time-window ineligible for this date");
 
   const { counts, lastByFellow, lastSaturdayByFellow } = computeStateForDate(schedule, dateISO);
+  
+  // Load settings once for all validation checks
+  const settings = loadSettings();
+  
   if (!withinCallLimit(fellow, counts)) {
-    const settings = loadSettings();
     reasons.push(`Exceeds annual call cap for ${fellow.pgy} (${settings.primaryCall.maxCalls[fellow.pgy]} calls)`);
   }
 
-  // Load settings for spacing validation
-  const settings = loadSettings();
+  // Spacing validation
   const minSpacing = settings.primaryCall.minSpacingDays;
 
   // Enforce bidirectional spacing (both previous and next assignments for this fellow)
@@ -617,15 +647,22 @@ function validatePrimaryAssignment(schedule: CallSchedule, dateISO: string, fell
     }
   }
 
-  // Consecutive Saturday rule in both directions
-  if (!okNoConsecutiveSaturday(fellow, date, lastSaturdayByFellow)) {
-    reasons.push("Cannot take consecutive Saturdays");
-  }
-  if (date.getDay() === 6) {
-    const nextSatISO = toISODate(addDays(date, 7));
-    if (schedule.days[nextSatISO] === fellowId) {
+  // Consecutive Saturday rule in both directions - only if setting is enabled
+  if (settings.primaryCall.noConsecutiveSaturdays) {
+    if (!okNoConsecutiveSaturday(fellow, date, lastSaturdayByFellow)) {
       reasons.push("Cannot take consecutive Saturdays");
     }
+    if (date.getDay() === 6) {
+      const nextSatISO = toISODate(addDays(date, 7));
+      if (schedule.days[nextSatISO] === fellowId) {
+        reasons.push("Cannot take consecutive Saturdays");
+      }
+    }
+  }
+  
+  // Check PGY-6 holiday eve exclusion
+  if (fellow.pgy === "PGY-6" && settings.primaryCall.noPGY6OnHolidayEves && isChristmasEveOrNewYearsEve(date)) {
+    reasons.push("PGY-6 excluded from Christmas Eve and New Year's Eve calls");
   }
 
   return { ok: reasons.length === 0, reasons: reasons.length ? reasons : undefined };

@@ -131,6 +131,22 @@ export function PrimaryCallSettings({ settings, onUpdate }: PrimaryCallSettingsP
               }
             />
           </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="noPGY6HolidayEves">No PGY-6 on Holiday Eves</Label>
+              <p className="text-sm text-muted-foreground">
+                Prevent PGY-6 fellows from taking Christmas Eve or New Year's Eve calls
+              </p>
+            </div>
+            <Switch
+              id="noPGY6HolidayEves"
+              checked={settings.noPGY6OnHolidayEves}
+              onCheckedChange={(checked) =>
+                onUpdate({ noPGY6OnHolidayEves: checked })
+              }
+            />
+          </div>
         </CardContent>
       </Card>
 

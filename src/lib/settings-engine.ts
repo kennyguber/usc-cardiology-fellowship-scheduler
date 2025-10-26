@@ -79,6 +79,7 @@ export interface SchedulerSettings {
     excludeRotations: string[];
     excludeEPOnDays: number[];
     noConsecutiveSaturdays: boolean;
+    noPGY6OnHolidayEves: boolean;
   };
   
   // JEOPARDY CALL RULES
@@ -234,6 +235,7 @@ export const DEFAULT_SETTINGS: SchedulerSettings = {
     excludeRotations: ["VAC", "HF"],
     excludeEPOnDays: [2, 4],
     noConsecutiveSaturdays: true,
+    noPGY6OnHolidayEves: true,
   },
   
   jeopardyCall: {
