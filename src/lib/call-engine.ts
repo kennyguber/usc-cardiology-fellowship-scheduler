@@ -13,8 +13,6 @@ type CallSchedule = {
 
 const CALL_SCHEDULE_STORAGE_KEY = "cfsa_calls_v1" as const;
 
-const MIN_SPACING_DAYS = 4; // strict 4-day min for ALL PGYs
-
 function toISODate(d: Date) {
   return format(d, "yyyy-MM-dd");
 }
@@ -73,7 +71,8 @@ function hasSpacingOK(fellow: Fellow, lastAssigned: Record<string, string | unde
   const lastISO = lastAssigned[fellow.id];
   if (!lastISO) return true;
   const lastDate = parseISO(lastISO);
-  return differenceInCalendarDays(date, lastDate) >= MIN_SPACING_DAYS;
+  const settings = loadSettings();
+  return differenceInCalendarDays(date, lastDate) >= settings.primaryCall.minSpacingDays;
 }
 
 function isFriday(d: Date): boolean {
@@ -562,6 +561,10 @@ function validatePrimaryAssignment(schedule: CallSchedule, dateISO: string, fell
     reasons.push(`Exceeds annual call cap for ${fellow.pgy} (${settings.primaryCall.maxCalls[fellow.pgy]} calls)`);
   }
 
+  // Load settings for spacing validation
+  const settings = loadSettings();
+  const minSpacing = settings.primaryCall.minSpacingDays;
+
   // Enforce bidirectional spacing (both previous and next assignments for this fellow)
   const entries = Object.entries(schedule.days)
     .filter(([_, fid]) => fid === fellowId)
@@ -576,24 +579,24 @@ function validatePrimaryAssignment(schedule: CallSchedule, dateISO: string, fell
 
   if (prevISO) {
     const prevDate = parseISO(prevISO);
-    if (differenceInCalendarDays(date, prevDate) < MIN_SPACING_DAYS) {
-      reasons.push(`Must be at least ${MIN_SPACING_DAYS} days from previous call (${prevISO})`);
+    if (differenceInCalendarDays(date, prevDate) < minSpacing) {
+      reasons.push(`Must be at least ${minSpacing} days from previous call (${prevISO})`);
     }
   } else {
     // Fallback to computed last state if available (covers cases where current date is being reassigned)
     const lastISO = lastByFellow[fellow.id];
     if (lastISO) {
       const lastDate = parseISO(lastISO);
-      if (differenceInCalendarDays(date, lastDate) < MIN_SPACING_DAYS) {
-        reasons.push(`Must be at least ${MIN_SPACING_DAYS} days from previous call (${lastISO})`);
+      if (differenceInCalendarDays(date, lastDate) < minSpacing) {
+        reasons.push(`Must be at least ${minSpacing} days from previous call (${lastISO})`);
       }
     }
   }
 
   if (nextISO) {
     const nextDate = parseISO(nextISO);
-    if (differenceInCalendarDays(nextDate, date) < MIN_SPACING_DAYS) {
-      reasons.push(`Must be at least ${MIN_SPACING_DAYS} days before next call (${nextISO})`);
+    if (differenceInCalendarDays(nextDate, date) < minSpacing) {
+      reasons.push(`Must be at least ${minSpacing} days before next call (${nextISO})`);
     }
   }
 
