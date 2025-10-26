@@ -25,16 +25,37 @@ export type JeopardyBlock = {
 
 const JEOPARDY_STORAGE_KEY = "cfsa_jeopardy_v1" as const;
 
-// Annual quota limits by PGY (base quotas)
-const JEOPARDY_QUOTAS: Record<PGY, { weekday: number; weekend: number; holiday: number; total: number }> = {
-  "PGY-4": { weekday: 5, weekend: 2, holiday: 0, total: 7 },
-  "PGY-5": { weekday: 15, weekend: 13, holiday: 0, total: 28 },
-  "PGY-6": { weekday: 32, weekend: 8, holiday: 0, total: 40 },
-};
-
-// Calculate dynamic quotas based on total holiday coverage needed
+// Calculate dynamic quotas based on total holiday coverage needed and settings
 function calculateDynamicQuotas(yearStartISO: string, setup: SetupState): Record<PGY, { weekday: number; weekend: number; holiday: number; total: number }> {
-  const baseQuotas = { ...JEOPARDY_QUOTAS };
+  const settings = loadSettings();
+  
+  // Build base quotas from settings
+  const baseQuotas: Record<PGY, { weekday: number; weekend: number; holiday: number; total: number }> = {
+    "PGY-4": {
+      weekday: settings.jeopardyCall.quotas["PGY-4"].weekday,
+      weekend: settings.jeopardyCall.quotas["PGY-4"].weekend,
+      holiday: settings.jeopardyCall.quotas["PGY-4"].holiday,
+      total: settings.jeopardyCall.quotas["PGY-4"].weekday + 
+             settings.jeopardyCall.quotas["PGY-4"].weekend + 
+             settings.jeopardyCall.quotas["PGY-4"].holiday
+    },
+    "PGY-5": {
+      weekday: settings.jeopardyCall.quotas["PGY-5"].weekday,
+      weekend: settings.jeopardyCall.quotas["PGY-5"].weekend,
+      holiday: settings.jeopardyCall.quotas["PGY-5"].holiday,
+      total: settings.jeopardyCall.quotas["PGY-5"].weekday + 
+             settings.jeopardyCall.quotas["PGY-5"].weekend + 
+             settings.jeopardyCall.quotas["PGY-5"].holiday
+    },
+    "PGY-6": {
+      weekday: settings.jeopardyCall.quotas["PGY-6"].weekday,
+      weekend: settings.jeopardyCall.quotas["PGY-6"].weekend,
+      holiday: settings.jeopardyCall.quotas["PGY-6"].holiday,
+      total: settings.jeopardyCall.quotas["PGY-6"].weekday + 
+             settings.jeopardyCall.quotas["PGY-6"].weekend + 
+             settings.jeopardyCall.quotas["PGY-6"].holiday
+    }
+  };
   
   // Count total holiday days that need coverage
   const holidays = setup.holidays?.length ? setup.holidays : computeAcademicYearHolidays(yearStartISO);
@@ -50,10 +71,11 @@ function calculateDynamicQuotas(yearStartISO: string, setup: SetupState): Record
     const holidayQuotaPerPGY5 = Math.ceil(totalHolidayDays / numPGY5);
     
     // Update PGY-5 quotas to ensure all holidays can be covered
+    // This may override the settings if there aren't enough PGY-5 fellows
     baseQuotas["PGY-5"] = {
       ...baseQuotas["PGY-5"],
-      holiday: holidayQuotaPerPGY5,
-      total: baseQuotas["PGY-5"].weekday + baseQuotas["PGY-5"].weekend + holidayQuotaPerPGY5
+      holiday: Math.max(holidayQuotaPerPGY5, baseQuotas["PGY-5"].holiday),
+      total: baseQuotas["PGY-5"].weekday + baseQuotas["PGY-5"].weekend + Math.max(holidayQuotaPerPGY5, baseQuotas["PGY-5"].holiday)
     };
   }
   
