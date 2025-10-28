@@ -216,9 +216,9 @@ export function PrimaryCallSettings({ settings, onUpdate }: PrimaryCallSettingsP
           </div>
 
           <div className="pt-4 border-t space-y-3">
-            <Label>EP Rotation Day Exclusions</Label>
+            <Label>Primary Call on EP Rotation Exclusions</Label>
             <p className="text-sm text-muted-foreground">
-              Exclude EP rotation on specific weekdays (independent of EP exclusion above)
+              Exclude fellows from primary call on specific days while on the EP rotation
             </p>
             <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
               {WEEKDAYS.map((day) => {
