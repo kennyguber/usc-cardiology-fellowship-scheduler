@@ -8,6 +8,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Badge } from "@/components/ui/badge";
 import { useSEO } from "@/lib/seo";
 import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, applyDragAndDrop, type CallSchedule } from "@/lib/call-engine";
+import { loadSettings } from "@/lib/settings-engine";
 import { buildHFSchedule, loadHFSchedule, saveHFSchedule, clearHFSchedule, getEffectiveHFAssignment, analyzeHFSchedule, type HFSchedule } from "@/lib/hf-engine";
 import { buildJeopardySchedule, loadJeopardySchedule, saveJeopardySchedule, clearJeopardySchedule, type JeopardySchedule } from "@/lib/jeopardy-engine";
 import { buildClinicSchedule, loadClinicSchedule, saveClinicSchedule, clearClinicSchedule, getClinicAssignmentsForDate, formatClinicAssignments, getClinicNotesForDate, checkSpecialtyClinicCoverage, getFellowRotationOnDate, type ClinicSchedule, type ClinicNote, type ClinicCoverageGap } from "@/lib/clinic-engine";
@@ -234,16 +235,38 @@ export default function CallSchedule() {
 
   const violations = useMemo(() => {
     if (!schedule || !setup) return [] as { iso: string; reason: string; fellow: string }[];
+    
+    // Load settings to check configured exclusions
+    const settings = loadSettings();
     const list: { iso: string; reason: string; fellow: string }[] = [];
+    
     for (const [iso, fid] of Object.entries(schedule.days)) {
       if (!fid) continue;
       const d = parseISO(iso);
       const rot = rotationOnDate(fid, d);
       const name = fellowById[fid]?.name ?? fid;
-      if (rot === "HF") list.push({ iso, reason: "HF rotation assigned to primary", fellow: name });
+      
+      // Check if this rotation is in the excluded rotations list
+      if (settings.primaryCall.excludeRotations.includes(rot)) {
+        list.push({ 
+          iso, 
+          reason: `${rot} rotation assigned to primary call`, 
+          fellow: name 
+        });
+      }
+      
+      // Check EP-specific day exclusions
       const dow = d.getDay();
-      if (rot === "EP" && (dow === 2 || dow === 4)) list.push({ iso, reason: "EP rotation assigned on Tue/Thu", fellow: name });
+      if (rot === "EP" && settings.primaryCall.excludeEPOnDays.includes(dow)) {
+        const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+        list.push({ 
+          iso, 
+          reason: `EP rotation assigned on ${dayNames[dow]}`, 
+          fellow: name 
+        });
+      }
     }
+    
     return list.sort((a, b) => a.iso.localeCompare(b.iso));
   }, [schedule, setup, fellowById, rotationOnDate]);
 
