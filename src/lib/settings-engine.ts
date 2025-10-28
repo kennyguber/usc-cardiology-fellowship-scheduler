@@ -108,12 +108,9 @@ export interface SchedulerSettings {
     };
     pgy4OnlyDuringRotation: boolean;
     pgy6OnlyDuringRotation: boolean;
-    pgy5ExcludeVacation: boolean;
     holidayEligibility: PGY[];
     minSpacingDays: number;
     noConsecutiveWeekends: boolean;
-    excludePrimaryCallFriday: boolean;
-    excludePrimaryCallWeekend: boolean;
   };
   
   // CLINIC RULES
@@ -262,12 +259,9 @@ export const DEFAULT_SETTINGS: SchedulerSettings = {
     },
     pgy4OnlyDuringRotation: true,
     pgy6OnlyDuringRotation: true,
-    pgy5ExcludeVacation: true,
     holidayEligibility: ["PGY-5"],
     minSpacingDays: 14,
     noConsecutiveWeekends: true,
-    excludePrimaryCallFriday: true,
-    excludePrimaryCallWeekend: true,
   },
   
   clinics: {

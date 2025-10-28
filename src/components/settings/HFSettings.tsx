@@ -108,29 +108,14 @@ export function HFSettings({ settings, onUpdate }: HFSettingsProps) {
             />
           </div>
 
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label htmlFor="pgy5-vac">PGY-5 Exclude Vacation</Label>
-              <p className="text-sm text-muted-foreground">
-                PGY-5 fellows cannot do HF weekends during vacation
-              </p>
-            </div>
-            <Switch
-              id="pgy5-vac"
-              checked={settings.pgy5ExcludeVacation}
-              onCheckedChange={(checked) =>
-                onUpdate({ pgy5ExcludeVacation: checked })
-              }
-            />
-          </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Spacing & Conflict Rules</CardTitle>
+          <CardTitle>Spacing Rules</CardTitle>
           <CardDescription>
-            Configure spacing and primary call conflicts
+            Configure spacing between HF weekend assignments
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -170,37 +155,20 @@ export function HFSettings({ settings, onUpdate }: HFSettingsProps) {
             />
           </div>
 
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label htmlFor="exclude-fri">Exclude Primary Call Friday</Label>
-              <p className="text-sm text-muted-foreground">
-                Exclude fellows with primary call on Friday
-              </p>
-            </div>
-            <Switch
-              id="exclude-fri"
-              checked={settings.excludePrimaryCallFriday}
-              onCheckedChange={(checked) =>
-                onUpdate({ excludePrimaryCallFriday: checked })
-              }
-            />
-          </div>
+        </CardContent>
+      </Card>
 
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label htmlFor="exclude-wknd">Exclude Primary Call Weekend</Label>
-              <p className="text-sm text-muted-foreground">
-                Exclude fellows with primary call on the weekend
-              </p>
-            </div>
-            <Switch
-              id="exclude-wknd"
-              checked={settings.excludePrimaryCallWeekend}
-              onCheckedChange={(checked) =>
-                onUpdate({ excludePrimaryCallWeekend: checked })
-              }
-            />
-          </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Mandatory Conflict Rules</CardTitle>
+          <CardDescription>
+            The following rules are always enforced and cannot be disabled
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm text-muted-foreground">
+          <p>• Fellows on <strong>vacation</strong> cannot be assigned HF coverage</p>
+          <p>• Fellows with <strong>primary call on Friday</strong> cannot work the following weekend</p>
+          <p>• Fellows with <strong>primary call on weekend days</strong> cannot also work HF coverage</p>
         </CardContent>
       </Card>
     </div>

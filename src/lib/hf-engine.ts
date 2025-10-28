@@ -293,12 +293,10 @@ function isEligibleForHF(
     }
   }
   
-  // PGY-5 vacation exclusion (configurable)
-  if (fellow.pgy === "PGY-5" && hfSettings.pgy5ExcludeVacation) {
-    const rotation = getRotationOnDate(fellow, weekendStart, schedByPGY);
-    if (rotation === "VAC") {
-      return { eligible: false, reason: "Cannot assign during vacation" };
-    }
+  // HARDCODED RULE: No fellow on vacation can work HF coverage (applies to all PGYs)
+  const rotation = getRotationOnDate(fellow, weekendStart, schedByPGY);
+  if (rotation === "VAC") {
+    return { eligible: false, reason: "Cannot assign during vacation" };
   }
   
   // Check if at quota limit (use settings quotas)
@@ -317,25 +315,21 @@ function isEligibleForHF(
     }
   }
   
-  // Check for primary call conflicts (configurable)
+  // HARDCODED RULE: Primary call conflicts are always mandatory
   if (primarySchedule) {
-    // Check Friday before if setting enabled
-    if (hfSettings.excludePrimaryCallFriday) {
-      const fridayBefore = addDays(weekendStart, -1);
-      const fridayISO = toISODate(fridayBefore);
-      
-      if (primarySchedule.days[fridayISO] === fellow.id) {
-        return { eligible: false, reason: "Primary call conflict (Friday before)" };
-      }
+    // Cannot work HF weekend if they have primary call on Friday before
+    const fridayBefore = addDays(weekendStart, -1);
+    const fridayISO = toISODate(fridayBefore);
+    
+    if (primarySchedule.days[fridayISO] === fellow.id) {
+      return { eligible: false, reason: "Primary call conflict (Friday before)" };
     }
     
-    // Check weekend days for primary call if setting enabled
-    if (hfSettings.excludePrimaryCallWeekend) {
-      const satISO = toISODate(weekendStart);
-      const sunISO = toISODate(addDays(weekendStart, 1));
-      if (primarySchedule.days[satISO] === fellow.id || primarySchedule.days[sunISO] === fellow.id) {
-        return { eligible: false, reason: "Has primary call on weekend" };
-      }
+    // Cannot work HF coverage if they have primary call on the weekend itself
+    const satISO = toISODate(weekendStart);
+    const sunISO = toISODate(addDays(weekendStart, 1));
+    if (primarySchedule.days[satISO] === fellow.id || primarySchedule.days[sunISO] === fellow.id) {
+      return { eligible: false, reason: "Has primary call on weekend" };
     }
   }
   
@@ -382,12 +376,10 @@ function isEligibleForHolidayHF(
     return { eligible: false, reason: `${fellow.pgy} not eligible for holiday coverage per settings` };
   }
   
-  // Check vacation exclusion for PGY-5 if setting enabled
-  if (fellow.pgy === "PGY-5" && hfSettings.pgy5ExcludeVacation) {
-    const rotation = getRotationOnDate(fellow, holidayBlock.startDate, schedByPGY);
-    if (rotation === "VAC") {
-      return { eligible: false, reason: "Cannot assign during vacation" };
-    }
+  // HARDCODED RULE: No fellow on vacation can work holiday coverage
+  const rotation = getRotationOnDate(fellow, holidayBlock.startDate, schedByPGY);
+  if (rotation === "VAC") {
+    return { eligible: false, reason: "Cannot assign during vacation" };
   }
   
   // Check for primary call conflicts on any day in the holiday block
@@ -1086,35 +1078,31 @@ export function validateManualHFAssignment(
   for (const targetDateISO of targetDates) {
     const targetDate = parseISO(targetDateISO);
     
-    // Check if fellow is on vacation during this date (if PGY-5 with exclusion enabled)
-    if (fellow.pgy === "PGY-5" && hfSettings.pgy5ExcludeVacation) {
-      const rotation = getRotationOnDate(fellow, targetDate, schedByPGY);
-      if (rotation === "VAC") {
-        return { 
-          isValid: false, 
-          reason: `Fellow is on vacation on ${format(targetDate, "MMM d")}`
-        };
-      }
+    // HARDCODED RULE: Check if fellow is on vacation during this date
+    const rotation = getRotationOnDate(fellow, targetDate, schedByPGY);
+    if (rotation === "VAC") {
+      return { 
+        isValid: false, 
+        reason: `Fellow is on vacation on ${format(targetDate, "MMM d")}`
+      };
     }
 
-    // Check if fellow is on primary call on this date (if weekend exclusion enabled)
-    if (hfSettings.excludePrimaryCallWeekend && callSchedule.days[targetDateISO] === fellowId) {
+    // HARDCODED RULE: Check if fellow is on primary call on this date
+    if (callSchedule.days[targetDateISO] === fellowId) {
       return { 
         isValid: false, 
         reason: `Fellow is on primary call on ${format(targetDate, "MMM d")}`
       };
     }
 
-    // Check if fellow is on primary call the day before (if Friday exclusion enabled)
-    if (hfSettings.excludePrimaryCallFriday) {
-      const dayBefore = addDays(targetDate, -1);
-      const dayBeforeISO = toISODate(dayBefore);
-      if (callSchedule.days[dayBeforeISO] === fellowId) {
-        return { 
-          isValid: false, 
-          reason: `Fellow is on primary call the day before ${format(targetDate, "MMM d")}`
-        };
-      }
+    // HARDCODED RULE: Check if fellow is on primary call the day before
+    const dayBefore = addDays(targetDate, -1);
+    const dayBeforeISO = toISODate(dayBefore);
+    if (callSchedule.days[dayBeforeISO] === fellowId) {
+      return { 
+        isValid: false, 
+        reason: `Fellow is on primary call the day before ${format(targetDate, "MMM d")}`
+      };
     }
   }
 
