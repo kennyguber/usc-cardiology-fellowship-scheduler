@@ -3,6 +3,32 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { SchedulerSettings } from "@/lib/settings-engine";
+import { cn } from "@/lib/utils";
+
+const ALL_ROTATIONS = [
+  { value: "VAC", label: "Vacation" },
+  { value: "LAC_CATH", label: "LAC Cath" },
+  { value: "CCU", label: "CCU" },
+  { value: "LAC_CONSULT", label: "LAC Consult" },
+  { value: "HF", label: "Heart Failure" },
+  { value: "KECK_CONSULT", label: "Keck Consult" },
+  { value: "ECHO1", label: "Echo 1" },
+  { value: "ECHO2", label: "Echo 2" },
+  { value: "EP", label: "EP" },
+  { value: "NUCLEAR", label: "Nuclear" },
+  { value: "NONINVASIVE", label: "Non-Invasive" },
+  { value: "ELECTIVE", label: "Elective" },
+] as const;
+
+const WEEKDAYS = [
+  { value: 0, label: "Sun" },
+  { value: 1, label: "Mon" },
+  { value: 2, label: "Tue" },
+  { value: 3, label: "Wed" },
+  { value: 4, label: "Thu" },
+  { value: 5, label: "Fri" },
+  { value: 6, label: "Sat" },
+] as const;
 
 interface PrimaryCallSettingsProps {
   settings: SchedulerSettings["primaryCall"];
@@ -154,15 +180,70 @@ export function PrimaryCallSettings({ settings, onUpdate }: PrimaryCallSettingsP
         <CardHeader>
           <CardTitle>Exclusion Rules</CardTitle>
           <CardDescription>
-            Rotations and conditions that exclude fellows from primary call
+            Select rotations that exclude fellows from primary call duty
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
+        <CardContent className="space-y-6">
+          <div className="space-y-3">
             <Label>Excluded Rotations</Label>
             <p className="text-sm text-muted-foreground">
-              Current: {settings.excludeRotations.join(", ")}
+              Fellows on these rotations will not be eligible for primary call
             </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {ALL_ROTATIONS.map((rotation) => {
+                const isExcluded = settings.excludeRotations.includes(rotation.value);
+                return (
+                  <button
+                    key={rotation.value}
+                    type="button"
+                    onClick={() => {
+                      const newExcluded = isExcluded
+                        ? settings.excludeRotations.filter((r) => r !== rotation.value)
+                        : [...settings.excludeRotations, rotation.value];
+                      onUpdate({ excludeRotations: newExcluded });
+                    }}
+                    className={cn(
+                      "px-3 py-2 rounded-md text-sm font-medium transition-colors",
+                      "border border-input hover:bg-accent hover:text-accent-foreground",
+                      isExcluded && "bg-primary text-primary-foreground hover:bg-primary/90"
+                    )}
+                  >
+                    {rotation.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="pt-4 border-t space-y-3">
+            <Label>EP Rotation Day Exclusions</Label>
+            <p className="text-sm text-muted-foreground">
+              Exclude EP rotation on specific weekdays (independent of EP exclusion above)
+            </p>
+            <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+              {WEEKDAYS.map((day) => {
+                const isExcluded = settings.excludeEPOnDays.includes(day.value);
+                return (
+                  <button
+                    key={day.value}
+                    type="button"
+                    onClick={() => {
+                      const newExcluded = isExcluded
+                        ? settings.excludeEPOnDays.filter((d) => d !== day.value)
+                        : [...settings.excludeEPOnDays, day.value];
+                      onUpdate({ excludeEPOnDays: newExcluded });
+                    }}
+                    className={cn(
+                      "px-2 py-2 rounded-md text-sm font-medium transition-colors",
+                      "border border-input hover:bg-accent hover:text-accent-foreground",
+                      isExcluded && "bg-primary text-primary-foreground hover:bg-primary/90"
+                    )}
+                  >
+                    {day.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </CardContent>
       </Card>

@@ -146,12 +146,12 @@ function eligiblePoolByPGY(date: Date, setup: SetupState, schedByPGY: Record<PGY
       continue; // Skip this PGY-6 fellow
     }
     
-    // Rotation exclusions
+    // Rotation exclusions from settings
     const rot = getRotationOnDate(f, date, schedByPGY, setup.yearStart);
-    if (rot === "VAC" || rot === "HF") continue;
-    // Exclude EP rotation on Tuesdays and Thursdays
+    if (settings.primaryCall.excludeRotations.includes(rot)) continue;
+    // Exclude EP rotation on specific days if configured
     const dow = date.getDay(); // 0=Sun ... 6=Sat
-    if (rot === "EP" && (dow === 2 || dow === 4)) continue;
+    if (rot === "EP" && settings.primaryCall.excludeEPOnDays.includes(dow)) continue;
     pools[f.pgy].push(f);
   }
 
