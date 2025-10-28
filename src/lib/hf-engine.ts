@@ -2,6 +2,7 @@ import { differenceInCalendarDays, addDays, parseISO, format, isAfter } from "da
 import { computeAcademicYearHolidays } from "@/lib/holidays";
 import { loadSchedule, loadSetup, type Fellow, type PGY, type StoredSchedule, type SetupState } from "@/lib/schedule-engine";
 import { loadCallSchedule, type CallSchedule } from "@/lib/call-engine";
+import { loadSettings, type SchedulerSettings } from "@/lib/settings-engine";
 
 export type HFSchedule = {
   version: 2;
@@ -15,10 +16,11 @@ export type HFSchedule = {
 
 const HF_SCHEDULE_STORAGE_KEY = "cfsa_hf_v2" as const;
 
+// DEPRECATED: These are fallback values only. Actual quotas come from settings.hfCoverage.weekendQuotas
 const HF_QUOTAS: Record<PGY, number> = {
-  "PGY-4": 2, // Only during HF rotation
-  "PGY-5": 7, // Minimum 5, maximum 7 non-holiday weekends for fair distribution
-  "PGY-6": 2, // 1 weekend per HF rotation block (2 blocks total)
+  "PGY-4": 2,
+  "PGY-5": 7,
+  "PGY-6": 2,
 };
 
 function toISODate(d: Date) {
@@ -244,6 +246,7 @@ function isEligibleForHF(
   lastHolidayAssignment: Record<string, string | undefined>,
   allHolidayBlocks: { startDate: Date; dates: Date[]; isJuly4Weekend: boolean }[],
   schedule: HFSchedule,
+  hfSettings: SchedulerSettings["hfCoverage"],
   options: {
     isMandatory?: boolean;
     isHolidayWeekendOption?: boolean;
@@ -266,15 +269,15 @@ function isEligibleForHF(
   // Determine if this weekend is actually a holiday weekend
   const actuallyIsHolidayWeekend = isHolidayWeekendOption || isHolidayWeekend(weekendStart, allHolidayBlocks);
   
-  // PGY-6 rules: Only eligible in specific cases
+  // PGY-6 rules: Check settings for rotation restriction
   if (fellow.pgy === "PGY-6") {
     if (actuallyIsHolidayWeekend) {
       // For holiday weekends, only allow if explicitly permitted for this block
       if (!allowPGY6HolidayForThisBlock) {
         return { eligible: false, reason: "PGY-6 not eligible for this holiday weekend" };
       }
-    } else {
-      // For non-holiday weekends, allow if on HF rotation (mandatory or distributed)
+    } else if (hfSettings.pgy6OnlyDuringRotation) {
+      // For non-holiday weekends, check if restriction is enabled
       const rotation = getRotationOnDate(fellow, weekendStart, schedByPGY);
       if (rotation !== "HF") {
         return { eligible: false, reason: "PGY-6 not on HF rotation" };
@@ -282,26 +285,28 @@ function isEligibleForHF(
     }
   }
   
-  // PGY-4 only eligible during HF rotation
-  if (fellow.pgy === "PGY-4") {
+  // PGY-4 rotation restriction (configurable)
+  if (fellow.pgy === "PGY-4" && hfSettings.pgy4OnlyDuringRotation) {
     const rotation = getRotationOnDate(fellow, weekendStart, schedByPGY);
     if (rotation !== "HF") {
       return { eligible: false, reason: "PGY-4 only eligible during HF rotation" };
     }
-  } else if (fellow.pgy === "PGY-5") {
-    // PGY-5s eligible except on vacation
+  }
+  
+  // PGY-5 vacation exclusion (configurable)
+  if (fellow.pgy === "PGY-5" && hfSettings.pgy5ExcludeVacation) {
     const rotation = getRotationOnDate(fellow, weekendStart, schedByPGY);
     if (rotation === "VAC") {
       return { eligible: false, reason: "Cannot assign during vacation" };
     }
   }
   
-  // Check if at quota limit - PGY-5 has a hard cap that cannot be exceeded
+  // Check if at quota limit (use settings quotas)
   if (!isMandatory) {
     const currentCount = hfCounts[fellow.id] || 0;
-    const quota = HF_QUOTAS[fellow.pgy];
+    const quota = hfSettings.weekendQuotas[fellow.pgy];
     
-    // Hard cap for PGY-5 - never allow more than 7
+    // Hard cap for PGY-5 - never allow more than their configured quota
     if (fellow.pgy === "PGY-5" && currentCount >= quota) {
       return { eligible: false, reason: `PGY-5 hard cap reached (${currentCount}/${quota})` };
     }
@@ -312,31 +317,38 @@ function isEligibleForHF(
     }
   }
   
-  // Check for primary call conflicts (Friday before and weekend days only - no Monday conflict)
+  // Check for primary call conflicts (configurable)
   if (primarySchedule) {
-    const fridayBefore = addDays(weekendStart, -1);
-    const fridayISO = toISODate(fridayBefore);
-    
-    if (primarySchedule.days[fridayISO] === fellow.id) {
-      return { eligible: false, reason: "Primary call conflict (Friday before)" };
+    // Check Friday before if setting enabled
+    if (hfSettings.excludePrimaryCallFriday) {
+      const fridayBefore = addDays(weekendStart, -1);
+      const fridayISO = toISODate(fridayBefore);
+      
+      if (primarySchedule.days[fridayISO] === fellow.id) {
+        return { eligible: false, reason: "Primary call conflict (Friday before)" };
+      }
     }
     
-    // Also check weekend days for primary call
-    const satISO = toISODate(weekendStart);
-    const sunISO = toISODate(addDays(weekendStart, 1));
-    if (primarySchedule.days[satISO] === fellow.id || primarySchedule.days[sunISO] === fellow.id) {
-      return { eligible: false, reason: "Has primary call on weekend" };
+    // Check weekend days for primary call if setting enabled
+    if (hfSettings.excludePrimaryCallWeekend) {
+      const satISO = toISODate(weekendStart);
+      const sunISO = toISODate(addDays(weekendStart, 1));
+      if (primarySchedule.days[satISO] === fellow.id || primarySchedule.days[sunISO] === fellow.id) {
+        return { eligible: false, reason: "Has primary call on weekend" };
+      }
     }
   }
   
-  // Check for consecutive weekends using effective assignments (hard rule - never allow)
-  const consecutiveCheck = checkConsecutiveWeekends(weekendStart, fellow.id, schedule);
-  if (!consecutiveCheck.eligible) {
-    return consecutiveCheck;
+  // Check for consecutive weekends (configurable)
+  if (hfSettings.noConsecutiveWeekends) {
+    const consecutiveCheck = checkConsecutiveWeekends(weekendStart, fellow.id, schedule);
+    if (!consecutiveCheck.eligible) {
+      return consecutiveCheck;
+    }
   }
   
-  // Check 14-day spacing between HF assignments (can be relaxed in emergency pass)
-  if (!relaxSpacing) {
+  // Check minimum spacing between HF assignments (configurable, can be relaxed in emergency pass)
+  if (!relaxSpacing && hfSettings.minSpacingDays > 0) {
     // For mandatory assignments, only check spacing against weekend assignments, not holiday assignments
     const relevantLastISO = isMandatory && ignoreSpacingAgainstHoliday 
       ? lastWeekendAssignment[fellow.id] 
@@ -345,8 +357,8 @@ function isEligibleForHF(
     if (relevantLastISO) {
       const lastDate = parseISO(relevantLastISO);
       const daysBetween = differenceInCalendarDays(weekendStart, lastDate);
-      if (daysBetween < 14) {
-        return { eligible: false, reason: `Too soon after last HF assignment (${daysBetween} days, need 14)` };
+      if (daysBetween < hfSettings.minSpacingDays) {
+        return { eligible: false, reason: `Too soon after last HF assignment (${daysBetween} days, need ${hfSettings.minSpacingDays})` };
       }
     }
   }
@@ -361,18 +373,21 @@ function isEligibleForHolidayHF(
   schedByPGY: Record<PGY, StoredSchedule | null>,
   primarySchedule: CallSchedule | null,
   lastHFAssignment: Record<string, string | undefined>,
+  hfSettings: SchedulerSettings["hfCoverage"],
   pgy5Available: boolean = true
 ): { eligible: boolean; reason?: string } {
   
-  // ONLY PGY-5s are eligible for holiday blocks
-  if (fellow.pgy !== "PGY-5") {
-    return { eligible: false, reason: "Only PGY-5 fellows can cover holiday weekends" };
+  // Check if this PGY level is eligible for holiday coverage (configurable)
+  if (!hfSettings.holidayEligibility.includes(fellow.pgy)) {
+    return { eligible: false, reason: `${fellow.pgy} not eligible for holiday coverage per settings` };
   }
   
-  // PGY-5s eligible except on vacation
-  const rotation = getRotationOnDate(fellow, holidayBlock.startDate, schedByPGY);
-  if (rotation === "VAC") {
-    return { eligible: false, reason: "Cannot assign during vacation" };
+  // Check vacation exclusion for PGY-5 if setting enabled
+  if (fellow.pgy === "PGY-5" && hfSettings.pgy5ExcludeVacation) {
+    const rotation = getRotationOnDate(fellow, holidayBlock.startDate, schedByPGY);
+    if (rotation === "VAC") {
+      return { eligible: false, reason: "Cannot assign during vacation" };
+    }
   }
   
   // Check for primary call conflicts on any day in the holiday block
@@ -385,13 +400,15 @@ function isEligibleForHolidayHF(
     }
   }
   
-  // Check 14-day spacing between HF assignments
-  const lastISO = lastHFAssignment[fellow.id];
-  if (lastISO) {
-    const lastDate = parseISO(lastISO);
-    const daysBetween = differenceInCalendarDays(holidayBlock.startDate, lastDate);
-    if (daysBetween < 14) {
-      return { eligible: false, reason: `Too soon after last HF assignment (${daysBetween} days, need 14)` };
+  // Check minimum spacing between HF assignments (configurable)
+  if (hfSettings.minSpacingDays > 0) {
+    const lastISO = lastHFAssignment[fellow.id];
+    if (lastISO) {
+      const lastDate = parseISO(lastISO);
+      const daysBetween = differenceInCalendarDays(holidayBlock.startDate, lastDate);
+      if (daysBetween < hfSettings.minSpacingDays) {
+        return { eligible: false, reason: `Too soon after last HF assignment (${daysBetween} days, need ${hfSettings.minSpacingDays})` };
+      }
     }
   }
   
@@ -462,6 +479,10 @@ export function buildHFSchedule(options: {
   mandatoryMissed: string[];
 } {
   const { seed = Date.now(), randomize = false, attempts = 1 } = options;
+  
+  // Load user settings
+  const settings = loadSettings();
+  const hfSettings = settings.hfCoverage;
   
   // Simple seeded random number generator
   let rngSeed = seed;
@@ -543,7 +564,8 @@ export function buildHFSchedule(options: {
         setup,
         schedByPGY,
         primarySchedule,
-        lastWeekendAssignment
+        lastWeekendAssignment,
+        hfSettings
       );
       if (check.eligible) {
         eligible.push(fellow);
@@ -654,22 +676,23 @@ export function buildHFSchedule(options: {
       const weekendISO = toISODate(weekend);
       if (schedule.weekends[weekendISO]) continue; // Already assigned
       
-      const eligibilityCheck = isEligibleForHF(
-        fellow, 
-        weekend, 
-        setup, 
-        schedByPGY, 
-        primarySchedule, 
-        schedule.countsByFellow, 
-        lastWeekendAssignment,
-        {},
-        allHolidayBlocks,
-        schedule,
-        { 
-          isMandatory: true, 
-          isHolidayWeekendOption: false
-        }
-      );
+        const eligibilityCheck = isEligibleForHF(
+          fellow, 
+          weekend, 
+          setup, 
+          schedByPGY, 
+          primarySchedule, 
+          schedule.countsByFellow, 
+          lastWeekendAssignment,
+          {},
+          allHolidayBlocks,
+          schedule,
+          hfSettings,
+          { 
+            isMandatory: true, 
+            isHolidayWeekendOption: false
+          }
+        );
       
       if (eligibilityCheck.eligible) {
         schedule.weekends[weekendISO] = fellow.id;
@@ -698,6 +721,7 @@ export function buildHFSchedule(options: {
           {},
           allHolidayBlocks,
           schedule,
+          hfSettings,
           { 
             isMandatory: true, 
             isHolidayWeekendOption: true
@@ -758,6 +782,7 @@ export function buildHFSchedule(options: {
           {},  // No holiday assignments to consider since we're not auto-assigning them
           allHolidayBlocks,
           schedule,
+          hfSettings,
           {
             isMandatory: false,
             isHolidayWeekendOption: false,
@@ -859,6 +884,7 @@ export function buildHFSchedule(options: {
         {},
         allHolidayBlocks,
         schedule,
+        hfSettings,
         {
           isMandatory: false,
           isHolidayWeekendOption: false,
@@ -1032,6 +1058,10 @@ export function validateManualHFAssignment(
     return { isValid: false, reason: "Fellow not found" };
   }
 
+  // Load settings for validation
+  const settings = loadSettings();
+  const hfSettings = settings.hfCoverage;
+
   if (!callSchedule) {
     return { isValid: true }; // If no call schedule, allow assignment
   }
@@ -1056,36 +1086,40 @@ export function validateManualHFAssignment(
   for (const targetDateISO of targetDates) {
     const targetDate = parseISO(targetDateISO);
     
-    // Check if fellow is on vacation during this date
-    const rotation = getRotationOnDate(fellow, targetDate, schedByPGY);
-    if (rotation === "VAC") {
-      return { 
-        isValid: false, 
-        reason: `Fellow is on vacation on ${format(targetDate, "MMM d")}`
-      };
+    // Check if fellow is on vacation during this date (if PGY-5 with exclusion enabled)
+    if (fellow.pgy === "PGY-5" && hfSettings.pgy5ExcludeVacation) {
+      const rotation = getRotationOnDate(fellow, targetDate, schedByPGY);
+      if (rotation === "VAC") {
+        return { 
+          isValid: false, 
+          reason: `Fellow is on vacation on ${format(targetDate, "MMM d")}`
+        };
+      }
     }
 
-    // Check if fellow is on primary call on this date
-    if (callSchedule.days[targetDateISO] === fellowId) {
+    // Check if fellow is on primary call on this date (if weekend exclusion enabled)
+    if (hfSettings.excludePrimaryCallWeekend && callSchedule.days[targetDateISO] === fellowId) {
       return { 
         isValid: false, 
         reason: `Fellow is on primary call on ${format(targetDate, "MMM d")}`
       };
     }
 
-    // Check if fellow is on primary call the day before
-    const dayBefore = addDays(targetDate, -1);
-    const dayBeforeISO = toISODate(dayBefore);
-    if (callSchedule.days[dayBeforeISO] === fellowId) {
-      return { 
-        isValid: false, 
-        reason: `Fellow is on primary call the day before ${format(targetDate, "MMM d")}`
-      };
+    // Check if fellow is on primary call the day before (if Friday exclusion enabled)
+    if (hfSettings.excludePrimaryCallFriday) {
+      const dayBefore = addDays(targetDate, -1);
+      const dayBeforeISO = toISODate(dayBefore);
+      if (callSchedule.days[dayBeforeISO] === fellowId) {
+        return { 
+          isValid: false, 
+          reason: `Fellow is on primary call the day before ${format(targetDate, "MMM d")}`
+        };
+      }
     }
   }
 
-  // Check for consecutive weekends if HF schedule is provided
-  if (hfSchedule && targetDates.some(d => isWeekendDate(parseISO(d)))) {
+  // Check for consecutive weekends if setting enabled and HF schedule is provided
+  if (hfSettings.noConsecutiveWeekends && hfSchedule && targetDates.some(d => isWeekendDate(parseISO(d)))) {
     for (const targetDateISO of targetDates) {
       const targetDate = parseISO(targetDateISO);
       if (isWeekendDate(targetDate)) {
