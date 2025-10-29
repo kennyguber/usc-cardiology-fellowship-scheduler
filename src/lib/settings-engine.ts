@@ -1,5 +1,7 @@
 import { PGY } from "./schedule-engine";
 
+export type { PGY };
+
 export interface SchedulerSettings {
   version: 1;
   
@@ -119,22 +121,27 @@ export interface SchedulerSettings {
     specialClinics: {
       heartFailure: {
         dayOfWeek: number;
+        weekOfMonth: number[];
         eligibleRotations: string[];
         eligiblePGYs: PGY[];
       };
       achd: {
         dayOfWeek: number;
+        weekOfMonth: number[];
         eligibleRotations: string[];
         eligiblePGYs: PGY[];
       };
       device: {
         dayOfWeek: number;
+        weekOfMonth: number[];
         eligibleRotations: string[];
+        eligiblePGYs: PGY[];
       };
       ep: {
         dayOfWeek: number;
-        eligibleRotations: string[];
         weekOfMonth: number[];
+        eligibleRotations: string[];
+        eligiblePGYs: PGY[];
       };
     };
     excludeRotations: {
@@ -269,22 +276,27 @@ export const DEFAULT_SETTINGS: SchedulerSettings = {
     specialClinics: {
       heartFailure: {
         dayOfWeek: 2,
+        weekOfMonth: [1, 2, 3, 4],
         eligibleRotations: ["NONINVASIVE"],
         eligiblePGYs: ["PGY-5", "PGY-6"],
       },
       achd: {
         dayOfWeek: 1,
+        weekOfMonth: [1, 2, 3, 4],
         eligibleRotations: ["LAC_CATH"],
         eligiblePGYs: ["PGY-5", "PGY-6"],
       },
       device: {
         dayOfWeek: 5,
+        weekOfMonth: [1, 2, 3, 4],
         eligibleRotations: ["EP"],
+        eligiblePGYs: ["PGY-4", "PGY-5", "PGY-6"],
       },
       ep: {
         dayOfWeek: 3,
-        eligibleRotations: ["EP"],
         weekOfMonth: [1, 3],
+        eligibleRotations: ["EP"],
+        eligiblePGYs: ["PGY-4", "PGY-5", "PGY-6"],
       },
     },
     excludeRotations: {
