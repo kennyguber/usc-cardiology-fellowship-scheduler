@@ -269,7 +269,7 @@ export function ClinicSettings({ settings, onUpdate }: ClinicSettingsProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Special Clinics</CardTitle>
+          <CardTitle>Specialty Clinics</CardTitle>
           <CardDescription>
             Configure specialized clinic days, weeks, rotations, and eligible PGYs
           </CardDescription>
