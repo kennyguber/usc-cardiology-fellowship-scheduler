@@ -44,11 +44,12 @@ interface WeekButtonsProps {
 
 const WeekButtons = ({ selectedWeeks, onChange }: WeekButtonsProps) => {
   const weeks = [1, 2, 3, 4];
+  const safeSelectedWeeks = selectedWeeks || [];
 
   const toggleWeek = (week: number) => {
-    const newWeeks = selectedWeeks.includes(week)
-      ? selectedWeeks.filter(w => w !== week)
-      : [...selectedWeeks, week].sort();
+    const newWeeks = safeSelectedWeeks.includes(week)
+      ? safeSelectedWeeks.filter(w => w !== week)
+      : [...safeSelectedWeeks, week].sort();
     
     // Prevent deselecting all weeks
     if (newWeeks.length === 0) return;
@@ -61,7 +62,7 @@ const WeekButtons = ({ selectedWeeks, onChange }: WeekButtonsProps) => {
       {weeks.map(week => (
         <Button
           key={week}
-          variant={selectedWeeks.includes(week) ? "default" : "outline"}
+          variant={safeSelectedWeeks.includes(week) ? "default" : "outline"}
           size="sm"
           onClick={() => toggleWeek(week)}
           className="min-w-[50px]"
@@ -122,11 +123,12 @@ interface PGYButtonsProps {
 
 const PGYButtons = ({ selectedPGYs, onChange }: PGYButtonsProps) => {
   const pgys: PGY[] = ["PGY-4", "PGY-5", "PGY-6"];
+  const safeSelectedPGYs = selectedPGYs || [];
 
   const togglePGY = (pgy: PGY) => {
-    const newPGYs = selectedPGYs.includes(pgy)
-      ? selectedPGYs.filter(p => p !== pgy)
-      : [...selectedPGYs, pgy];
+    const newPGYs = safeSelectedPGYs.includes(pgy)
+      ? safeSelectedPGYs.filter(p => p !== pgy)
+      : [...safeSelectedPGYs, pgy];
     
     // Prevent deselecting all PGYs
     if (newPGYs.length === 0) return;
@@ -139,7 +141,7 @@ const PGYButtons = ({ selectedPGYs, onChange }: PGYButtonsProps) => {
       {pgys.map(pgy => (
         <Button
           key={pgy}
-          variant={selectedPGYs.includes(pgy) ? "default" : "outline"}
+          variant={safeSelectedPGYs.includes(pgy) ? "default" : "outline"}
           size="sm"
           onClick={() => togglePGY(pgy)}
           className="min-w-[70px]"

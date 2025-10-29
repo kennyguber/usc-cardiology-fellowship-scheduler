@@ -325,8 +325,34 @@ export function loadSettings(): SchedulerSettings {
     if (!stored) return DEFAULT_SETTINGS;
     
     const parsed = JSON.parse(stored) as SchedulerSettings;
-    // Merge with defaults to handle missing keys
-    return { ...DEFAULT_SETTINGS, ...parsed };
+    
+    // Deep merge with defaults to handle missing nested keys
+    return {
+      ...DEFAULT_SETTINGS,
+      ...parsed,
+      clinics: {
+        ...DEFAULT_SETTINGS.clinics,
+        ...parsed.clinics,
+        specialClinics: {
+          heartFailure: {
+            ...DEFAULT_SETTINGS.clinics.specialClinics.heartFailure,
+            ...parsed.clinics?.specialClinics?.heartFailure
+          },
+          achd: {
+            ...DEFAULT_SETTINGS.clinics.specialClinics.achd,
+            ...parsed.clinics?.specialClinics?.achd
+          },
+          device: {
+            ...DEFAULT_SETTINGS.clinics.specialClinics.device,
+            ...parsed.clinics?.specialClinics?.device
+          },
+          ep: {
+            ...DEFAULT_SETTINGS.clinics.specialClinics.ep,
+            ...parsed.clinics?.specialClinics?.ep
+          }
+        }
+      }
+    };
   } catch (error) {
     console.error("Failed to load settings:", error);
     return DEFAULT_SETTINGS;
