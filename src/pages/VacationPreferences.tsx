@@ -175,11 +175,28 @@ function FellowRow({
             <SelectValue placeholder="Clinic Day" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="Monday">Monday</SelectItem>
-            <SelectItem value="Tuesday">Tuesday</SelectItem>
-            <SelectItem value="Wednesday">Wednesday</SelectItem>
-            <SelectItem value="Thursday">Thursday</SelectItem>
-            <SelectItem value="Friday">Friday</SelectItem>
+            {settings.clinics.generalClinicDays
+              .sort()
+              .map(dayNumber => {
+                const dayMap: Record<number, string> = {
+                  1: "Monday",
+                  2: "Tuesday",
+                  3: "Wednesday",
+                  4: "Thursday",
+                  5: "Friday"
+                };
+                const dayName = dayMap[dayNumber];
+                
+                if (!dayName) return null;
+                
+                return (
+                  <SelectItem key={dayNumber} value={dayName}>
+                    {dayName}
+                  </SelectItem>
+                );
+              })
+              .filter(Boolean)
+            }
           </SelectContent>
         </Select>
       </TableCell>
@@ -228,6 +245,7 @@ export default function VacationPreferences() {
 
   const [setup, save] = useSetupState();
   const blocks = useMemo(() => generateAcademicYearBlocks(setup.yearStart), [setup.yearStart]);
+  const settings = useMemo(() => loadSettings(), []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -246,6 +264,34 @@ export default function VacationPreferences() {
     save({ ...setup, holidays: defaults });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setup.yearStart]);
+
+  // Auto-clear invalid clinic days when settings change
+  useEffect(() => {
+    const dayMap: Record<number, string> = {
+      1: "Monday", 2: "Tuesday", 3: "Wednesday", 4: "Thursday", 5: "Friday"
+    };
+    const validDays = settings.clinics.generalClinicDays.map(dayNum => dayMap[dayNum]);
+    
+    const needsUpdate = setup.fellows.some(f => 
+      f.clinicDay && !validDays.includes(f.clinicDay)
+    );
+    
+    if (needsUpdate) {
+      const updatedFellows = setup.fellows.map(f => {
+        if (f.clinicDay && !validDays.includes(f.clinicDay)) {
+          return { ...f, clinicDay: undefined };
+        }
+        return f;
+      });
+      
+      save({ ...setup, fellows: updatedFellows });
+      
+      toast({
+        title: "Clinic Days Updated",
+        description: "Some fellows had invalid clinic days that were cleared.",
+      });
+    }
+  }, [settings.clinics.generalClinicDays, setup.fellows, save, toast]);
 
   const addFellow = () => {
     const id = crypto.randomUUID();

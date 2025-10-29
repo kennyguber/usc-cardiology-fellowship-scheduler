@@ -1,6 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
 import { SchedulerSettings } from "@/lib/settings-engine";
 
 interface ClinicSettingsProps {
@@ -24,8 +25,47 @@ export function ClinicSettings({ settings, onUpdate }: ClinicSettingsProps) {
           <div className="space-y-2">
             <Label>General Clinic Days</Label>
             <p className="text-sm text-muted-foreground">
-              Current: {settings.generalClinicDays.map(d => dayNames[d]).join(", ")}
+              Select which weekdays can have general clinic assignments
             </p>
+            <div className="flex gap-2 flex-wrap">
+              {[
+                { day: 1, label: "Mon" },
+                { day: 2, label: "Tue" },
+                { day: 3, label: "Wed" },
+                { day: 4, label: "Thu" },
+                { day: 5, label: "Fri" }
+              ].map(({ day, label }) => {
+                const isSelected = settings.generalClinicDays.includes(day);
+                
+                return (
+                  <Button
+                    key={day}
+                    variant={isSelected ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => {
+                      const newDays = isSelected
+                        ? settings.generalClinicDays.filter(d => d !== day)
+                        : [...settings.generalClinicDays, day].sort();
+                      
+                      // Prevent deselecting all days
+                      if (newDays.length === 0) {
+                        return;
+                      }
+                      
+                      onUpdate({ generalClinicDays: newDays });
+                    }}
+                    className="min-w-[60px]"
+                  >
+                    {label}
+                  </Button>
+                );
+              })}
+            </div>
+            {settings.generalClinicDays.length === 0 && (
+              <p className="text-sm text-destructive">
+                At least one clinic day must be selected
+              </p>
+            )}
           </div>
 
           <div className="flex items-center justify-between">
