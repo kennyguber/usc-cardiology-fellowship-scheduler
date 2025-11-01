@@ -28,13 +28,11 @@ export default function Settings() {
   const {
     settings,
     hasUnsavedChanges,
-    clinicSettingsChanged,
     updateSection,
     save,
     resetToDefaults,
     exportSettings,
     importSettings,
-    resetClinicChangeFlag,
   } = useSettings();
 
   const [showResetDialog, setShowResetDialog] = useState(false);
@@ -49,24 +47,11 @@ export default function Settings() {
       });
       return;
     }
-    const wasClinicChanged = save();
-    
-    if (wasClinicChanged) {
-      // Clear existing clinic schedule from localStorage
-      localStorage.removeItem('clinicSchedule');
-      
-      toast({
-        title: "Clinic Settings Updated",
-        description: "Clinic schedule cleared. Please regenerate the clinic schedule on the Call Schedule page.",
-        duration: 6000,
-      });
-      resetClinicChangeFlag();
-    } else {
-      toast({
-        title: "Settings Saved",
-        description: "Your settings have been saved successfully.",
-      });
-    }
+    save();
+    toast({
+      title: "Settings Saved",
+      description: "Your settings have been saved successfully.",
+    });
   };
 
   const handleReset = () => {

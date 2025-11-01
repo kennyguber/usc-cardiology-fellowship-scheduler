@@ -12,7 +12,6 @@ import {
 export function useSettings() {
   const [settings, setSettings] = useState<SchedulerSettings>(() => loadSettings());
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [clinicSettingsChanged, setClinicSettingsChanged] = useState(false);
 
   const updateSettings = useCallback((partial: Partial<SchedulerSettings>) => {
     setSettings((prev) => {
@@ -32,9 +31,6 @@ export function useSettings() {
         [section]: { ...(prev[section] as object), ...(data as object) },
       }));
       setHasUnsavedChanges(true);
-      if (section === 'clinics') {
-        setClinicSettingsChanged(true);
-      }
     },
     []
   );
@@ -42,8 +38,7 @@ export function useSettings() {
   const save = useCallback(() => {
     saveSettings(settings);
     setHasUnsavedChanges(false);
-    return clinicSettingsChanged;
-  }, [settings, clinicSettingsChanged]);
+  }, [settings]);
 
   const resetToDefaults = useCallback(() => {
     const defaults = resetSettingsEngine();
@@ -84,14 +79,9 @@ export function useSettings() {
     [settings]
   );
 
-  const resetClinicChangeFlag = useCallback(() => {
-    setClinicSettingsChanged(false);
-  }, []);
-
   return {
     settings,
     hasUnsavedChanges,
-    clinicSettingsChanged,
     updateSettings,
     updateSection,
     save,
@@ -100,6 +90,5 @@ export function useSettings() {
     exportSettings,
     importSettings,
     isDefault,
-    resetClinicChangeFlag,
   };
 }

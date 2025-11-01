@@ -522,14 +522,9 @@ export function getClinicNotesForDate(
 
   const notes: ClinicNote[] = [];
   const date = parseISO(dateISO);
-  const dayOfWeek = date.getDay();
-  const weekOfMonth = getWeekOfMonth(date);
+  const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, etc.
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const currentDay = dayNames[dayOfWeek];
-
-  // Load settings for specialty clinic checks
-  const settings = loadSettings();
-  const specialClinics = settings.clinics.specialClinics;
 
   // Get clinic assignments for this date
   const clinicAssignments = getClinicAssignmentsForDate(clinicSchedule, dateISO);
@@ -537,81 +532,33 @@ export function getClinicNotesForDate(
 
   for (const fellow of fellows) {
     const fellowRotation = getFellowRotationOnDate(fellow.id, dateISO);
-    const primaryRotation = fellowRotation ? getPrimaryRotation(fellowRotation) : undefined;
-    const hasClinicAssignment = fellowsWithClinics.has(fellow.id);
-    const isPostCall = isPostCallDay(fellow.id, dateISO, callSchedule);
     
     // Check if fellow should have general clinic on this day
     const shouldHaveGeneralClinic = fellow.preferredClinicDay === currentDay && 
                                    !isHoliday(dateISO, setup) &&
                                    fellowRotation !== 'VAC' as any;
 
-    // CASE 1: Fellow HAS a clinic assignment
-    if (hasClinicAssignment) {
-      // Check if they're post-call
-      if (isPostCall) {
-        // Find which clinic type they're assigned to
-        const assignment = clinicAssignments.find(a => a.fellowId === fellow.id);
-        const clinicTypeMap: Record<string, string> = {
-          'HEART_FAILURE': 'HF',
-          'ACHD': 'ACHD',
-          'DEVICE': 'Device',
-          'EP': 'EP',
-          'AMBULATORY': 'Ambulatory'
-        };
-        
-        const clinicName = assignment ? (clinicTypeMap[assignment.clinicType] || assignment.clinicType) : 'Clinic';
-        
-        notes.push({
-          fellowId: fellow.id,
-          reason: `Post-Call (${clinicName} Clinic)`,
-          type: 'post-call'
-        });
-      }
-      continue; // Skip to next fellow
-    }
+    // Check if fellow has clinic assignment
+    const hasClinicAssignment = fellowsWithClinics.has(fellow.id);
 
-    // CASE 2: Fellow does NOT have a clinic assignment
-    if (shouldHaveGeneralClinic) {
-      // Determine expected specialty clinic if any
-      let expectedSpecialtyClinic: string | null = null;
-      
-      // Check each specialty clinic to see if fellow is eligible
-      if (specialClinics.heartFailure.dayOfWeek === dayOfWeek &&
-          specialClinics.heartFailure.weekOfMonth.includes(weekOfMonth) &&
-          specialClinics.heartFailure.eligibleRotations.includes(primaryRotation || "") &&
-          specialClinics.heartFailure.eligiblePGYs.includes(fellow.pgy as any)) {
-        expectedSpecialtyClinic = 'HF';
-      } else if (specialClinics.achd.dayOfWeek === dayOfWeek &&
-                 specialClinics.achd.weekOfMonth.includes(weekOfMonth) &&
-                 specialClinics.achd.eligibleRotations.includes(primaryRotation || "") &&
-                 specialClinics.achd.eligiblePGYs.includes(fellow.pgy as any)) {
-        expectedSpecialtyClinic = 'ACHD';
-      } else if (specialClinics.device.dayOfWeek === dayOfWeek &&
-                 specialClinics.device.weekOfMonth.includes(weekOfMonth) &&
-                 specialClinics.device.eligibleRotations.includes(primaryRotation || "") &&
-                 specialClinics.device.eligiblePGYs.includes(fellow.pgy as any)) {
-        expectedSpecialtyClinic = 'DEVICE';
-      } else if (specialClinics.ep.dayOfWeek === dayOfWeek &&
-                 specialClinics.ep.weekOfMonth.includes(weekOfMonth) &&
-                 specialClinics.ep.eligibleRotations.includes(primaryRotation || "") &&
-                 specialClinics.ep.eligiblePGYs.includes(fellow.pgy as any)) {
-        expectedSpecialtyClinic = 'EP';
-      }
-      
-      // Determine reason for missing general clinic
-      let noteReason = '';
-      let noteType: ClinicNote['type'] | null = null;
+    // Determine if we need to show a note
+    let noteReason = '';
+    let noteType: ClinicNote['type'] | null = null;
 
-      if (expectedSpecialtyClinic && hasSpecialClinicInSameWeek(fellow.id, date, clinicSchedule)) {
-        noteReason = `${primaryRotation}→${expectedSpecialtyClinic}`;
-        noteType = 'special-assignment';
-      } else if (isPostCall) {
-        if (expectedSpecialtyClinic) {
-          noteReason = `Post-Call (Expected ${expectedSpecialtyClinic} Clinic)`;
-        } else {
-          noteReason = 'Post-Call';
+    if (shouldHaveGeneralClinic && !hasClinicAssignment) {
+      // Fellow should have general clinic but doesn't - find reason
+      
+      // Check if they have special clinic this week (LAC_CATH→ACHD or NONINVASIVE→HF)
+      if (hasSpecialClinicInSameWeek(fellow.id, date, clinicSchedule)) {
+        if (fellowRotation === 'LAC_CATH') {
+          noteReason = 'LAC_CATH→ACHD';
+          noteType = 'special-assignment';
+        } else if (fellowRotation === 'NONINVASIVE') {
+          noteReason = 'NONINVASIVE→HF';
+          noteType = 'special-assignment';
         }
+      } else if (isPostCallDay(fellow.id, dateISO, callSchedule)) {
+        noteReason = 'Post-Call';
         noteType = 'post-call';
       } else if (fellowRotation === 'CCU') {
         noteReason = 'CCU Rotation';
@@ -623,14 +570,24 @@ export function getClinicNotesForDate(
         noteReason = 'Vacation';
         noteType = 'vacation';
       }
+    }
 
-      if (noteReason && noteType) {
-        notes.push({
-          fellowId: fellow.id,
-          reason: noteReason,
-          type: noteType
-        });
-      }
+    // Additional check: PGY-5/6 NONINVASIVE fellows missing Tuesday HF clinic due to post-call
+    if (dayOfWeek === 2 && // Tuesday
+        (fellow.pgy === 'PGY-5' || fellow.pgy === 'PGY-6') &&
+        fellowRotation === 'NONINVASIVE' &&
+        !hasClinicAssignment &&
+        isPostCallDay(fellow.id, dateISO, callSchedule)) {
+      noteReason = 'Post-Call (HF Clinic)';
+      noteType = 'post-call';
+    }
+
+    if (noteReason && noteType) {
+      notes.push({
+        fellowId: fellow.id,
+        reason: noteReason,
+        type: noteType
+      });
     }
   }
 
@@ -668,17 +625,12 @@ export function checkSpecialtyClinicCoverage(
   const gaps: ClinicCoverageGap[] = [];
   const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-  // Load settings for specialty clinic checks
-  const settings = loadSettings();
-  const specialClinics = settings.clinics.specialClinics;
-
   // Track which blocks have ambulatory fellow assignments
   const blocksWithAmbulatoryFellow = new Set<string>();
   
   for (const date of days) {
     const dateISO = toISODate(date);
-    const dayOfWeek = date.getDay();
-    const weekOfMonth = getWeekOfMonth(date);
+    const dayOfWeek = date.getDay(); // 0=Sunday, 1=Monday, etc.
     const dayName = dayNames[dayOfWeek];
     
     // Track ambulatory fellow assignments by block
@@ -692,65 +644,38 @@ export function checkSpecialtyClinicCoverage(
     
     const assignments = clinicSchedule.days[dateISO] || [];
     
-    // Check Heart Failure clinic requirement (settings-driven)
-    const hfClinic = specialClinics.heartFailure;
-    if (dayOfWeek === hfClinic.dayOfWeek && hfClinic.weekOfMonth.includes(weekOfMonth)) {
-      const hasEligibleHFFellow = setup.fellows.some(fellow => {
-        const rotation = getFellowRotationOnDate(fellow.id, dateISO);
-        const primaryRotation = rotation ? getPrimaryRotation(rotation) : undefined;
-        return hfClinic.eligibleRotations.includes(primaryRotation || "") &&
-               hfClinic.eligiblePGYs.includes(fellow.pgy);
-      });
-      
-      if (hasEligibleHFFellow) {
-        const hfCount = assignments.filter(a => a.clinicType === "HEART_FAILURE").length;
-        if (hfCount === 0) {
-          gaps.push({
-            date: dateISO,
-            dayOfWeek: dayName,
-            clinicType: "HEART_FAILURE",
-            required: 1,
-            assigned: hfCount
-          });
-        }
+    // Check Monday ACHD requirement
+    if (dayOfWeek === 1) { // Monday
+      const achdCount = assignments.filter(a => a.clinicType === "ACHD").length;
+      if (achdCount === 0) {
+        gaps.push({
+          date: dateISO,
+          dayOfWeek: dayName,
+          clinicType: "ACHD",
+          required: 1,
+          assigned: achdCount
+        });
       }
     }
     
-    // Check ACHD clinic requirement (settings-driven)
-    const achdClinic = specialClinics.achd;
-    if (dayOfWeek === achdClinic.dayOfWeek && achdClinic.weekOfMonth.includes(weekOfMonth)) {
-      const hasEligibleACHDFellow = setup.fellows.some(fellow => {
-        const rotation = getFellowRotationOnDate(fellow.id, dateISO);
-        const primaryRotation = rotation ? getPrimaryRotation(rotation) : undefined;
-        return achdClinic.eligibleRotations.includes(primaryRotation || "") &&
-               achdClinic.eligiblePGYs.includes(fellow.pgy);
-      });
-      
-      if (hasEligibleACHDFellow) {
-        const achdCount = assignments.filter(a => a.clinicType === "ACHD").length;
-        if (achdCount === 0) {
-          gaps.push({
-            date: dateISO,
-            dayOfWeek: dayName,
-            clinicType: "ACHD",
-            required: 1,
-            assigned: achdCount
-          });
-        }
+    // Check Tuesday HF requirement
+    if (dayOfWeek === 2) { // Tuesday
+      const hfCount = assignments.filter(a => a.clinicType === "HEART_FAILURE").length;
+      if (hfCount === 0) {
+        gaps.push({
+          date: dateISO,
+          dayOfWeek: dayName,
+          clinicType: "HEART_FAILURE",
+          required: 1,
+          assigned: hfCount
+        });
       }
     }
     
-    // Check Device clinic requirement (settings-driven)
-    const deviceClinic = specialClinics.device;
-    if (dayOfWeek === deviceClinic.dayOfWeek && deviceClinic.weekOfMonth.includes(weekOfMonth)) {
-      const hasEligibleDeviceFellow = setup.fellows.some(fellow => {
-        const rotation = getFellowRotationOnDate(fellow.id, dateISO);
-        const primaryRotation = rotation ? getPrimaryRotation(rotation) : undefined;
-        return deviceClinic.eligibleRotations.includes(primaryRotation || "") &&
-               deviceClinic.eligiblePGYs.includes(fellow.pgy);
-      });
-      
-      if (hasEligibleDeviceFellow) {
+    // Check Friday Device requirement (only if EP fellow is on rotation)
+    if (dayOfWeek === 5) { // Friday
+      const hasEPFellow = anyFellowOnEPRotation(dateISO, setup);
+      if (hasEPFellow) {
         const deviceCount = assignments.filter(a => a.clinicType === "DEVICE").length;
         if (deviceCount === 0) {
           gaps.push({
@@ -764,17 +689,14 @@ export function checkSpecialtyClinicCoverage(
       }
     }
     
-    // Check EP clinic requirement (settings-driven)
-    const epClinic = specialClinics.ep;
+    // Check EP clinic requirement based on settings
+    const settings = loadSettings();
+    const epClinic = settings.clinics.specialClinics.ep;
+    const weekOfMonth = getWeekOfMonth(date);
+    
     if (dayOfWeek === epClinic.dayOfWeek && epClinic.weekOfMonth.includes(weekOfMonth)) {
-      const hasEligibleEPFellow = setup.fellows.some(fellow => {
-        const rotation = getFellowRotationOnDate(fellow.id, dateISO);
-        const primaryRotation = rotation ? getPrimaryRotation(rotation) : undefined;
-        return epClinic.eligibleRotations.includes(primaryRotation || "") &&
-               epClinic.eligiblePGYs.includes(fellow.pgy);
-      });
-      
-      if (hasEligibleEPFellow) {
+      const hasEPFellow = anyFellowOnEPRotation(dateISO, setup);
+      if (hasEPFellow) {
         const epCount = assignments.filter(a => a.clinicType === "EP").length;
         if (epCount === 0) {
           gaps.push({
