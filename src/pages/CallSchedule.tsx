@@ -22,6 +22,7 @@ import PrimaryCallEditDialog from "@/components/PrimaryCallEditDialog";
 import HFEditDialog from "@/components/HFEditDialog";
 import JeopardyEditDialog from "@/components/JeopardyEditDialog";
 import AmbulatoryEditDialog from "@/components/AmbulatoryEditDialog";
+import ClinicEditDialog from "@/components/ClinicEditDialog";
 import { DraggableBadge } from "@/components/DraggableBadge";
 import { DroppableCell } from "@/components/DroppableCell";
 import { DroppableCalendarDay } from "@/components/DroppableCalendarDay";
@@ -68,6 +69,11 @@ export default function CallSchedule() {
   
   // Ambulatory Edit Dialog state
   const [ambulatoryEditISO, setAmbulatoryEditISO] = useState<string | null>(null);
+  
+  // Clinic Edit Dialog state
+  const [clinicEditISO, setClinicEditISO] = useState<string | null>(null);
+  const [clinicEditIndex, setClinicEditIndex] = useState<number | null>(null);
+  const [clinicEditMode, setClinicEditMode] = useState<'edit' | 'add'>('edit');
   
   // Jeopardy Schedule state
   const [jeopardySchedule, setJeopardySchedule] = useState<JeopardySchedule | null>(null);
@@ -447,6 +453,25 @@ export default function CallSchedule() {
       title: "Ambulatory assignment updated",
       description: "The ambulatory fellow assignment has been updated successfully.",
     });
+  };
+
+  const handleClinicScheduleUpdate = (newSchedule: ClinicSchedule) => {
+    setClinicSchedule(newSchedule);
+    saveClinicSchedule(newSchedule);
+    setClinicEditISO(null);
+    setClinicEditIndex(null);
+  };
+
+  const handleClinicEdit = (iso: string, index: number) => {
+    setClinicEditISO(iso);
+    setClinicEditIndex(index);
+    setClinicEditMode('edit');
+  };
+
+  const handleClinicAdd = (iso: string) => {
+    setClinicEditISO(iso);
+    setClinicEditIndex(null);
+    setClinicEditMode('add');
   };
 
   const handleGenerateClinic = async () => {
@@ -1636,21 +1661,39 @@ export default function CallSchedule() {
               
               if (formattedClinics) {
                 return (
-                  <div className="flex flex-wrap gap-1">
+                  <div className="flex flex-wrap gap-1 items-center">
                     {clinicAssignments.map((assignment, index) => (
                       <Badge 
                         key={index} 
                         variant={fellowColorById[assignment.fellowId]}
-                        className="text-xs"
+                        className="text-xs cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={() => handleClinicEdit(iso, index)}
                       >
                         {fellowById[assignment.fellowId]?.name ?? assignment.fellowId}: {assignment.clinicType === "GENERAL" ? "Gen" : assignment.clinicType === "HEART_FAILURE" ? "HF" : assignment.clinicType === "ACHD" ? "ACHD" : assignment.clinicType === "DEVICE" ? "Dev" : "EP"}
                       </Badge>
                     ))}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={() => handleClinicAdd(iso)}
+                    >
+                      + Clinic
+                    </Button>
                   </div>
                 );
               }
               
-              return "—";
+              return (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  onClick={() => handleClinicAdd(iso)}
+                >
+                  + Clinic
+                </Button>
+              );
             })()}
           </TableCell>
           <TableCell>
@@ -1904,6 +1947,22 @@ export default function CallSchedule() {
                   open={true}
                   onClose={() => setAmbulatoryEditISO(null)}
                   onApply={handleAmbulatoryScheduleUpdate}
+                />
+              )}
+              
+              {clinicEditISO && clinicSchedule && (
+                <ClinicEditDialog
+                  iso={clinicEditISO}
+                  assignmentIndex={clinicEditIndex}
+                  schedule={clinicSchedule}
+                  callSchedule={schedule}
+                  open={true}
+                  onClose={() => {
+                    setClinicEditISO(null);
+                    setClinicEditIndex(null);
+                  }}
+                  onApply={handleClinicScheduleUpdate}
+                  mode={clinicEditMode}
                 />
               )}
               </>

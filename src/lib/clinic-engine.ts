@@ -503,6 +503,283 @@ export function clearClinicSchedule(): void {
 }
 
 // Utility function to get clinic assignments for a specific date
+/**
+ * Apply a clinic assignment change (add, edit, remove)
+ * Automatically updates countsByFellow statistics
+ */
+export function applyClinicAssignmentChange(
+  schedule: ClinicSchedule,
+  dateISO: string,
+  operation: 'add' | 'edit' | 'remove',
+  assignmentIndex: number | null,
+  newAssignment: ClinicAssignment | null
+): { success: boolean; schedule?: ClinicSchedule; error?: string } {
+  const updatedSchedule = JSON.parse(JSON.stringify(schedule)) as ClinicSchedule;
+  const dayAssignments = updatedSchedule.days[dateISO] || [];
+  
+  if (operation === 'remove') {
+    if (assignmentIndex === null || assignmentIndex < 0 || assignmentIndex >= dayAssignments.length) {
+      return { success: false, error: 'Invalid assignment index' };
+    }
+    
+    const oldAssignment = dayAssignments[assignmentIndex];
+    
+    // Remove from array
+    dayAssignments.splice(assignmentIndex, 1);
+    updatedSchedule.days[dateISO] = dayAssignments;
+    
+    // Update counts
+    if (updatedSchedule.countsByFellow[oldAssignment.fellowId]) {
+      updatedSchedule.countsByFellow[oldAssignment.fellowId][oldAssignment.clinicType]--;
+    }
+    
+    return { success: true, schedule: updatedSchedule };
+  }
+  
+  if (operation === 'add') {
+    if (!newAssignment) {
+      return { success: false, error: 'New assignment required for add operation' };
+    }
+    
+    // Check for duplicate (same fellow, same clinic type, same day)
+    const duplicate = dayAssignments.find(
+      a => a.fellowId === newAssignment.fellowId && a.clinicType === newAssignment.clinicType
+    );
+    
+    if (duplicate) {
+      return { success: false, error: 'This fellow already has this clinic type on this day' };
+    }
+    
+    // Add to array
+    dayAssignments.push(newAssignment);
+    updatedSchedule.days[dateISO] = dayAssignments;
+    
+    // Update counts
+    if (!updatedSchedule.countsByFellow[newAssignment.fellowId]) {
+      updatedSchedule.countsByFellow[newAssignment.fellowId] = {
+        GENERAL: 0,
+        HEART_FAILURE: 0,
+        ACHD: 0,
+        DEVICE: 0,
+        EP: 0
+      };
+    }
+    updatedSchedule.countsByFellow[newAssignment.fellowId][newAssignment.clinicType]++;
+    
+    return { success: true, schedule: updatedSchedule };
+  }
+  
+  if (operation === 'edit') {
+    if (assignmentIndex === null || assignmentIndex < 0 || assignmentIndex >= dayAssignments.length) {
+      return { success: false, error: 'Invalid assignment index' };
+    }
+    
+    if (!newAssignment) {
+      return { success: false, error: 'New assignment required for edit operation' };
+    }
+    
+    const oldAssignment = dayAssignments[assignmentIndex];
+    
+    // Check for duplicate if changing fellow or clinic type
+    const duplicate = dayAssignments.find(
+      (a, idx) => idx !== assignmentIndex && 
+                  a.fellowId === newAssignment.fellowId && 
+                  a.clinicType === newAssignment.clinicType
+    );
+    
+    if (duplicate) {
+      return { success: false, error: 'This fellow already has this clinic type on this day' };
+    }
+    
+    // Replace assignment
+    dayAssignments[assignmentIndex] = newAssignment;
+    updatedSchedule.days[dateISO] = dayAssignments;
+    
+    // Update counts - decrement old, increment new
+    if (updatedSchedule.countsByFellow[oldAssignment.fellowId]) {
+      updatedSchedule.countsByFellow[oldAssignment.fellowId][oldAssignment.clinicType]--;
+    }
+    
+    if (!updatedSchedule.countsByFellow[newAssignment.fellowId]) {
+      updatedSchedule.countsByFellow[newAssignment.fellowId] = {
+        GENERAL: 0,
+        HEART_FAILURE: 0,
+        ACHD: 0,
+        DEVICE: 0,
+        EP: 0
+      };
+    }
+    updatedSchedule.countsByFellow[newAssignment.fellowId][newAssignment.clinicType]++;
+    
+    return { success: true, schedule: updatedSchedule };
+  }
+  
+  return { success: false, error: 'Invalid operation' };
+}
+
+/**
+ * Get fellows who could be assigned a clinic on a given date
+ * Returns sorted by current clinic count (load balancing)
+ */
+export function getEligibleFellowsForClinic(
+  dateISO: string,
+  clinicType: ClinicType,
+  schedule: ClinicSchedule,
+  callSchedule: CallSchedule | null,
+  setup: SetupState
+): Fellow[] {
+  const settings = loadSettings();
+  const clinicSettings = settings?.clinics;
+  if (!clinicSettings) return [];
+  
+  const date = parseISO(dateISO);
+  
+  // Skip holidays
+  if (isHoliday(dateISO, setup)) return [];
+  
+  const eligible = setup.fellows.filter(fellow => {
+    const rotation = getFellowRotationOnDate(fellow.id, dateISO);
+    const primaryRotation = rotation ? getPrimaryRotation(rotation) : undefined;
+    
+    // Check for specialty clinic eligibility
+    if (clinicType !== 'GENERAL') {
+      let config: { eligibleRotations: string[]; eligiblePGYs: PGY[] } | null = null;
+      
+      if (clinicType === 'HEART_FAILURE') {
+        config = clinicSettings.specialClinics.heartFailure;
+      } else if (clinicType === 'ACHD') {
+        config = clinicSettings.specialClinics.achd;
+      } else if (clinicType === 'DEVICE') {
+        config = clinicSettings.specialClinics.device;
+      } else if (clinicType === 'EP') {
+        config = clinicSettings.specialClinics.ep;
+      }
+      
+      if (!config) return false;
+      
+      // Check rotation and PGY eligibility
+      if (!config.eligibleRotations.includes(primaryRotation || "")) return false;
+      if (!config.eligiblePGYs.includes(fellow.pgy)) return false;
+      
+      // Check exclusions for specialty clinics
+      if (isExcludedFromSpecialClinic(fellow, dateISO, rotation, callSchedule, setup)) {
+        return false;
+      }
+    } else {
+      // General clinic eligibility
+      if (isExcludedFromGeneralClinic(fellow, dateISO, rotation, callSchedule, setup)) {
+        return false;
+      }
+    }
+    
+    return true;
+  });
+  
+  // Sort by current clinic count (load balancing)
+  return eligible.sort((a, b) => {
+    const countA = schedule.countsByFellow[a.id]?.[clinicType] || 0;
+    const countB = schedule.countsByFellow[b.id]?.[clinicType] || 0;
+    
+    if (countA !== countB) return countA - countB;
+    
+    // Tie-breaker: alphabetical
+    return a.id.localeCompare(b.id);
+  });
+}
+
+/**
+ * Get all fellows and reasons why they're ineligible for a clinic
+ */
+export function getIneligibleClinicReasons(
+  dateISO: string,
+  clinicType: ClinicType,
+  schedule: ClinicSchedule,
+  callSchedule: CallSchedule | null,
+  setup: SetupState
+): Array<{ fellow: Fellow; reasons: string[] }> {
+  const settings = loadSettings();
+  const clinicSettings = settings?.clinics;
+  if (!clinicSettings) return [];
+  
+  const date = parseISO(dateISO);
+  const isHolidayDay = isHoliday(dateISO, setup);
+  
+  const ineligible: Array<{ fellow: Fellow; reasons: string[] }> = [];
+  
+  for (const fellow of setup.fellows) {
+    const rotation = getFellowRotationOnDate(fellow.id, dateISO);
+    const primaryRotation = rotation ? getPrimaryRotation(rotation) : undefined;
+    const reasons: string[] = [];
+    
+    // Check if already eligible (skip if no reasons)
+    let isEligible = true;
+    
+    if (isHolidayDay) {
+      reasons.push('Holiday - no clinics scheduled');
+      isEligible = false;
+    }
+    
+    // Check vacation (via rotation)
+    if (primaryRotation === 'VAC') {
+      reasons.push('On vacation');
+      isEligible = false;
+    }
+    
+    // Check specialty clinic specific criteria
+    if (clinicType !== 'GENERAL') {
+      let config: { eligibleRotations: string[]; eligiblePGYs: PGY[] } | null = null;
+      
+      if (clinicType === 'HEART_FAILURE') {
+        config = clinicSettings.specialClinics.heartFailure;
+      } else if (clinicType === 'ACHD') {
+        config = clinicSettings.specialClinics.achd;
+      } else if (clinicType === 'DEVICE') {
+        config = clinicSettings.specialClinics.device;
+      } else if (clinicType === 'EP') {
+        config = clinicSettings.specialClinics.ep;
+      }
+      
+      if (config) {
+        // Check rotation
+        if (!config.eligibleRotations.includes(primaryRotation || "")) {
+          reasons.push(`Not on eligible rotation (currently on ${primaryRotation || 'none'})`);
+          isEligible = false;
+        }
+        
+        // Check PGY
+        if (!config.eligiblePGYs.includes(fellow.pgy)) {
+          reasons.push(`Not eligible PGY level (${fellow.pgy})`);
+          isEligible = false;
+        }
+        
+        // Check post-call
+        if (isPostCallDay(fellow.id, dateISO, callSchedule)) {
+          reasons.push('Post-call (day after primary call)');
+          isEligible = false;
+        }
+      }
+    } else {
+      // General clinic specific checks
+      if (isExcludedFromGeneralClinic(fellow, dateISO, rotation, callSchedule, setup)) {
+        // Add specific reasons
+        if (isPostCallDay(fellow.id, dateISO, callSchedule)) {
+          reasons.push('Post-call');
+        }
+        if (!primaryRotation || ['VACATION', 'RESEARCH', 'ELECTIVE'].includes(primaryRotation)) {
+          reasons.push(`On ${primaryRotation || 'unknown rotation'}`);
+        }
+        isEligible = false;
+      }
+    }
+    
+    if (!isEligible && reasons.length > 0) {
+      ineligible.push({ fellow, reasons });
+    }
+  }
+  
+  return ineligible.sort((a, b) => a.fellow.name.localeCompare(b.fellow.name));
+}
+
 export function getClinicAssignmentsForDate(
   schedule: ClinicSchedule | null,
   dateISO: string
