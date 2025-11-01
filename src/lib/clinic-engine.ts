@@ -538,23 +538,42 @@ export function getClinicNotesForDate(
   for (const fellow of fellows) {
     const fellowRotation = getFellowRotationOnDate(fellow.id, dateISO);
     const primaryRotation = fellowRotation ? getPrimaryRotation(fellowRotation) : undefined;
+    const hasClinicAssignment = fellowsWithClinics.has(fellow.id);
+    const isPostCall = isPostCallDay(fellow.id, dateISO, callSchedule);
     
     // Check if fellow should have general clinic on this day
     const shouldHaveGeneralClinic = fellow.preferredClinicDay === currentDay && 
                                    !isHoliday(dateISO, setup) &&
                                    fellowRotation !== 'VAC' as any;
 
-    // Check if fellow has clinic assignment
-    const hasClinicAssignment = fellowsWithClinics.has(fellow.id);
+    // CASE 1: Fellow HAS a clinic assignment
+    if (hasClinicAssignment) {
+      // Check if they're post-call
+      if (isPostCall) {
+        // Find which clinic type they're assigned to
+        const assignment = clinicAssignments.find(a => a.fellowId === fellow.id);
+        const clinicTypeMap: Record<string, string> = {
+          'HEART_FAILURE': 'HF',
+          'ACHD': 'ACHD',
+          'DEVICE': 'Device',
+          'EP': 'EP',
+          'AMBULATORY': 'Ambulatory'
+        };
+        
+        const clinicName = assignment ? (clinicTypeMap[assignment.clinicType] || assignment.clinicType) : 'Clinic';
+        
+        notes.push({
+          fellowId: fellow.id,
+          reason: `Post-Call (${clinicName} Clinic)`,
+          type: 'post-call'
+        });
+      }
+      continue; // Skip to next fellow
+    }
 
-    // Determine if we need to show a note
-    let noteReason = '';
-    let noteType: ClinicNote['type'] | null = null;
-
-    if (shouldHaveGeneralClinic && !hasClinicAssignment) {
-      // Fellow should have general clinic but doesn't - find reason
-      
-      // Check if they should have a specialty clinic based on settings
+    // CASE 2: Fellow does NOT have a clinic assignment
+    if (shouldHaveGeneralClinic) {
+      // Determine expected specialty clinic if any
       let expectedSpecialtyClinic: string | null = null;
       
       // Check each specialty clinic to see if fellow is eligible
@@ -580,13 +599,16 @@ export function getClinicNotesForDate(
         expectedSpecialtyClinic = 'EP';
       }
       
-      // If fellow was eligible for specialty clinic, check if they have it in same week
+      // Determine reason for missing general clinic
+      let noteReason = '';
+      let noteType: ClinicNote['type'] | null = null;
+
       if (expectedSpecialtyClinic && hasSpecialClinicInSameWeek(fellow.id, date, clinicSchedule)) {
         noteReason = `${primaryRotation}→${expectedSpecialtyClinic}`;
         noteType = 'special-assignment';
-      } else if (isPostCallDay(fellow.id, dateISO, callSchedule)) {
+      } else if (isPostCall) {
         if (expectedSpecialtyClinic) {
-          noteReason = `Post-Call (${expectedSpecialtyClinic} Clinic)`;
+          noteReason = `Post-Call (Expected ${expectedSpecialtyClinic} Clinic)`;
         } else {
           noteReason = 'Post-Call';
         }
@@ -601,14 +623,14 @@ export function getClinicNotesForDate(
         noteReason = 'Vacation';
         noteType = 'vacation';
       }
-    }
 
-    if (noteReason && noteType) {
-      notes.push({
-        fellowId: fellow.id,
-        reason: noteReason,
-        type: noteType
-      });
+      if (noteReason && noteType) {
+        notes.push({
+          fellowId: fellow.id,
+          reason: noteReason,
+          type: noteType
+        });
+      }
     }
   }
 
