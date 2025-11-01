@@ -208,6 +208,45 @@ function hasSpecialClinicInSameWeek(
   return false;
 }
 
+/**
+ * Selects the best fellow for a specialty clinic from eligible candidates
+ * Tie-breaking rules:
+ * 1. Fellow with fewest total specialty clinics (all types)
+ * 2. Fellow with fewest of this specific clinic type
+ * 3. Alphabetical by ID
+ */
+function selectBestCandidateForSpecialtyClinic(
+  eligibleFellows: Fellow[],
+  clinicType: 'HEART_FAILURE' | 'ACHD' | 'DEVICE' | 'EP',
+  countsByFellow: Record<string, Record<ClinicType, number>>
+): Fellow | null {
+  if (eligibleFellows.length === 0) return null;
+  if (eligibleFellows.length === 1) return eligibleFellows[0];
+  
+  // Sort by priority criteria
+  const sorted = [...eligibleFellows].sort((a, b) => {
+    const countsA = countsByFellow[a.id];
+    const countsB = countsByFellow[b.id];
+    
+    // Total specialty clinics (excluding GENERAL)
+    const totalA = countsA.HEART_FAILURE + countsA.ACHD + countsA.DEVICE + countsA.EP;
+    const totalB = countsB.HEART_FAILURE + countsB.ACHD + countsB.DEVICE + countsB.EP;
+    
+    if (totalA !== totalB) return totalA - totalB;
+    
+    // This specific clinic type count
+    const typeCountA = countsA[clinicType];
+    const typeCountB = countsB[clinicType];
+    
+    if (typeCountA !== typeCountB) return typeCountA - typeCountB;
+    
+    // Alphabetical by ID
+    return a.id.localeCompare(b.id);
+  });
+  
+  return sorted[0];
+}
+
 export function buildClinicSchedule(
   callSchedule: CallSchedule | null,
   setup: SetupState | null
@@ -251,91 +290,74 @@ export function buildClinicSchedule(
       continue;
     }
     
-    for (const fellow of setup.fellows) {
-      const rotation = getFellowRotationOnDate(fellow.id, dateISO);
-      const primaryRotation = rotation ? getPrimaryRotation(rotation) : undefined;
-      
-      // Calculate week of month once for all specialty clinic checks
-      const weekOfMonth = getWeekOfMonth(date);
-      const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-      
-      // Check each specialty clinic independently (settings-driven)
-      // Only one specialty clinic per fellow per day
-      
-      // Heart Failure Clinic
-      const hfClinic = clinicSettings.specialClinics.heartFailure;
-      if (
-        dayOfWeek === hfClinic.dayOfWeek &&
-        hfClinic.weekOfMonth.includes(weekOfMonth) &&
-        hfClinic.eligibleRotations.includes(primaryRotation || "") &&
-        hfClinic.eligiblePGYs.includes(fellow.pgy) &&
-        !isExcludedFromSpecialClinic(fellow, dateISO, rotation, callSchedule, setup)
-      ) {
-        assignments.push({
-          fellowId: fellow.id,
-          clinicType: "HEART_FAILURE",
-          dayOfWeek: dayNames[dayOfWeek]
-        });
-        schedule.countsByFellow[fellow.id].HEART_FAILURE++;
-        continue;
+    const weekOfMonth = getWeekOfMonth(date);
+    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    
+    // Track which fellows have been assigned a specialty clinic today
+    const fellowsWithSpecialtyClinicToday = new Set<string>();
+    
+    // ==================== PASS 1: SPECIALTY CLINIC ASSIGNMENTS ====================
+    
+    // Helper to assign a specialty clinic
+    const assignSpecialtyClinic = (
+      clinicConfig: { dayOfWeek: number; weekOfMonth: number[]; eligibleRotations: string[]; eligiblePGYs: PGY[] },
+      clinicType: 'HEART_FAILURE' | 'ACHD' | 'DEVICE' | 'EP'
+    ) => {
+      // Check if this clinic should run today
+      if (dayOfWeek !== clinicConfig.dayOfWeek || !clinicConfig.weekOfMonth.includes(weekOfMonth)) {
+        return;
       }
       
-      // ACHD Clinic
-      const achdClinic = clinicSettings.specialClinics.achd;
-      if (
-        dayOfWeek === achdClinic.dayOfWeek &&
-        achdClinic.weekOfMonth.includes(weekOfMonth) &&
-        achdClinic.eligibleRotations.includes(primaryRotation || "") &&
-        achdClinic.eligiblePGYs.includes(fellow.pgy) &&
-        !isExcludedFromSpecialClinic(fellow, dateISO, rotation, callSchedule, setup)
-      ) {
+      // Find all eligible fellows
+      const eligibleFellows = setup.fellows.filter(fellow => {
+        const rotation = getFellowRotationOnDate(fellow.id, dateISO);
+        const primaryRotation = rotation ? getPrimaryRotation(rotation) : undefined;
+        
+        // Check all eligibility criteria
+        return (
+          clinicConfig.eligibleRotations.includes(primaryRotation || "") &&
+          clinicConfig.eligiblePGYs.includes(fellow.pgy) &&
+          !isExcludedFromSpecialClinic(fellow, dateISO, rotation, callSchedule, setup) &&
+          !fellowsWithSpecialtyClinicToday.has(fellow.id) // Not already assigned today
+        );
+      });
+      
+      // Select best candidate
+      const selectedFellow = selectBestCandidateForSpecialtyClinic(
+        eligibleFellows,
+        clinicType,
+        schedule.countsByFellow
+      );
+      
+      if (selectedFellow) {
         assignments.push({
-          fellowId: fellow.id,
-          clinicType: "ACHD",
+          fellowId: selectedFellow.id,
+          clinicType: clinicType,
           dayOfWeek: dayNames[dayOfWeek]
         });
-        schedule.countsByFellow[fellow.id].ACHD++;
-        continue;
+        schedule.countsByFellow[selectedFellow.id][clinicType]++;
+        fellowsWithSpecialtyClinicToday.add(selectedFellow.id);
       }
-      
-      // Device Clinic
-      const deviceClinic = clinicSettings.specialClinics.device;
-      if (
-        dayOfWeek === deviceClinic.dayOfWeek &&
-        deviceClinic.weekOfMonth.includes(weekOfMonth) &&
-        deviceClinic.eligibleRotations.includes(primaryRotation || "") &&
-        deviceClinic.eligiblePGYs.includes(fellow.pgy) &&
-        !isExcludedFromSpecialClinic(fellow, dateISO, rotation, callSchedule, setup)
-      ) {
-        assignments.push({
-          fellowId: fellow.id,
-          clinicType: "DEVICE",
-          dayOfWeek: dayNames[dayOfWeek]
-        });
-        schedule.countsByFellow[fellow.id].DEVICE++;
-        continue;
-      }
-      
-      // EP Clinic
-      const epClinic = clinicSettings.specialClinics.ep;
-      if (
-        dayOfWeek === epClinic.dayOfWeek &&
-        epClinic.weekOfMonth.includes(weekOfMonth) &&
-        epClinic.eligibleRotations.includes(primaryRotation || "") &&
-        epClinic.eligiblePGYs.includes(fellow.pgy) &&
-        !isExcludedFromSpecialClinic(fellow, dateISO, rotation, callSchedule, setup)
-      ) {
-        assignments.push({
-          fellowId: fellow.id,
-          clinicType: "EP",
-          dayOfWeek: dayNames[dayOfWeek]
-        });
-        schedule.countsByFellow[fellow.id].EP++;
-        continue;
-      }
-      
-      // General clinic assignment (with stricter exclusion rules)
-      if (clinicSettings.generalClinicDays.includes(dayOfWeek)) {
+    };
+    
+    // Assign each specialty clinic type
+    assignSpecialtyClinic(clinicSettings.specialClinics.heartFailure, 'HEART_FAILURE');
+    assignSpecialtyClinic(clinicSettings.specialClinics.achd, 'ACHD');
+    assignSpecialtyClinic(clinicSettings.specialClinics.device, 'DEVICE');
+    assignSpecialtyClinic(clinicSettings.specialClinics.ep, 'EP');
+    
+    // ==================== PASS 2: GENERAL CLINIC ASSIGNMENTS ====================
+    
+    // Only assign general clinics on configured general clinic days
+    if (clinicSettings.generalClinicDays.includes(dayOfWeek)) {
+      for (const fellow of setup.fellows) {
+        // Skip if already assigned a specialty clinic today
+        if (fellowsWithSpecialtyClinicToday.has(fellow.id)) {
+          continue;
+        }
+        
+        const rotation = getFellowRotationOnDate(fellow.id, dateISO);
+        
         // Check general exclusion conditions
         if (isExcludedFromGeneralClinic(fellow, dateISO, rotation, callSchedule, setup)) {
           continue;
@@ -345,12 +367,11 @@ export function buildClinicSchedule(
         const currentDayName = dayNames[dayOfWeek];
         
         // Check if this fellow has a special clinic (ACHD or HF) in the same week
-        // If so, skip general clinic assignment for this week
         if (hasSpecialClinicInSameWeek(fellow.id, date, schedule)) {
           continue;
         }
         
-        // Assign if this is their preferred clinic day
+        // Assign general clinic if it's their preferred day
         if (fellowClinicDay === currentDayName) {
           assignments.push({
             fellowId: fellow.id,
