@@ -160,10 +160,8 @@ function isExcludedFromGeneralClinic(
 }
 
 function getWeekOfMonth(date: Date): number {
-  const firstDay = new Date(date.getFullYear(), date.getMonth(), 1);
   const dayOfMonth = date.getDate();
-  const firstWeekday = firstDay.getDay();
-  return Math.ceil((dayOfMonth + firstWeekday) / 7);
+  return Math.ceil(dayOfMonth / 7);
 }
 
 
@@ -337,6 +335,9 @@ export function buildClinicSchedule(
         });
         schedule.countsByFellow[selectedFellow.id][clinicType]++;
         fellowsWithSpecialtyClinicToday.add(selectedFellow.id);
+      } else {
+        // Log warning - no eligible fellow found for this specialty clinic
+        console.warn(`No eligible fellow for ${clinicType} clinic on ${dateISO} (${dayNames[dayOfWeek]}, week ${weekOfMonth})`);
       }
     };
     
