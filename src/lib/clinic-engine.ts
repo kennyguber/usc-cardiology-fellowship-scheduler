@@ -929,6 +929,13 @@ export function checkSpecialtyClinicCoverage(
   const gaps: ClinicCoverageGap[] = [];
   const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
+  // Load settings for all specialty clinics
+  const settings = loadSettings();
+  const achdClinic = settings.clinics.specialClinics.achd;
+  const hfClinic = settings.clinics.specialClinics.heartFailure;
+  const deviceClinic = settings.clinics.specialClinics.device;
+  const epClinic = settings.clinics.specialClinics.ep;
+
   // Track which blocks have ambulatory fellow assignments
   const blocksWithAmbulatoryFellow = new Set<string>();
   
@@ -948,8 +955,15 @@ export function checkSpecialtyClinicCoverage(
     
     const assignments = clinicSchedule.days[dateISO] || [];
     
-    // Check Monday ACHD requirement
-    if (dayOfWeek === 1) { // Monday
+    // Calculate week of month once for all specialty clinics
+    const weekOfMonth = getWeekOfMonth(date);
+    // If week 4 is configured, treat it as including week 5+ (rest of month)
+    const effectiveWeekOfMonth = weekOfMonth > 4 && achdClinic.weekOfMonth.includes(4) 
+      ? 4 
+      : weekOfMonth;
+    
+    // Check ACHD clinic requirement based on settings
+    if (dayOfWeek === achdClinic.dayOfWeek && achdClinic.weekOfMonth.includes(effectiveWeekOfMonth)) {
       const achdCount = assignments.filter(a => a.clinicType === "ACHD").length;
       if (achdCount === 0) {
         gaps.push({
@@ -962,8 +976,12 @@ export function checkSpecialtyClinicCoverage(
       }
     }
     
-    // Check Tuesday HF requirement
-    if (dayOfWeek === 2) { // Tuesday
+    // Check Heart Failure clinic requirement based on settings
+    const effectiveWeekOfMonthHF = weekOfMonth > 4 && hfClinic.weekOfMonth.includes(4) 
+      ? 4 
+      : weekOfMonth;
+    
+    if (dayOfWeek === hfClinic.dayOfWeek && hfClinic.weekOfMonth.includes(effectiveWeekOfMonthHF)) {
       const hfCount = assignments.filter(a => a.clinicType === "HEART_FAILURE").length;
       if (hfCount === 0) {
         gaps.push({
@@ -976,8 +994,12 @@ export function checkSpecialtyClinicCoverage(
       }
     }
     
-    // Check Friday Device requirement (only if EP fellow is on rotation)
-    if (dayOfWeek === 5) { // Friday
+    // Check Device clinic requirement based on settings (only if EP fellow is on rotation)
+    const effectiveWeekOfMonthDevice = weekOfMonth > 4 && deviceClinic.weekOfMonth.includes(4) 
+      ? 4 
+      : weekOfMonth;
+    
+    if (dayOfWeek === deviceClinic.dayOfWeek && deviceClinic.weekOfMonth.includes(effectiveWeekOfMonthDevice)) {
       const hasEPFellow = anyFellowOnEPRotation(dateISO, setup);
       if (hasEPFellow) {
         const deviceCount = assignments.filter(a => a.clinicType === "DEVICE").length;
@@ -994,11 +1016,11 @@ export function checkSpecialtyClinicCoverage(
     }
     
     // Check EP clinic requirement based on settings
-    const settings = loadSettings();
-    const epClinic = settings.clinics.specialClinics.ep;
-    const weekOfMonth = getWeekOfMonth(date);
+    const effectiveWeekOfMonthEP = weekOfMonth > 4 && epClinic.weekOfMonth.includes(4) 
+      ? 4 
+      : weekOfMonth;
     
-    if (dayOfWeek === epClinic.dayOfWeek && epClinic.weekOfMonth.includes(weekOfMonth)) {
+    if (dayOfWeek === epClinic.dayOfWeek && epClinic.weekOfMonth.includes(effectiveWeekOfMonthEP)) {
       const hasEPFellow = anyFellowOnEPRotation(dateISO, setup);
       if (hasEPFellow) {
         const epCount = assignments.filter(a => a.clinicType === "EP").length;
