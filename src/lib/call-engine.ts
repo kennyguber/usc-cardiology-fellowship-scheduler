@@ -3,6 +3,7 @@ import { monthAbbrForIndex } from "@/lib/block-utils";
 import { computeAcademicYearHolidays } from "@/lib/holidays";
 import { loadSchedule, loadSetup, type Fellow, type PGY, type StoredSchedule, type SetupState } from "@/lib/schedule-engine";
 import { loadSettings } from "./settings-engine";
+import { getPrimaryRotation } from "@/lib/rotation-engine";
 
 type CallSchedule = {
   version: 1;
@@ -129,6 +130,60 @@ function isChristmasEveOrNewYearsEve(date: Date): boolean {
   return false;
 }
 
+/**
+ * Check if a fellow would be eligible for a specialty clinic on the next day
+ * Used to prevent assigning primary call the day before their specialty clinic
+ */
+function hasSpecialtyClinicNextDay(
+  fellow: Fellow,
+  currentDate: Date,
+  setup: SetupState,
+  schedByPGY: Record<PGY, StoredSchedule | null>
+): boolean {
+  const settings = loadSettings();
+  const nextDate = addDays(currentDate, 1);
+  const nextDayOfWeek = nextDate.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+  const nextDateISO = toISODate(nextDate);
+  
+  // Skip if next day is a holiday (no clinics)
+  if (isHoliday(nextDateISO, setup)) {
+    return false;
+  }
+  
+  // Get fellow's rotation on the next day
+  const rotation = getRotationOnDate(fellow, nextDate, schedByPGY, setup.yearStart);
+  if (!rotation) return false;
+  
+  const primaryRotation = getPrimaryRotation(rotation as any);
+  
+  // Check each specialty clinic type
+  const specialtyConfigs = [
+    { config: settings.clinics.specialClinics.heartFailure, type: 'HF' },
+    { config: settings.clinics.specialClinics.achd, type: 'ACHD' },
+    { config: settings.clinics.specialClinics.device, type: 'Device' },
+    { config: settings.clinics.specialClinics.ep, type: 'EP' }
+  ];
+  
+  for (const { config } of specialtyConfigs) {
+    // Check if this specialty clinic runs on the next day
+    if (config.dayOfWeek !== nextDayOfWeek) continue;
+    
+    // Check week of month (if the next day falls in the specified weeks)
+    const weekOfMonth = Math.ceil(nextDate.getDate() / 7);
+    if (!config.weekOfMonth.includes(weekOfMonth)) continue;
+    
+    // Check if fellow is eligible (correct rotation and PGY)
+    const isEligibleRotation = config.eligibleRotations.includes(primaryRotation);
+    const isEligiblePGY = config.eligiblePGYs.includes(fellow.pgy);
+    
+    if (isEligibleRotation && isEligiblePGY) {
+      return true; // Fellow has a specialty clinic tomorrow
+    }
+  }
+  
+  return false;
+}
+
 function eligiblePoolByPGY(date: Date, setup: SetupState, schedByPGY: Record<PGY, StoredSchedule | null>) {
   const afterPGY4Start = afterPGY4StartDate(date, setup.yearStart);
   const isWeekend = isWeekendDate(date);
@@ -144,6 +199,11 @@ function eligiblePoolByPGY(date: Date, setup: SetupState, schedByPGY: Record<PGY
     // NEW RULE: Exclude PGY-6 from Christmas Eve and New Year's Eve if setting enabled
     if (f.pgy === "PGY-6" && settings.primaryCall.noPGY6OnHolidayEves && isChristmasEveOrNewYearsEve(date)) {
       continue; // Skip this PGY-6 fellow
+    }
+    
+    // NEW RULE: Exclude fellows who have specialty clinic the next day
+    if (hasSpecialtyClinicNextDay(f, date, setup, schedByPGY)) {
+      continue;
     }
     
     // Rotation exclusions from settings
@@ -663,6 +723,11 @@ function validatePrimaryAssignment(schedule: CallSchedule, dateISO: string, fell
   // Check PGY-6 holiday eve exclusion
   if (fellow.pgy === "PGY-6" && settings.primaryCall.noPGY6OnHolidayEves && isChristmasEveOrNewYearsEve(date)) {
     reasons.push("PGY-6 excluded from Christmas Eve and New Year's Eve calls");
+  }
+  
+  // Check if fellow has specialty clinic next day
+  if (hasSpecialtyClinicNextDay(fellow, date, setup, schedByPGY)) {
+    reasons.push("Has specialty clinic scheduled for tomorrow");
   }
 
   return { ok: reasons.length === 0, reasons: reasons.length ? reasons : undefined };
