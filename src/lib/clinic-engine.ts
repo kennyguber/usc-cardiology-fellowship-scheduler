@@ -302,7 +302,12 @@ export function buildClinicSchedule(
       clinicType: 'HEART_FAILURE' | 'ACHD' | 'DEVICE' | 'EP'
     ) => {
       // Check if this clinic should run today
-      if (dayOfWeek !== clinicConfig.dayOfWeek || !clinicConfig.weekOfMonth.includes(weekOfMonth)) {
+      // If week 4 is configured, treat it as including week 5+ (rest of month)
+      const effectiveWeekOfMonth = weekOfMonth > 4 && clinicConfig.weekOfMonth.includes(4) 
+        ? 4 
+        : weekOfMonth;
+      
+      if (dayOfWeek !== clinicConfig.dayOfWeek || !clinicConfig.weekOfMonth.includes(effectiveWeekOfMonth)) {
         return;
       }
       
