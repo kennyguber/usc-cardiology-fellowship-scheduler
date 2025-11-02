@@ -149,8 +149,6 @@ export interface SchedulerSettings {
       special: string[];
     };
     excludePostCall: boolean;
-    excludeHolidays: boolean;
-    skipWeekWithSpecialClinic: boolean;
   };
   
   // AMBULATORY FELLOW RULES
@@ -304,8 +302,6 @@ export const DEFAULT_SETTINGS: SchedulerSettings = {
       special: ["VAC"],
     },
     excludePostCall: true,
-    excludeHolidays: true,
-    skipWeekWithSpecialClinic: true,
   },
   
   ambulatoryFellow: {

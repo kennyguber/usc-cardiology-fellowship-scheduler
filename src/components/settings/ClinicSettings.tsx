@@ -232,38 +232,6 @@ export function ClinicSettings({ settings, onUpdate }: ClinicSettingsProps) {
               }
             />
           </div>
-
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label htmlFor="exclude-holidays">Exclude Holidays</Label>
-              <p className="text-sm text-muted-foreground">
-                No clinic assignments on holidays
-              </p>
-            </div>
-            <Switch
-              id="exclude-holidays"
-              checked={settings.excludeHolidays}
-              onCheckedChange={(checked) =>
-                onUpdate({ excludeHolidays: checked })
-              }
-            />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label htmlFor="skip-week">Skip Week with Special Clinic</Label>
-              <p className="text-sm text-muted-foreground">
-                Skip general clinic week if fellow has a special clinic
-              </p>
-            </div>
-            <Switch
-              id="skip-week"
-              checked={settings.skipWeekWithSpecialClinic}
-              onCheckedChange={(checked) =>
-                onUpdate({ skipWeekWithSpecialClinic: checked })
-              }
-            />
-          </div>
         </CardContent>
       </Card>
 
