@@ -54,6 +54,9 @@ function isHoliday(dateISO: string, setup: SetupState): boolean {
 }
 
 function dateToBlockKey(dateISO: string, yearStartISO: string): string | undefined {
+  const settings = loadSettings();
+  const blockLengthWeeks = settings.ambulatoryFellow.blockLengthWeeks;
+  
   const date = parseISO(dateISO);
   const yearStart = parseISO(yearStartISO);
   
@@ -63,16 +66,27 @@ function dateToBlockKey(dateISO: string, yearStartISO: string): string | undefin
   const yearEnd = new Date(yearStart.getFullYear() + 1, 5, 30); // June 30 of next year
   if (isAfter(date, yearEnd)) return undefined;
   
-  const dayOfMonth = date.getDate();
-  const monthIndex = (date.getMonth() - yearStart.getMonth() + 12) % 12;
+  // For 2-week blocks, use legacy format for compatibility with existing schedules
+  if (blockLengthWeeks === 2) {
+    const dayOfMonth = date.getDate();
+    const monthIndex = (date.getMonth() - yearStart.getMonth() + 12) % 12;
+    
+    const monthNames = ["JUL", "AUG", "SEP", "OCT", "NOV", "DEC", "JAN", "FEB", "MAR", "APR", "MAY", "JUN"];
+    const monthAbbr = monthNames[monthIndex];
+    
+    // First half (1-15) or second half (16-end)
+    const half = dayOfMonth <= 15 ? "1" : "2";
+    
+    return `${monthAbbr}${half}`;
+  }
   
-  const monthNames = ["JUL", "AUG", "SEP", "OCT", "NOV", "DEC", "JAN", "FEB", "MAR", "APR", "MAY", "JUN"];
-  const monthAbbr = monthNames[monthIndex];
+  // For other block lengths, calculate from year start
+  const daysSinceStart = Math.floor((date.getTime() - yearStart.getTime()) / (1000 * 60 * 60 * 24));
+  const daysPerBlock = blockLengthWeeks * 7;
+  const blockNumber = Math.floor(daysSinceStart / daysPerBlock) + 1;
   
-  // First half (1-15) or second half (16-end)
-  const half = dayOfMonth <= 15 ? "1" : "2";
-  
-  return `${monthAbbr}${half}`;
+  // Format: "BLOCK-1", "BLOCK-2", etc.
+  return `BLOCK-${blockNumber}`;
 }
 
 export function getFellowRotationOnDate(fellowId: string, dateISO: string): Rotation | undefined {
@@ -405,10 +419,17 @@ export function getBlockKeyForDate(dateISO: string, yearStartISO: string): strin
 
 // Assign Ambulatory Fellows according to the rules
 function assignAmbulatoryFellows(schedule: ClinicSchedule, setup: SetupState): void {
-  const { days } = july1ToJune30Window(setup.yearStart);
+  // Load settings
+  const settings = loadSettings();
+  const { 
+    blockLengthWeeks,
+    maxAssignmentsPerFellow, 
+    eligiblePGYs, 
+    rotationPriority,
+    noConsecutiveBlocks 
+  } = settings.ambulatoryFellow;
   
-  // Priority order for rotations
-  const rotationPriority: Array<Rotation | string> = ['NUCLEAR', 'NONINVASIVE', 'ELECTIVE', 'EP'];
+  const { days } = july1ToJune30Window(setup.yearStart);
   
   // Track current block assignments and previous block's assigned fellow
   let currentBlockKey: string | undefined;
@@ -419,7 +440,7 @@ function assignAmbulatoryFellows(schedule: ClinicSchedule, setup: SetupState): v
     const dateISO = toISODate(date);
     const blockKey = getBlockKeyForDate(dateISO, setup.yearStart);
     
-    // Check if we're starting a new 2-week block
+    // Check if we're starting a new block
     if (blockKey !== currentBlockKey) {
       currentBlockKey = blockKey;
       currentBlockStart = dateISO;
@@ -427,20 +448,20 @@ function assignAmbulatoryFellows(schedule: ClinicSchedule, setup: SetupState): v
       // Try to assign an ambulatory fellow for this block
       let assignedFellow: string | null = null;
       
-      // Try each rotation in priority order
+      // Try each rotation in priority order (from settings)
       for (const targetRotation of rotationPriority) {
         if (assignedFellow) break;
         
-        // Find PGY-5 or PGY-6 fellows on this rotation during this block
+        // Find eligible fellows based on settings
         const eligibleFellows = setup.fellows.filter(fellow => {
-          // Must be PGY-5 or PGY-6
-          if (fellow.pgy !== "PGY-5" && fellow.pgy !== "PGY-6") return false;
+          // Check PGY eligibility from settings
+          if (!eligiblePGYs.includes(fellow.pgy)) return false;
           
-          // Must not have 3 assignments already
-          if ((schedule.ambulatoryCountsByFellow?.[fellow.id] ?? 0) >= 3) return false;
+          // Check max assignments from settings
+          if ((schedule.ambulatoryCountsByFellow?.[fellow.id] ?? 0) >= maxAssignmentsPerFellow) return false;
           
-          // Cannot be the same fellow as the previous block (no consecutive assignments)
-          if (fellow.id === previousBlockFellow) return false;
+          // Check consecutive blocks rule from settings
+          if (noConsecutiveBlocks && fellow.id === previousBlockFellow) return false;
           
           // Check if fellow is on the target rotation during this block
           const rotation = getFellowRotationOnDate(fellow.id, dateISO);
@@ -1081,7 +1102,9 @@ export function checkSpecialtyClinicCoverage(
 
 // Get eligible ambulatory fellows for a specific block
 export function getEligibleAmbulatoryFellows(blockKey: string, schedule: ClinicSchedule, setup: SetupState): Fellow[] {
-  const rotationPriority: Array<string> = ['NUCLEAR', 'NONINVASIVE', 'ELECTIVE', 'EP'];
+  // Load settings
+  const settings = loadSettings();
+  const { maxAssignmentsPerFellow, eligiblePGYs, rotationPriority, noConsecutiveBlocks } = settings.ambulatoryFellow;
   
   // Find the first date in this block to check rotations
   const { days } = july1ToJune30Window(setup.yearStart);
@@ -1098,16 +1121,17 @@ export function getEligibleAmbulatoryFellows(blockKey: string, schedule: ClinicS
   
   const eligible: Fellow[] = [];
   
+  // Use rotation priority from settings
   for (const targetRotation of rotationPriority) {
     const fellowsOnRotation = setup.fellows.filter(fellow => {
-      // Must be PGY-5 or PGY-6
-      if (fellow.pgy !== "PGY-5" && fellow.pgy !== "PGY-6") return false;
+      // Check PGY eligibility from settings
+      if (!eligiblePGYs.includes(fellow.pgy)) return false;
       
-      // Must not have 3 assignments already
-      if ((schedule.ambulatoryCountsByFellow?.[fellow.id] ?? 0) >= 3) return false;
+      // Check max assignments from settings
+      if ((schedule.ambulatoryCountsByFellow?.[fellow.id] ?? 0) >= maxAssignmentsPerFellow) return false;
       
-      // Cannot be the same fellow as the previous block
-      if (fellow.id === prevBlockFellow) return false;
+      // Check consecutive blocks rule from settings
+      if (noConsecutiveBlocks && fellow.id === prevBlockFellow) return false;
       
       // Check if fellow is on the target rotation during this block
       const rotation = getFellowRotationOnDate(fellow.id, dateISO);
@@ -1131,6 +1155,10 @@ export function getEligibleAmbulatoryFellows(blockKey: string, schedule: ClinicS
 
 // Get ineligible ambulatory fellows with reasons
 export function getIneligibleAmbulatoryReasons(blockKey: string, schedule: ClinicSchedule, setup: SetupState): Array<{ fellow: Fellow; reasons: string[] }> {
+  // Load settings
+  const settings = loadSettings();
+  const { maxAssignmentsPerFellow, eligiblePGYs, rotationPriority, noConsecutiveBlocks } = settings.ambulatoryFellow;
+  
   const { days } = july1ToJune30Window(setup.yearStart);
   const firstDateInBlock = days.find(date => {
     const dateISO = toISODate(date);
@@ -1150,28 +1178,27 @@ export function getIneligibleAmbulatoryReasons(blockKey: string, schedule: Clini
     
     const reasons: string[] = [];
     
-    // Check PGY level
-    if (fellow.pgy !== "PGY-5" && fellow.pgy !== "PGY-6") {
-      reasons.push("Not PGY-5 or PGY-6");
+    // Check PGY level using settings
+    if (!eligiblePGYs.includes(fellow.pgy)) {
+      reasons.push(`Not eligible PGY level (${eligiblePGYs.join(", ")} required)`);
     }
     
-    // Check assignment count
+    // Check assignment count using settings
     const count = schedule.ambulatoryCountsByFellow?.[fellow.id] ?? 0;
-    if (count >= 3) {
-      reasons.push(`Already has maximum 3 assignments (${count})`);
+    if (count >= maxAssignmentsPerFellow) {
+      reasons.push(`Already has maximum ${maxAssignmentsPerFellow} assignments (${count})`);
     }
     
-    // Check consecutive block rule
-    if (fellow.id === prevBlockFellow) {
-      reasons.push("Assigned to previous block (no consecutive assignments allowed)");
+    // Check consecutive block rule from settings
+    if (noConsecutiveBlocks && fellow.id === prevBlockFellow) {
+      reasons.push("Assigned to previous block (no consecutive assignments)");
     }
     
-    // Check rotation
+    // Check rotation using settings
     const rotation = getFellowRotationOnDate(fellow.id, dateISO);
     const primaryRotation = rotation ? getPrimaryRotation(rotation) : undefined;
-    const eligibleRotations = ['NUCLEAR', 'NONINVASIVE', 'ELECTIVE', 'EP'];
-    if (primaryRotation && !eligibleRotations.includes(primaryRotation)) {
-      reasons.push(`Not on eligible rotation (on ${primaryRotation})`);
+    if (primaryRotation && !rotationPriority.includes(primaryRotation)) {
+      reasons.push(`Not on eligible rotation (on ${primaryRotation}, eligible: ${rotationPriority.join(", ")})`);
     } else if (!primaryRotation) {
       reasons.push("Rotation not found for this block");
     }

@@ -15,6 +15,7 @@ import {
   type ClinicSchedule 
 } from "@/lib/clinic-engine";
 import { getPrimaryRotation } from "@/lib/rotation-engine";
+import { loadSettings } from "@/lib/settings-engine";
 
 type AmbulatoryEditDialogProps = {
   iso: string | null;
@@ -29,6 +30,8 @@ export default function AmbulatoryEditDialog({ iso, schedule, open, onClose, onA
   const { toast } = useToast();
   
   const setup = loadSetup();
+  const settings = loadSettings();
+  const blockLengthWeeks = settings.ambulatoryFellow.blockLengthWeeks;
   const fellowById = setup ? Object.fromEntries(setup.fellows.map(f => [f.id, f])) : {};
 
   // Get block key and calculate ambulatory stats
@@ -95,7 +98,7 @@ export default function AmbulatoryEditDialog({ iso, schedule, open, onClose, onA
         
         <div className="space-y-6">
           <div className="text-sm text-muted-foreground">
-            {formatDate(iso)} • 2-week block assignment
+            {formatDate(iso)} • {blockLengthWeeks}-week block assignment
           </div>
 
           {/* Current Assignment */}
