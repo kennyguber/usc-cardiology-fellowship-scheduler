@@ -6,6 +6,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { loadSetup, type Fellow } from "@/lib/schedule-engine";
+import { loadSettings } from "@/lib/settings-engine";
 import { 
   getEligibleAmbulatoryFellows, 
   getIneligibleAmbulatoryReasons,
@@ -29,6 +30,7 @@ export default function AmbulatoryEditDialog({ iso, schedule, open, onClose, onA
   const { toast } = useToast();
   
   const setup = loadSetup();
+  const settings = loadSettings();
   const fellowById = setup ? Object.fromEntries(setup.fellows.map(f => [f.id, f])) : {};
 
   // Get block key and calculate ambulatory stats
@@ -95,7 +97,7 @@ export default function AmbulatoryEditDialog({ iso, schedule, open, onClose, onA
         
         <div className="space-y-6">
           <div className="text-sm text-muted-foreground">
-            {formatDate(iso)} • 2-week block assignment
+            {formatDate(iso)} • {settings.ambulatoryFellow.blockLengthWeeks}-week block assignment
           </div>
 
           {/* Current Assignment */}
