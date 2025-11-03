@@ -63,17 +63,21 @@ function dateToBlockKey(dateISO: string, yearStartISO: string, blockLengthWeeks:
   const yearEnd = new Date(yearStart.getFullYear() + 1, 5, 30); // June 30 of next year
   if (isAfter(date, yearEnd)) return undefined;
   
-  // Calculate days from year start
-  const daysSinceStart = Math.floor((date.getTime() - yearStart.getTime()) / (1000 * 60 * 60 * 24));
-  
-  // Calculate which block this falls into (0-indexed)
-  const daysPerBlock = blockLengthWeeks * 7;
-  const blockIndex = Math.floor(daysSinceStart / daysPerBlock);
-  
-  // Determine which month this date falls in (for the block key)
   const monthIndex = (date.getMonth() - yearStart.getMonth() + 12) % 12;
   const monthNames = ["JUL", "AUG", "SEP", "OCT", "NOV", "DEC", "JAN", "FEB", "MAR", "APR", "MAY", "JUN"];
   const monthAbbr = monthNames[monthIndex];
+  
+  // For backward compatibility with existing rotation schedules:
+  // When blockLengthWeeks is 2, use the old format (JUL1, JUL2)
+  if (blockLengthWeeks === 2) {
+    const dayOfMonth = date.getDate();
+    const half = dayOfMonth <= 15 ? "1" : "2";
+    return `${monthAbbr}${half}`;
+  }
+  
+  // For other block lengths, use new format (JUL-B1, JUL-B2, etc.)
+  const daysSinceStart = Math.floor((date.getTime() - yearStart.getTime()) / (1000 * 60 * 60 * 24));
+  const daysPerBlock = blockLengthWeeks * 7;
   
   // Calculate which block number within this month
   const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
