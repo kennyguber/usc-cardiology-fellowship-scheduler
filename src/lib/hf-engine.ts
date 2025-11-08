@@ -390,6 +390,19 @@ function isEligibleForHolidayHF(
         return { eligible: false, reason: "Primary call conflict during holiday block" };
       }
     }
+    
+    // Check for Friday conflicts before weekend days in the holiday block
+    for (const blockDate of holidayBlock.dates) {
+      // If this date is a Saturday, check the Friday before
+      if (blockDate.getDay() === 6) { // Saturday
+        const fridayBefore = addDays(blockDate, -1);
+        const fridayISO = toISODate(fridayBefore);
+        
+        if (primarySchedule.days[fridayISO] === fellow.id) {
+          return { eligible: false, reason: "Primary call conflict (Friday before holiday weekend)" };
+        }
+      }
+    }
   }
   
   // Check minimum spacing between HF assignments (configurable)
