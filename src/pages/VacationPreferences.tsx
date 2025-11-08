@@ -321,6 +321,14 @@ export default function VacationPreferences() {
 
     const settings = loadSettings();
     
+    // Get available clinic days from settings
+    const dayMap: Record<number, string> = {
+      1: "Monday", 2: "Tuesday", 3: "Wednesday", 4: "Thursday", 5: "Friday"
+    };
+    const availableClinicDays = settings.clinics.generalClinicDays
+      .map(dayNum => dayMap[dayNum])
+      .filter(Boolean) as ("Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday")[];
+    
     const updatedFellows = setup.fellows.map(fellow => {
       const allowedFirstHalfMonths = monthsJulDec.filter(m => {
         // Check July restriction from settings
@@ -332,8 +340,14 @@ export default function VacationPreferences() {
       const firstHalfPrefs = getRandomBlocksForHalf(allowedFirstHalfMonths, 2);
       const secondHalfPrefs = getRandomBlocksForHalf(monthsJanJun, 2);
       
+      // Randomly assign clinic day from available options
+      const randomClinicDay = availableClinicDays.length > 0
+        ? availableClinicDays[Math.floor(Math.random() * availableClinicDays.length)]
+        : undefined;
+      
       return {
         ...fellow,
+        clinicDay: randomClinicDay,
         vacationPrefs: [
           firstHalfPrefs[0],
           firstHalfPrefs[1],
@@ -344,7 +358,7 @@ export default function VacationPreferences() {
     });
 
     save({ ...setup, fellows: updatedFellows });
-    toast({ title: "Randomized", description: `Assigned random vacation preferences to ${setup.fellows.length} fellows.` });
+    toast({ title: "Randomized", description: `Assigned random vacation preferences and clinic days to ${setup.fellows.length} fellows.` });
   };
 
   const updateFellow = (id: string, next: Fellow) => {
