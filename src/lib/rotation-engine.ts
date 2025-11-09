@@ -87,6 +87,35 @@ function cloneByFellow(src: FellowSchedule): FellowSchedule {
   return out;
 }
 
+// Detect if multiple fellows have vacation in the same block
+function detectSharedVacations(existingByFellow: FellowSchedule | undefined): Map<string, string[]> {
+  const sharedVacs = new Map<string, string[]>();
+  
+  if (!existingByFellow) return sharedVacs;
+  
+  const vacsByBlock = new Map<string, string[]>();
+  
+  // Group fellows by vacation blocks
+  for (const [fellowId, schedule] of Object.entries(existingByFellow)) {
+    for (const [blockKey, rotation] of Object.entries(schedule)) {
+      if (rotation === "VAC") {
+        const fellows = vacsByBlock.get(blockKey) || [];
+        fellows.push(fellowId);
+        vacsByBlock.set(blockKey, fellows);
+      }
+    }
+  }
+  
+  // Find blocks with multiple vacations
+  for (const [blockKey, fellowIds] of vacsByBlock) {
+    if (fellowIds.length > 1) {
+      sharedVacs.set(blockKey, fellowIds);
+    }
+  }
+  
+  return sharedVacs;
+}
+
 export function placePGY4Rotations(
   fellows: Fellow[],
   blocks: BlockInfo[],
@@ -707,6 +736,68 @@ if (needCCU > 0) {
   }
 
   diagnostics.lastAttemptDetails = `Failed after ${totalTried} attempts across ${strategies.length} strategies`;
+  
+  // Before failing completely, try vacation-to-elective fallback
+  const sharedVacations = detectSharedVacations(existingByFellow);
+  
+  if (sharedVacations.size > 0) {
+    console.log(`🔄 PGY-4: Attempting vacation-to-elective fallback for ${sharedVacations.size} shared vacation blocks`);
+    diagnostics.constraintViolations.push(`Detected shared vacations in blocks: ${Array.from(sharedVacations.keys()).join(", ")}`);
+    
+    // Convert one vacation per shared block to ELECTIVE temporarily
+    const modifiedBase = cloneByFellow(existingByFellow || {});
+    const conversions: Array<{fellowId: string, blockKey: string}> = [];
+    
+    for (const [blockKey, fellowIds] of sharedVacations) {
+      // Convert the SECOND fellow's vacation to ELECTIVE (keep first fellow's VAC)
+      if (fellowIds.length >= 2) {
+        const fellowToConvert = fellowIds[1];
+        if (modifiedBase[fellowToConvert]) {
+          modifiedBase[fellowToConvert][blockKey] = "ELECTIVE";
+          conversions.push({ fellowId: fellowToConvert, blockKey });
+        }
+      }
+    }
+    
+    console.log(`🔄 PGY-4: Converted ${conversions.length} vacations to ELECTIVE, retrying...`);
+    
+    // Try solving with modified base using a subset of attempts
+    const fallbackMaxTries = Math.min(500, maxTries);
+    let fallbackTried = 0;
+    
+    for (let t = 0; t < fallbackMaxTries; t++) {
+      if (Date.now() - startTime > timeout) break;
+      
+      const res = tryOnce();
+      fallbackTried++;
+      
+      if (res.success) {
+        // SUCCESS! Convert ELECTIVE back to VAC
+        for (const {fellowId, blockKey} of conversions) {
+          if (res.byFellow[fellowId]) {
+            res.byFellow[fellowId][blockKey] = "VAC";
+          }
+        }
+        
+        console.log(`✅ PGY-4: Vacation fallback successful! Restored ${conversions.length} vacations.`);
+        diagnostics.constraintViolations.push(
+          `Fallback successful: temporarily converted ${conversions.length} vacation(s) to elective during solving`
+        );
+        diagnostics.lastAttemptDetails = `Succeeded using vacation-to-elective fallback for shared vacation blocks (tried ${fallbackTried} times)`;
+        
+        return {
+          ...res,
+          tried: totalTried + fallbackTried,
+          diagnostics
+        };
+      }
+    }
+    
+    console.log(`❌ PGY-4: Vacation fallback also failed after ${fallbackTried} attempts`);
+    diagnostics.constraintViolations.push(`Vacation-to-elective fallback also failed (tried ${fallbackTried} times)`);
+    diagnostics.lastAttemptDetails += ` | Fallback also failed after ${fallbackTried} additional attempts`;
+  }
+  
   return { 
     success: false, 
     byFellow: {}, 
@@ -1215,6 +1306,69 @@ export function placePGY5Rotations(
   }
 
   diagnostics.lastAttemptDetails = `Failed after ${totalTried} attempts across ${constraintLevels.length} constraint levels and ${strategies.length} strategies`;
+  
+  // Before failing completely, try vacation-to-elective fallback
+  const sharedVacations = detectSharedVacations(existingByFellow);
+  
+  if (sharedVacations.size > 0) {
+    console.log(`🔄 PGY-5: Attempting vacation-to-elective fallback for ${sharedVacations.size} shared vacation blocks`);
+    diagnostics.constraintViolations.push(`Detected shared vacations in blocks: ${Array.from(sharedVacations.keys()).join(", ")}`);
+    
+    // Convert one vacation per shared block to ELECTIVE temporarily
+    const modifiedBase = cloneByFellow(existingByFellow || {});
+    const conversions: Array<{fellowId: string, blockKey: string}> = [];
+    
+    for (const [blockKey, fellowIds] of sharedVacations) {
+      // Convert the SECOND fellow's vacation to ELECTIVE (keep first fellow's VAC)
+      if (fellowIds.length >= 2) {
+        const fellowToConvert = fellowIds[1];
+        if (modifiedBase[fellowToConvert]) {
+          modifiedBase[fellowToConvert][blockKey] = "ELECTIVE";
+          conversions.push({ fellowId: fellowToConvert, blockKey });
+        }
+      }
+    }
+    
+    console.log(`🔄 PGY-5: Converted ${conversions.length} vacations to ELECTIVE, retrying...`);
+    
+    // Try solving with modified base using relaxed constraints
+    const fallbackMaxTries = Math.min(1000, maxTries);
+    let fallbackTried = 0;
+    
+    // Use most relaxed constraints for fallback
+    for (let t = 0; t < fallbackMaxTries; t++) {
+      if (Date.now() - startTime > timeout) break;
+      
+      const res = tryOnce('randomized', 'minimal');
+      fallbackTried++;
+      
+      if (res.success) {
+        // SUCCESS! Convert ELECTIVE back to VAC
+        for (const {fellowId, blockKey} of conversions) {
+          if (res.byFellow[fellowId]) {
+            res.byFellow[fellowId][blockKey] = "VAC";
+          }
+        }
+        
+        console.log(`✅ PGY-5: Vacation fallback successful! Restored ${conversions.length} vacations.`);
+        diagnostics.constraintViolations.push(
+          `Fallback successful: temporarily converted ${conversions.length} vacation(s) to elective during solving`
+        );
+        diagnostics.lastAttemptDetails = `Succeeded using vacation-to-elective fallback for shared vacation blocks (tried ${fallbackTried} times with minimal constraints)`;
+        
+        return {
+          ...res,
+          tried: totalTried + fallbackTried,
+          diagnostics
+        };
+      }
+    }
+    
+    console.log(`❌ PGY-5: Vacation fallback also failed after ${fallbackTried} attempts`);
+    diagnostics.constraintViolations.push(`Vacation-to-elective fallback also failed (tried ${fallbackTried} times)`);
+    diagnostics.lastAttemptDetails += ` | Fallback also failed after ${fallbackTried} additional attempts`;
+  }
+  
   return { 
     success: false, 
     byFellow: {}, 
@@ -1813,6 +1967,68 @@ export function placePGY6Rotations(
   }
 
   diagnostics.lastAttemptDetails = `Failed after ${totalTried} attempts across ${strategies.length} strategies`;
+  
+  // Before failing completely, try vacation-to-elective fallback
+  const sharedVacations = detectSharedVacations(existingByFellow);
+  
+  if (sharedVacations.size > 0) {
+    console.log(`🔄 PGY-6: Attempting vacation-to-elective fallback for ${sharedVacations.size} shared vacation blocks`);
+    diagnostics.constraintViolations.push(`Detected shared vacations in blocks: ${Array.from(sharedVacations.keys()).join(", ")}`);
+    
+    // Convert one vacation per shared block to ELECTIVE temporarily
+    const modifiedBase = cloneByFellow(existingByFellow || {});
+    const conversions: Array<{fellowId: string, blockKey: string}> = [];
+    
+    for (const [blockKey, fellowIds] of sharedVacations) {
+      // Convert the SECOND fellow's vacation to ELECTIVE (keep first fellow's VAC)
+      if (fellowIds.length >= 2) {
+        const fellowToConvert = fellowIds[1];
+        if (modifiedBase[fellowToConvert]) {
+          modifiedBase[fellowToConvert][blockKey] = "ELECTIVE";
+          conversions.push({ fellowId: fellowToConvert, blockKey });
+        }
+      }
+    }
+    
+    console.log(`🔄 PGY-6: Converted ${conversions.length} vacations to ELECTIVE, retrying...`);
+    
+    // Try solving with modified base using a subset of attempts
+    const fallbackMaxTries = Math.min(500, maxTries);
+    let fallbackTried = 0;
+    
+    for (let t = 0; t < fallbackMaxTries; t++) {
+      if (Date.now() - startTime > timeout) break;
+      
+      const res = tryOnce();
+      fallbackTried++;
+      
+      if (res.success) {
+        // SUCCESS! Convert ELECTIVE back to VAC
+        for (const {fellowId, blockKey} of conversions) {
+          if (res.byFellow[fellowId]) {
+            res.byFellow[fellowId][blockKey] = "VAC";
+          }
+        }
+        
+        console.log(`✅ PGY-6: Vacation fallback successful! Restored ${conversions.length} vacations.`);
+        diagnostics.constraintViolations.push(
+          `Fallback successful: temporarily converted ${conversions.length} vacation(s) to elective during solving`
+        );
+        diagnostics.lastAttemptDetails = `Succeeded using vacation-to-elective fallback for shared vacation blocks (tried ${fallbackTried} times)`;
+        
+        return {
+          ...res,
+          tried: totalTried + fallbackTried,
+          diagnostics
+        };
+      }
+    }
+    
+    console.log(`❌ PGY-6: Vacation fallback also failed after ${fallbackTried} attempts`);
+    diagnostics.constraintViolations.push(`Vacation-to-elective fallback also failed (tried ${fallbackTried} times)`);
+    diagnostics.lastAttemptDetails += ` | Fallback also failed after ${fallbackTried} additional attempts`;
+  }
+  
   return { 
     success: false, 
     byFellow: {}, 

@@ -794,7 +794,15 @@ const handlePlaceRotations = () => {
     const next: StoredSchedule = { version: 1, pgy: activePGY, byFellow: res.byFellow };
     saveSchedule(activePGY, next);
     setSchedule(next);
-    toast({ title: "Rotations placed", description: "PGY-4 rotations reshuffled from vacations." });
+    
+    // Show success message with fallback info if applicable
+    const usedFallback = res.diagnostics?.lastAttemptDetails?.includes("fallback");
+    toast({ 
+      title: usedFallback ? "Schedule generated with conflict resolution" : "Rotations placed",
+      description: usedFallback 
+        ? "Shared vacation conflicts were automatically resolved during generation." 
+        : "PGY-4 rotations reshuffled from vacations."
+    });
   };
 
   const handlePlaceRotationsPGY5 = () => {
@@ -834,7 +842,15 @@ const handlePlaceRotations = () => {
     const next: StoredSchedule = { version: 1, pgy: activePGY, byFellow: res.byFellow };
     saveSchedule(activePGY, next);
     setSchedule(next);
-    toast({ title: "Rotations placed", description: "PGY-5 rotations assigned." });
+    
+    // Show success message with fallback info if applicable
+    const usedFallback = res.diagnostics?.lastAttemptDetails?.includes("fallback");
+    toast({ 
+      title: usedFallback ? "Schedule generated with conflict resolution" : "Rotations placed",
+      description: usedFallback 
+        ? "Shared vacation conflicts were automatically resolved during generation." 
+        : "PGY-5 rotations assigned."
+    });
   };
 
   const handlePlaceRotationsPGY6 = () => {
@@ -873,7 +889,15 @@ const handlePlaceRotations = () => {
     const next: StoredSchedule = { version: 1, pgy: activePGY, byFellow: res.byFellow };
     saveSchedule(activePGY, next);
     setSchedule(next);
-    toast({ title: "Rotations placed", description: "PGY-6 rotations assigned." });
+    
+    // Show success message with fallback info if applicable
+    const usedFallback = res.diagnostics?.lastAttemptDetails?.includes("fallback");
+    toast({ 
+      title: usedFallback ? "Schedule generated with conflict resolution" : "Rotations placed",
+      description: usedFallback 
+        ? "Shared vacation conflicts were automatically resolved during generation." 
+        : "PGY-6 rotations assigned."
+    });
   };
 
   const handleClearRotations = () => {
