@@ -158,8 +158,8 @@ export function placePGY4Rotations(
     diagnostics.failureReasons[reason] = (diagnostics.failureReasons[reason] || 0) + 1;
   }
 
-  function tryOnce(): SolveRotationsResult {
-    const byFellow: FellowSchedule = cloneByFellow(existingByFellow || {});
+  function tryOnce(baseOverride?: FellowSchedule, forbiddenSlots?: Map<string, Set<string>>): SolveRotationsResult {
+    const byFellow: FellowSchedule = cloneByFellow(baseOverride || existingByFellow || {});
     // Track capacity per rotation (one fellow per rotation per block). ELECTIVE has no capacity limit.
     const usedByRot: Record<string, Set<string>> = {
       VAC: new Set<string>(),
@@ -182,6 +182,8 @@ export function placePGY4Rotations(
       if (fellowId) {
         const fellowSchedule = byFellow[fellowId] || {};
         if (fellowSchedule[k] === "VAC") return true;
+        // Check forbidden slots - prevents assignments in temporarily converted blocks
+        if (forbiddenSlots?.get(fellowId)?.has(k)) return true;
       }
       
       return usedByRot[rot]?.has(k) ?? false;
@@ -761,6 +763,15 @@ if (needCCU > 0) {
     
     console.log(`🔄 PGY-4: Converted ${conversions.length} vacations to ELECTIVE, retrying...`);
     
+    // Build forbidden slots map to prevent assignments in temporarily converted blocks
+    const forbiddenMap = new Map<string, Set<string>>();
+    for (const {fellowId, blockKey} of conversions) {
+      if (!forbiddenMap.has(fellowId)) {
+        forbiddenMap.set(fellowId, new Set());
+      }
+      forbiddenMap.get(fellowId)!.add(blockKey);
+    }
+    
     // Try solving with modified base using a subset of attempts
     const fallbackMaxTries = Math.min(500, maxTries);
     let fallbackTried = 0;
@@ -768,7 +779,7 @@ if (needCCU > 0) {
     for (let t = 0; t < fallbackMaxTries; t++) {
       if (Date.now() - startTime > timeout) break;
       
-      const res = tryOnce();
+      const res = tryOnce(modifiedBase, forbiddenMap);
       fallbackTried++;
       
       if (res.success) {
@@ -876,8 +887,8 @@ export function placePGY5Rotations(
     };
   }
 
-  function tryOnce(strategy = 'default', constraintLevel: ConstraintLevel = 'strict'): SolveRotationsResult {
-    const byFellow: FellowSchedule = cloneByFellow(existingByFellow || {});
+  function tryOnce(strategy = 'default', constraintLevel: ConstraintLevel = 'strict', baseOverride?: FellowSchedule, forbiddenSlots?: Map<string, Set<string>>): SolveRotationsResult {
+    const byFellow: FellowSchedule = cloneByFellow(baseOverride || existingByFellow || {});
     const constraints = getConstraintSettings(constraintLevel);
     
     if (constraintLevel !== 'strict') {
@@ -907,6 +918,8 @@ export function placePGY5Rotations(
       if (fellowId) {
         const fellowSchedule = byFellow[fellowId] || {};
         if (fellowSchedule[k] === "VAC") return true;
+        // Check forbidden slots - prevents assignments in temporarily converted blocks
+        if (forbiddenSlots?.get(fellowId)?.has(k)) return true;
       }
       
       return false;
@@ -1331,6 +1344,15 @@ export function placePGY5Rotations(
     
     console.log(`🔄 PGY-5: Converted ${conversions.length} vacations to ELECTIVE, retrying...`);
     
+    // Build forbidden slots map to prevent assignments in temporarily converted blocks
+    const forbiddenMap = new Map<string, Set<string>>();
+    for (const {fellowId, blockKey} of conversions) {
+      if (!forbiddenMap.has(fellowId)) {
+        forbiddenMap.set(fellowId, new Set());
+      }
+      forbiddenMap.get(fellowId)!.add(blockKey);
+    }
+    
     // Try solving with modified base using relaxed constraints
     const fallbackMaxTries = Math.min(1000, maxTries);
     let fallbackTried = 0;
@@ -1339,7 +1361,7 @@ export function placePGY5Rotations(
     for (let t = 0; t < fallbackMaxTries; t++) {
       if (Date.now() - startTime > timeout) break;
       
-      const res = tryOnce('randomized', 'minimal');
+      const res = tryOnce('randomized', 'minimal', modifiedBase, forbiddenMap);
       fallbackTried++;
       
       if (res.success) {
@@ -1457,8 +1479,8 @@ export function placePGY6Rotations(
   addCross(p4?.byFellow);
   addCross(p5?.byFellow);
 
-  function tryOnce(): SolveRotationsResult {
-    const byFellow: FellowSchedule = cloneByFellow(existingByFellow || {});
+  function tryOnce(baseOverride?: FellowSchedule, forbiddenSlots?: Map<string, Set<string>>): SolveRotationsResult {
+    const byFellow: FellowSchedule = cloneByFellow(baseOverride || existingByFellow || {});
 
     // Capacity within PGY-6: one fellow per rotation per block (ELECTIVE ignored)
     const usedByRot: Record<string, Set<string>> = {
@@ -1486,6 +1508,8 @@ export function placePGY6Rotations(
       if (fellowId) {
         const fellowSchedule = byFellow[fellowId] || {};
         if (fellowSchedule[k] === "VAC") return true;
+        // Check forbidden slots - prevents assignments in temporarily converted blocks
+        if (forbiddenSlots?.get(fellowId)?.has(k)) return true;
       }
       
       return usedByRot[rot].has(k);
@@ -1992,6 +2016,15 @@ export function placePGY6Rotations(
     
     console.log(`🔄 PGY-6: Converted ${conversions.length} vacations to ELECTIVE, retrying...`);
     
+    // Build forbidden slots map to prevent assignments in temporarily converted blocks
+    const forbiddenMap = new Map<string, Set<string>>();
+    for (const {fellowId, blockKey} of conversions) {
+      if (!forbiddenMap.has(fellowId)) {
+        forbiddenMap.set(fellowId, new Set());
+      }
+      forbiddenMap.get(fellowId)!.add(blockKey);
+    }
+    
     // Try solving with modified base using a subset of attempts
     const fallbackMaxTries = Math.min(500, maxTries);
     let fallbackTried = 0;
@@ -1999,7 +2032,7 @@ export function placePGY6Rotations(
     for (let t = 0; t < fallbackMaxTries; t++) {
       if (Date.now() - startTime > timeout) break;
       
-      const res = tryOnce();
+      const res = tryOnce(modifiedBase, forbiddenMap);
       fallbackTried++;
       
       if (res.success) {
