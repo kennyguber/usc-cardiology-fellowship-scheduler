@@ -1,8 +1,11 @@
 import { Outlet } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { useScrollRestoration } from "@/hooks/use-scroll-restoration";
 
 export default function AppLayout() {
+  useScrollRestoration();
+  
   return (
     <SidebarProvider>
       <AppSidebar />
