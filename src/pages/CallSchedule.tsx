@@ -36,6 +36,7 @@ import {
   useSensors
 } from "@dnd-kit/core";
 import { useToast } from "@/hooks/use-toast";
+import { usePersistentTab } from "@/hooks/use-persistent-tab";
 
 export default function CallSchedule() {
   useSEO({
@@ -90,6 +91,7 @@ export default function CallSchedule() {
   const [exporting, setExporting] = useState(false);
   
   const { toast } = useToast();
+  const [activeScheduleView, setActiveScheduleView] = usePersistentTab('callSchedule-view', 'table');
   const sensors = useSensors(useSensor(PointerSensor, {
     activationConstraint: {
       distance: 8,
@@ -1477,7 +1479,7 @@ export default function CallSchedule() {
               <div className="text-muted-foreground">Please complete Setup first.</div>
             ) : (
               <>
-                <Tabs defaultValue="table">
+                <Tabs value={activeScheduleView} onValueChange={setActiveScheduleView}>
                 <TabsList>
                   <TabsTrigger value="table">Table</TabsTrigger>
                   <TabsTrigger value="calendar">Calendar</TabsTrigger>

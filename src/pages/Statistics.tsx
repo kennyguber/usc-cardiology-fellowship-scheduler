@@ -3,6 +3,7 @@ import { HeartPulse, Loader2, RefreshCcw, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useSEO } from "@/lib/seo";
+import { usePersistentTab } from "@/hooks/use-persistent-tab";
 import { loadSetup } from "@/lib/schedule-engine";
 import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, optimizePGY4WkndHolEquity, type CallSchedule } from "@/lib/call-engine";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -26,6 +27,7 @@ export default function Statistics() {
   const [success, setSuccess] = useState<boolean | null>(null);
   const [optimizing, setOptimizing] = useState(false);
   const [pgy4Stats, setPgy4Stats] = useState<Array<{ id: string; name: string; wkndHolCount: number }>>([]);
+  const [activeTab, setActiveTab] = usePersistentTab('statistics', 'primary');
 
   useEffect(() => {
     const existing = loadCallSchedule();
@@ -79,7 +81,7 @@ export default function Statistics() {
           <HeartPulse className="h-6 w-6 text-primary" /> Statistics
         </h1>
         <div className="ecg-trace-static mt-2 mb-6" />
-        <Tabs defaultValue="primary" className="mt-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-4">
           <TabsList>
             <TabsTrigger value="primary">Primary Call Statistics</TabsTrigger>
             <TabsTrigger value="hf">HF Coverage Statistics</TabsTrigger>

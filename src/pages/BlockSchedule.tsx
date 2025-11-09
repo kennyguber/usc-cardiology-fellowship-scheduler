@@ -22,6 +22,7 @@ import {
 } from "@/lib/schedule-engine";
 import { placePGY4Rotations, placePGY5Rotations, placePGY6Rotations } from "@/lib/rotation-engine";
 import { useToast } from "@/hooks/use-toast";
+import { usePersistentTab } from "@/hooks/use-persistent-tab";
 import type { Rotation } from "@/lib/rotation-engine";
 import BlockEditDialog from "@/components/BlockEditDialog";
 import { VacationConflictDialog } from "@/components/VacationConflictDialog";
@@ -40,7 +41,7 @@ export default function BlockSchedule() {
 
   const { toast } = useToast();
   const setup = loadSetup();
-  const [activePGY, setActivePGY] = useState<PGY | "TOTAL">("PGY-4");
+  const [activePGY, setActivePGY] = usePersistentTab<PGY | "TOTAL">('blockSchedule-pgy', 'PGY-4');
   const [blocks, setBlocks] = useState<BlockInfo[]>(() =>
     generateAcademicYearBlocks(toAcademicYearJuly1(setup?.yearStart ?? new Date().toISOString().slice(0, 10)))
   );

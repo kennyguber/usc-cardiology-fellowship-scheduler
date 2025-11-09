@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Settings as SettingsIcon, Download, Upload, RotateCcw } from "lucide-react";
 import { useSettings } from "@/hooks/use-settings";
+import { usePersistentTab } from "@/hooks/use-persistent-tab";
 import { validateSettings } from "@/lib/settings-validation";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -36,6 +37,7 @@ export default function Settings() {
   } = useSettings();
 
   const [showResetDialog, setShowResetDialog] = useState(false);
+  const [activeTab, setActiveTab] = usePersistentTab('settings', 'vacation');
   const validation = validateSettings(settings);
 
   const handleSave = () => {
@@ -147,7 +149,7 @@ export default function Settings() {
         </Alert>
       )}
 
-      <Tabs defaultValue="vacation" className="space-y-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="vacation">Vacation</TabsTrigger>
           <TabsTrigger value="blocks">Block Rotations</TabsTrigger>
