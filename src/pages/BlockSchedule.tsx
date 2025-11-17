@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { HeartPulse, Download, RefreshCw, Eraser, ChevronUp, ChevronDown } from "lucide-react";
 import { DndContext, DragOverlay, DragStartEvent, DragEndEvent } from "@dnd-kit/core";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,6 +23,7 @@ import {
 import { placePGY4Rotations, placePGY5Rotations, placePGY6Rotations } from "@/lib/rotation-engine";
 import { useToast } from "@/hooks/use-toast";
 import { usePersistentTab } from "@/hooks/use-persistent-tab";
+import { useTabScrollRestoration } from "@/hooks/use-tab-scroll-restoration";
 import type { Rotation } from "@/lib/rotation-engine";
 import BlockEditDialog from "@/components/BlockEditDialog";
 import { VacationConflictDialog } from "@/components/VacationConflictDialog";
@@ -33,6 +34,8 @@ import { getRotationDisplayName, getRotationBadgeVariant } from "@/lib/rotation-
 import ExcelJS from "exceljs";
 
 export default function BlockSchedule() {
+  const location = useLocation();
+  
   useSEO({
     title: "Block Schedule | Cardiology Scheduler",
     description: "Build each PGY year schedule. Step 1: place vacations, then rotations.",
@@ -42,6 +45,8 @@ export default function BlockSchedule() {
   const { toast } = useToast();
   const setup = loadSetup();
   const [activePGY, setActivePGY] = usePersistentTab<PGY | "TOTAL">('blockSchedule-pgy', 'PGY-4');
+  
+  useTabScrollRestoration(location.pathname, activePGY);
   const [blocks, setBlocks] = useState<BlockInfo[]>(() =>
     generateAcademicYearBlocks(toAcademicYearJuly1(setup?.yearStart ?? new Date().toISOString().slice(0, 10)))
   );
