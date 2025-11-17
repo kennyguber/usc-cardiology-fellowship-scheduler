@@ -59,6 +59,9 @@ export default function CallSchedule() {
   const [editISO, setEditISO] = useState<string | null>(null);
   const [draggedItem, setDraggedItem] = useState<{iso: string; fellowId: string; fellowName: string} | null>(null);
   
+  // Cache block schedules to improve dialog performance
+  const [cachedSchedules, setCachedSchedules] = useState<Record<PGY, StoredSchedule | null> | null>(null);
+  
   // HF Edit Dialog state
   const [hfEditISO, setHFEditISO] = useState<string | null>(null);
   
@@ -132,6 +135,13 @@ export default function CallSchedule() {
     
     const existingClinic = loadClinicSchedule();
     if (existingClinic) setClinicSchedule(existingClinic);
+    
+    // Load block schedules once for performance optimization
+    setCachedSchedules({
+      "PGY-4": loadSchedule("PGY-4"),
+      "PGY-5": loadSchedule("PGY-5"),
+      "PGY-6": loadSchedule("PGY-6"),
+    });
   }, []);
 
   useEffect(() => {
@@ -1915,6 +1925,7 @@ export default function CallSchedule() {
                 <PrimaryCallEditDialog
                   iso={editISO}
                   schedule={schedule}
+                  cachedSchedules={cachedSchedules ?? undefined}
                   onClose={() => setEditISO(null)}
                   onApply={(updated) => {
                     setSchedule(updated);

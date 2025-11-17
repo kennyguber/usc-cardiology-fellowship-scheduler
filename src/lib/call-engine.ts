@@ -733,31 +733,64 @@ function validatePrimaryAssignment(schedule: CallSchedule, dateISO: string, fell
   return { ok: reasons.length === 0, reasons: reasons.length ? reasons : undefined };
 }
 
-function listEligiblePrimaryFellows(dateISO: string, schedule: CallSchedule): { id: string; name: string; pgy: PGY }[] {
+// Combined eligibility calculation for optimal performance
+function listAllPrimaryFellowsWithEligibility(
+  dateISO: string, 
+  schedule: CallSchedule,
+  cachedSchedules?: Record<PGY, StoredSchedule | null>
+): {
+  eligible: { id: string; name: string; pgy: PGY }[];
+  ineligible: { id: string; name: string; pgy: PGY; reasons: string[] }[];
+} {
   const setup = loadSetup();
-  if (!setup) return [];
-  const schedByPGY: Record<PGY, StoredSchedule | null> = {
+  if (!setup) return { eligible: [], ineligible: [] };
+  
+  // Use cached schedules if provided, otherwise load them
+  const schedByPGY = cachedSchedules || {
     "PGY-4": loadSchedule("PGY-4"),
     "PGY-5": loadSchedule("PGY-5"),
     "PGY-6": loadSchedule("PGY-6"),
   };
-  const date = parseISO(dateISO);
-  const { pools } = eligiblePoolByPGY(date, setup, schedByPGY);
-  const all = [...pools["PGY-4"], ...pools["PGY-5"], ...pools["PGY-6"]];
-  const eligible = all.filter((f) => validatePrimaryAssignment(schedule, dateISO, f.id).ok);
-  return eligible
-    .map((f) => ({ id: f.id, name: f.name, pgy: f.pgy }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const eligible: { id: string; name: string; pgy: PGY }[] = [];
+  const ineligible: { id: string; name: string; pgy: PGY; reasons: string[] }[] = [];
+
+  // Single pass through all fellows
+  for (const fellow of setup.fellows) {
+    const validation = validatePrimaryAssignment(schedule, dateISO, fellow.id);
+    
+    if (validation.ok) {
+      eligible.push({ id: fellow.id, name: fellow.name, pgy: fellow.pgy });
+    } else {
+      ineligible.push({
+        id: fellow.id,
+        name: fellow.name,
+        pgy: fellow.pgy,
+        reasons: validation.reasons ?? []
+      });
+    }
+  }
+
+  return {
+    eligible: eligible.sort((a, b) => a.name.localeCompare(b.name)),
+    ineligible: ineligible.sort((a, b) => a.name.localeCompare(b.name))
+  };
 }
 
-function listIneligiblePrimaryFellows(dateISO: string, schedule: CallSchedule): { id: string; name: string; pgy: PGY; reasons: string[] }[] {
-  const setup = loadSetup();
-  if (!setup) return [];
-  const items = setup.fellows.map((f) => {
-    const res = validatePrimaryAssignment(schedule, dateISO, f.id);
-    return { id: f.id, name: f.name, pgy: f.pgy, reasons: res.ok ? [] : (res.reasons ?? []) };
-  });
-  return items.filter((i) => i.reasons.length > 0).sort((a, b) => a.name.localeCompare(b.name));
+function listEligiblePrimaryFellows(
+  dateISO: string, 
+  schedule: CallSchedule,
+  cachedSchedules?: Record<PGY, StoredSchedule | null>
+): { id: string; name: string; pgy: PGY }[] {
+  return listAllPrimaryFellowsWithEligibility(dateISO, schedule, cachedSchedules).eligible;
+}
+
+function listIneligiblePrimaryFellows(
+  dateISO: string, 
+  schedule: CallSchedule,
+  cachedSchedules?: Record<PGY, StoredSchedule | null>
+): { id: string; name: string; pgy: PGY; reasons: string[] }[] {
+  return listAllPrimaryFellowsWithEligibility(dateISO, schedule, cachedSchedules).ineligible;
 }
 
 /**
@@ -1151,6 +1184,7 @@ export {
   validatePrimaryAssignment,
   listEligiblePrimaryFellows,
   listIneligiblePrimaryFellows,
+  listAllPrimaryFellowsWithEligibility,
   applyManualPrimaryAssignment,
   isValidPrimarySwap,
   applyPrimarySwap,
