@@ -71,7 +71,7 @@ function getRotationOnDate(fellow: Fellow, date: Date, schedByPGY: Record<PGY, S
 function withinCallLimit(fellow: Fellow, counts: Record<string, number>): boolean {
   const settings = loadSettings();
   const max = settings.primaryCall.maxCalls[fellow.pgy];
-  return (counts[fellow.id] ?? 0) < max;
+  return (counts[fellow.id] ?? 0) <= max;
 }
 
 function hasSpacingOK(fellow: Fellow, lastAssigned: Record<string, string | undefined>, date: Date): boolean {
@@ -997,6 +997,149 @@ function applyDragAndDrop(
   }
 }
 
+/**
+ * Audit the call schedule to detect discrepancies and limit violations
+ */
+function auditCallSchedule(schedule: CallSchedule | null): {
+  fellows: Array<{
+    id: string;
+    name: string;
+    pgy: PGY;
+    actualCalls: number;
+    recordedCalls: number;
+    maxCalls: number;
+    discrepancy: number;
+    exceedsLimit: boolean;
+  }>;
+  totalDiscrepancies: number;
+  totalViolations: number;
+} {
+  const setup = loadSetup();
+  const settings = loadSettings();
+  
+  if (!schedule || !setup) {
+    return { fellows: [], totalDiscrepancies: 0, totalViolations: 0 };
+  }
+
+  // Count actual assignments from schedule.days
+  const actualCounts: Record<string, number> = {};
+  for (const fellowId of Object.values(schedule.days)) {
+    if (fellowId) {
+      actualCounts[fellowId] = (actualCounts[fellowId] ?? 0) + 1;
+    }
+  }
+
+  // Build audit report for each fellow
+  const fellows = setup.fellows.map((fellow) => {
+    const actualCalls = actualCounts[fellow.id] ?? 0;
+    const recordedCalls = schedule.countsByFellow[fellow.id] ?? 0;
+    const maxCalls = settings.primaryCall.maxCalls[fellow.pgy];
+    const discrepancy = actualCalls - recordedCalls;
+    const exceedsLimit = actualCalls > maxCalls;
+
+    return {
+      id: fellow.id,
+      name: fellow.name,
+      pgy: fellow.pgy,
+      actualCalls,
+      recordedCalls,
+      maxCalls,
+      discrepancy,
+      exceedsLimit,
+    };
+  });
+
+  const totalDiscrepancies = fellows.filter((f) => f.discrepancy !== 0).length;
+  const totalViolations = fellows.filter((f) => f.exceedsLimit).length;
+
+  return { fellows, totalDiscrepancies, totalViolations };
+}
+
+/**
+ * Fix count discrepancies by recalculating countsByFellow from actual assignments
+ */
+function recalculateCallCounts(schedule: CallSchedule): CallSchedule {
+  const counts: Record<string, number> = {};
+  
+  for (const fellowId of Object.values(schedule.days)) {
+    if (fellowId) {
+      counts[fellowId] = (counts[fellowId] ?? 0) + 1;
+    }
+  }
+
+  return {
+    ...schedule,
+    countsByFellow: counts,
+  };
+}
+
+/**
+ * Enforce call limits by removing assignments that exceed maximums
+ * Returns a fixed schedule and list of changes made
+ */
+function enforceCallLimits(schedule: CallSchedule): {
+  schedule: CallSchedule;
+  removedAssignments: Array<{ dateISO: string; fellowId: string; reason: string }>;
+} {
+  const setup = loadSetup();
+  const settings = loadSettings();
+  
+  if (!setup) {
+    return { schedule, removedAssignments: [] };
+  }
+
+  const audit = auditCallSchedule(schedule);
+  const removedAssignments: Array<{ dateISO: string; fellowId: string; reason: string }> = [];
+  
+  // If no violations, return as-is
+  if (audit.totalViolations === 0) {
+    return { schedule, removedAssignments };
+  }
+
+  // For each fellow exceeding limits, remove their most recent assignments
+  const fixedSchedule: CallSchedule = {
+    ...schedule,
+    days: { ...schedule.days },
+    countsByFellow: { ...schedule.countsByFellow },
+  };
+
+  for (const fellowAudit of audit.fellows) {
+    if (!fellowAudit.exceedsLimit) continue;
+
+    const fellow = setup.fellows.find((f) => f.id === fellowAudit.id);
+    if (!fellow) continue;
+
+    const excess = fellowAudit.actualCalls - fellowAudit.maxCalls;
+    
+    // Find all assignments for this fellow, sorted by date (most recent first)
+    const assignments = Object.entries(fixedSchedule.days)
+      .filter(([_, fid]) => fid === fellowAudit.id)
+      .sort((a, b) => b[0].localeCompare(a[0])); // Reverse chronological
+
+    // Remove the most recent excess assignments
+    let removed = 0;
+    for (const [dateISO] of assignments) {
+      if (removed >= excess) break;
+      
+      delete fixedSchedule.days[dateISO];
+      fixedSchedule.countsByFellow[fellowAudit.id] = Math.max(
+        0,
+        (fixedSchedule.countsByFellow[fellowAudit.id] ?? 1) - 1
+      );
+      
+      removedAssignments.push({
+        dateISO,
+        fellowId: fellowAudit.id,
+        reason: `Exceeded max calls (${fellowAudit.actualCalls}/${fellowAudit.maxCalls})`,
+      });
+      
+      removed++;
+    }
+  }
+
+  return { schedule: fixedSchedule, removedAssignments };
+}
+
 export {
   type CallSchedule,
   type BuildCallResult,
@@ -1014,5 +1157,8 @@ export {
   listPrimarySwapSuggestions,
   applyDragAndDrop,
   optimizePGY4WkndHolEquity,
+  auditCallSchedule,
+  recalculateCallCounts,
+  enforceCallLimits,
 };
 
