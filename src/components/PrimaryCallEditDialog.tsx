@@ -3,9 +3,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
-import { listEligiblePrimaryFellows, listIneligiblePrimaryFellows, applyManualPrimaryAssignment, listPrimarySwapSuggestions, applyPrimarySwap, type CallSchedule, type SwapSuggestion } from "@/lib/call-engine";
-import { loadSetup } from "@/lib/schedule-engine";
+import { listAllPrimaryFellowsWithEligibility, applyManualPrimaryAssignment, listPrimarySwapSuggestions, applyPrimarySwap, type CallSchedule, type SwapSuggestion } from "@/lib/call-engine";
+import { loadSetup, type PGY, type StoredSchedule } from "@/lib/schedule-engine";
 import { useToast } from "@/hooks/use-toast";
 import { parseISO, format } from "date-fns";
 
@@ -15,12 +16,14 @@ export function PrimaryCallEditDialog({
   open = true,
   onClose,
   onApply,
+  cachedSchedules,
 }: {
   iso: string;
   schedule: CallSchedule;
   open?: boolean;
   onClose: () => void;
   onApply: (s: CallSchedule) => void;
+  cachedSchedules?: Record<PGY, StoredSchedule | null>;
 }) {
   const { toast } = useToast();
   const setup = loadSetup();
@@ -29,15 +32,65 @@ export function PrimaryCallEditDialog({
   const currentId = schedule.days[iso];
   const currentName = currentId ? fellowById[currentId]?.name ?? currentId : undefined;
 
-  const eligible = React.useMemo(() => listEligiblePrimaryFellows(iso, schedule), [iso, schedule]);
-  const ineligible = React.useMemo(() => listIneligiblePrimaryFellows(iso, schedule), [iso, schedule]);
+  // State for async loading
+  const [eligible, setEligible] = React.useState<{ id: string; name: string; pgy: PGY }[] | null>(null);
+  const [ineligible, setIneligible] = React.useState<{ id: string; name: string; pgy: PGY; reasons: string[] }[] | null>(null);
   const [showIneligible, setShowIneligible] = React.useState(false);
   const [swapOpen, setSwapOpen] = React.useState(false);
   const [swapSuggestions, setSwapSuggestions] = React.useState<SwapSuggestion[]>([]);
+  const [swapsLoading, setSwapsLoading] = React.useState(false);
 
+  // Load eligibility data asynchronously after dialog renders
   React.useEffect(() => {
-    setSwapSuggestions(listPrimarySwapSuggestions(schedule, iso, 10));
-  }, [iso, schedule]);
+    let cancelled = false;
+    
+    const loadEligibility = async () => {
+      // Yield to browser to render dialog shell first
+      await new Promise(resolve => setTimeout(resolve, 0));
+      
+      if (cancelled) return;
+      
+      const result = listAllPrimaryFellowsWithEligibility(iso, schedule, cachedSchedules);
+      
+      if (!cancelled) {
+        setEligible(result.eligible);
+        setIneligible(result.ineligible);
+      }
+    };
+
+    setEligible(null);
+    setIneligible(null);
+    loadEligibility();
+    
+    return () => { cancelled = true; };
+  }, [iso, schedule, cachedSchedules]);
+
+  // Lazy load swap suggestions when collapsible opens
+  React.useEffect(() => {
+    if (swapOpen && swapSuggestions.length === 0 && currentId && !swapsLoading) {
+      let cancelled = false;
+      
+      const loadSwaps = async () => {
+        setSwapsLoading(true);
+        
+        // Yield to browser
+        await new Promise(resolve => setTimeout(resolve, 0));
+        
+        if (cancelled) return;
+        
+        const swaps = listPrimarySwapSuggestions(schedule, iso, 10);
+        
+        if (!cancelled) {
+          setSwapSuggestions(swaps);
+          setSwapsLoading(false);
+        }
+      };
+      
+      loadSwaps();
+      
+      return () => { cancelled = true; };
+    }
+  }, [swapOpen, currentId, iso, schedule, swapSuggestions.length, swapsLoading]);
   const handleAssign = (fid: string | null) => {
     const res = applyManualPrimaryAssignment(schedule, iso, fid);
     if (!res.ok || !res.schedule) {
@@ -78,7 +131,13 @@ export function PrimaryCallEditDialog({
         <div className="space-y-4">
           <div>
             <div className="text-sm font-medium mb-2">Reassign to</div>
-            {eligible.length ? (
+            {eligible === null ? (
+              <div className="space-y-2">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : eligible.length ? (
               <ScrollArea className="max-h-64">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pr-2">
                   {eligible.map((f) => (
@@ -96,7 +155,9 @@ export function PrimaryCallEditDialog({
             )}
           </div>
 
-          {ineligible.length ? (
+          {ineligible === null ? (
+            <Skeleton className="h-8 w-48" />
+          ) : ineligible.length ? (
             <Collapsible open={showIneligible} onOpenChange={setShowIneligible}>
               <div className="flex items-center justify-between">
                 <div className="text-sm font-medium">Ineligible fellows</div>
@@ -139,7 +200,13 @@ export function PrimaryCallEditDialog({
                 </div>
                 <CollapsibleContent>
                   <div className="mt-2 pr-2 max-h-60 overflow-y-auto">
-                    {swapSuggestions.length ? (
+                    {swapsLoading ? (
+                      <div className="space-y-2">
+                        <Skeleton className="h-12 w-full" />
+                        <Skeleton className="h-12 w-full" />
+                        <Skeleton className="h-12 w-full" />
+                      </div>
+                    ) : swapSuggestions.length ? (
                       <div className="space-y-2">
                         {swapSuggestions.map((s) => (
                           <div key={s.date} className="rounded-md border p-2 flex items-center justify-between">
