@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { HeartPulse, Loader2, RefreshCcw, Trash2, CheckCircle, Download } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -37,8 +38,11 @@ import {
 } from "@dnd-kit/core";
 import { useToast } from "@/hooks/use-toast";
 import { usePersistentTab } from "@/hooks/use-persistent-tab";
+import { useTabScrollRestoration } from "@/hooks/use-tab-scroll-restoration";
 
 export default function CallSchedule() {
+  const location = useLocation();
+  
   useSEO({
     title: "Primary Call Schedule | Cardiology Scheduler",
     description: "Generate a 365-day primary call schedule with strict eligibility and spacing rules.",
@@ -92,6 +96,8 @@ export default function CallSchedule() {
   
   const { toast } = useToast();
   const [activeScheduleView, setActiveScheduleView] = usePersistentTab('callSchedule-view', 'table');
+  
+  useTabScrollRestoration(location.pathname, activeScheduleView);
   const sensors = useSensors(useSensor(PointerSensor, {
     activationConstraint: {
       distance: 8,

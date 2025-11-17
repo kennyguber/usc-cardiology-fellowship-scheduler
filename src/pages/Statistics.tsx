@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo } from "react";
+import { useLocation } from "react-router-dom";
 import { HeartPulse, Loader2, RefreshCcw, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useSEO } from "@/lib/seo";
 import { usePersistentTab } from "@/hooks/use-persistent-tab";
+import { useTabScrollRestoration } from "@/hooks/use-tab-scroll-restoration";
 import { loadSetup } from "@/lib/schedule-engine";
 import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, optimizePGY4WkndHolEquity, type CallSchedule } from "@/lib/call-engine";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -13,6 +15,8 @@ import JeopardyStatsTable from "@/components/JeopardyStatsTable";
 import ClinicStatsTable from "@/components/ClinicStatsTable";
 
 export default function Statistics() {
+  const location = useLocation();
+  
   useSEO({
     title: "Statistics | Cardiology Scheduler",
     description: "Distribution, violations, and workload analytics (coming soon).",
@@ -28,6 +32,8 @@ export default function Statistics() {
   const [optimizing, setOptimizing] = useState(false);
   const [pgy4Stats, setPgy4Stats] = useState<Array<{ id: string; name: string; wkndHolCount: number }>>([]);
   const [activeTab, setActiveTab] = usePersistentTab('statistics', 'primary');
+  
+  useTabScrollRestoration(location.pathname, activeTab);
 
   useEffect(() => {
     const existing = loadCallSchedule();

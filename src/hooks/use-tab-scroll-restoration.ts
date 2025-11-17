@@ -1,14 +1,20 @@
 import { useEffect, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
 
-export function useScrollRestoration() {
-  const location = useLocation();
+export function useTabScrollRestoration(pathname: string, activeTab: string) {
   const scrollTimeoutRef = useRef<NodeJS.Timeout>();
   const isRestoringRef = useRef(false);
+  const previousTabRef = useRef(activeTab);
 
   useEffect(() => {
-    const storageKey = `scroll-${location.pathname}`;
+    const storageKey = `scroll-${pathname}-${activeTab}`;
+    const previousStorageKey = `scroll-${pathname}-${previousTabRef.current}`;
     
+    // Save scroll position for previous tab before switching
+    if (previousTabRef.current !== activeTab && !isRestoringRef.current) {
+      sessionStorage.setItem(previousStorageKey, window.scrollY.toString());
+    }
+    previousTabRef.current = activeTab;
+
     // Save scroll position with debouncing
     const handleScroll = () => {
       if (isRestoringRef.current) return;
@@ -50,7 +56,7 @@ export function useScrollRestoration() {
       };
 
       // Initial delay to let content render
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 150));
 
       // Try to restore with retries
       while (attempts < maxAttempts) {
@@ -79,5 +85,5 @@ export function useScrollRestoration() {
         sessionStorage.setItem(storageKey, window.scrollY.toString());
       }
     };
-  }, [location.pathname]);
+  }, [pathname, activeTab]);
 }

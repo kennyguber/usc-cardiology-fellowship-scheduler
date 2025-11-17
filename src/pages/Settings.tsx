@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { useLocation } from "react-router-dom";
 import { Settings as SettingsIcon, Download, Upload, RotateCcw } from "lucide-react";
 import { useSettings } from "@/hooks/use-settings";
 import { usePersistentTab } from "@/hooks/use-persistent-tab";
+import { useTabScrollRestoration } from "@/hooks/use-tab-scroll-restoration";
 import { validateSettings } from "@/lib/settings-validation";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -26,6 +28,8 @@ import { AmbulatorySettings } from "@/components/settings/AmbulatorySettings";
 import { BlockRotationSettings } from "@/components/settings/BlockRotationSettings";
 
 export default function Settings() {
+  const location = useLocation();
+  
   const {
     settings,
     hasUnsavedChanges,
@@ -39,6 +43,8 @@ export default function Settings() {
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [activeTab, setActiveTab] = usePersistentTab('settings', 'vacation');
   const validation = validateSettings(settings);
+  
+  useTabScrollRestoration(location.pathname, activeTab);
 
   const handleSave = () => {
     if (!validation.valid) {
