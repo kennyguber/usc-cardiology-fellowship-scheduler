@@ -604,7 +604,78 @@ export function buildHFSchedule(options: {
   const mandatoryMissed: string[] = [];
   const lastWeekendAssignment: Record<string, string | undefined> = {};
 
-  // Phase 0: Assign holiday blocks using fair distribution
+  // Phase 1: Mandatory HF rotation assignments for PGY-5 and PGY-6 based on rotation start day
+  // This runs FIRST to ensure rotation-start weekends are reserved before holiday distribution
+  // Rules:
+  // - Monday start: assign prior weekend (Saturday before)
+  // - Tuesday-Friday start: assign upcoming weekend (Saturday of same week)
+  // - Saturday/Sunday start: assign that weekend
+  // - PGY-5: can cover holiday or non-holiday weekends
+  // - PGY-6: can only cover non-holiday weekends
+  
+  for (const fellow of fellows) {
+    // Only apply rotation-start logic to PGY-5 and PGY-6
+    if (fellow.pgy !== "PGY-5" && fellow.pgy !== "PGY-6") continue;
+    
+    const sched = schedByPGY[fellow.pgy];
+    if (!sched?.byFellow?.[fellow.id]) continue;
+    
+    const fellowBlocks = sched.byFellow[fellow.id];
+    const hfBlocks = Object.entries(fellowBlocks).filter(([_, rotation]) => rotation === "HF");
+    
+    for (const [blockKey, _] of hfBlocks) {
+      // Get the first day of this HF block
+      const rotationStartDate = getHFBlockStartDate(blockKey, setup.yearStart);
+      
+      // Determine which weekend to assign based on rotation start day of week
+      const targetWeekend = getRotationStartWeekend(rotationStartDate);
+      const weekendISO = toISODate(targetWeekend);
+      
+      // Check if this is a holiday weekend
+      const isHoliday = isHolidayWeekend(targetWeekend, allHolidayBlocks);
+      
+      // PGY-6 cannot cover holiday weekends
+      if (fellow.pgy === "PGY-6" && isHoliday) {
+        mandatoryMissed.push(`${fellow.name} (PGY-6): Rotation start weekend ${weekendISO} is a holiday - skipped`);
+        continue;
+      }
+      
+      // Skip if already assigned (another fellow's rotation start on same weekend)
+      if (schedule.weekends[weekendISO]) {
+        mandatoryMissed.push(`${fellow.name} (${fellow.pgy}): Rotation start weekend ${weekendISO} already assigned`);
+        continue;
+      }
+      
+      // Check basic eligibility (vacation, primary call conflicts, spacing)
+      const eligibilityCheck = isEligibleForHF(
+        fellow, 
+        targetWeekend, 
+        setup, 
+        schedByPGY, 
+        primarySchedule, 
+        schedule.countsByFellow, 
+        lastWeekendAssignment,
+        {},
+        allHolidayBlocks,
+        schedule,
+        hfSettings,
+        { 
+          isMandatory: true, 
+          isHolidayWeekendOption: isHoliday
+        }
+      );
+      
+      if (eligibilityCheck.eligible) {
+        schedule.weekends[weekendISO] = fellow.id;
+        schedule.countsByFellow[fellow.id]++;
+        lastWeekendAssignment[fellow.id] = weekendISO;
+      } else {
+        mandatoryMissed.push(`${fellow.name} (${fellow.pgy}): Cannot assign rotation start weekend ${weekendISO} - ${eligibilityCheck.reason}`);
+      }
+    }
+  }
+
+  // Phase 0: Assign holiday blocks using fair distribution (runs after mandatory rotation assignments)
   for (const holidayBlock of shuffle([...allHolidayBlocks])) {
     const blockDates = getHolidayBlock(holidayBlock.startDate, setup);
     
@@ -663,7 +734,7 @@ export function buildHFSchedule(options: {
     for (const date of blockDates) {
       schedule.holidayCountsByFellow[selectedFellow.id]++;
       
-      // If this date is a weekend, also mark it in weekends
+      // If this date is a weekend, also mark it in weekends (but respect existing assignments from Phase 1)
       if (date.getDay() === 0 || date.getDay() === 6) {
         const weekendStart = getWeekendStart(date);
         const weekendISO = toISODate(weekendStart);
@@ -672,76 +743,6 @@ export function buildHFSchedule(options: {
           schedule.countsByFellow[selectedFellow.id]++;
           lastWeekendAssignment[selectedFellow.id] = weekendISO;
         }
-      }
-    }
-  }
-
-  // Phase 1: Mandatory HF rotation assignments for PGY-5 and PGY-6 based on rotation start day
-  // Rules:
-  // - Monday start: assign prior weekend (Saturday before)
-  // - Tuesday-Friday start: assign upcoming weekend (Saturday of same week)
-  // - Saturday/Sunday start: assign that weekend
-  // - PGY-5: can cover holiday or non-holiday weekends
-  // - PGY-6: can only cover non-holiday weekends
-  
-  for (const fellow of fellows) {
-    // Only apply rotation-start logic to PGY-5 and PGY-6
-    if (fellow.pgy !== "PGY-5" && fellow.pgy !== "PGY-6") continue;
-    
-    const sched = schedByPGY[fellow.pgy];
-    if (!sched?.byFellow?.[fellow.id]) continue;
-    
-    const fellowBlocks = sched.byFellow[fellow.id];
-    const hfBlocks = Object.entries(fellowBlocks).filter(([_, rotation]) => rotation === "HF");
-    
-    for (const [blockKey, _] of hfBlocks) {
-      // Get the first day of this HF block
-      const rotationStartDate = getHFBlockStartDate(blockKey, setup.yearStart);
-      
-      // Determine which weekend to assign based on rotation start day of week
-      const targetWeekend = getRotationStartWeekend(rotationStartDate);
-      const weekendISO = toISODate(targetWeekend);
-      
-      // Check if this is a holiday weekend
-      const isHoliday = isHolidayWeekend(targetWeekend, allHolidayBlocks);
-      
-      // PGY-6 cannot cover holiday weekends
-      if (fellow.pgy === "PGY-6" && isHoliday) {
-        mandatoryMissed.push(`${fellow.name} (PGY-6): Rotation start weekend ${weekendISO} is a holiday - skipped`);
-        continue;
-      }
-      
-      // Skip if already assigned
-      if (schedule.weekends[weekendISO]) {
-        mandatoryMissed.push(`${fellow.name} (${fellow.pgy}): Rotation start weekend ${weekendISO} already assigned`);
-        continue;
-      }
-      
-      // Check basic eligibility (vacation, primary call conflicts, spacing)
-      const eligibilityCheck = isEligibleForHF(
-        fellow, 
-        targetWeekend, 
-        setup, 
-        schedByPGY, 
-        primarySchedule, 
-        schedule.countsByFellow, 
-        lastWeekendAssignment,
-        {},
-        allHolidayBlocks,
-        schedule,
-        hfSettings,
-        { 
-          isMandatory: true, 
-          isHolidayWeekendOption: isHoliday
-        }
-      );
-      
-      if (eligibilityCheck.eligible) {
-        schedule.weekends[weekendISO] = fellow.id;
-        schedule.countsByFellow[fellow.id]++;
-        lastWeekendAssignment[fellow.id] = weekendISO;
-      } else {
-        mandatoryMissed.push(`${fellow.name} (${fellow.pgy}): Cannot assign rotation start weekend ${weekendISO} - ${eligibilityCheck.reason}`);
       }
     }
   }
