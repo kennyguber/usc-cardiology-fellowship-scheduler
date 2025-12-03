@@ -617,6 +617,74 @@ function isValidEquitySwap(
 }
 
 /**
+ * Detect all consecutive Saturday violations in a schedule
+ */
+function detectConsecutiveSaturdayViolations(
+  schedule: CallSchedule,
+  setup: SetupState
+): Array<{ fellowId: string; dates: [string, string] }> {
+  const settings = loadSettings();
+  if (!settings.primaryCall.noConsecutiveSaturdays) return [];
+  
+  const violations: Array<{ fellowId: string; dates: [string, string] }> = [];
+  
+  // Group assignments by fellow
+  const assignmentsByFellow: Record<string, string[]> = {};
+  for (const [dateISO, fellowId] of Object.entries(schedule.days)) {
+    if (!fellowId) continue;
+    if (!assignmentsByFellow[fellowId]) assignmentsByFellow[fellowId] = [];
+    assignmentsByFellow[fellowId].push(dateISO);
+  }
+  
+  // Check each fellow for consecutive Saturdays
+  for (const [fellowId, dates] of Object.entries(assignmentsByFellow)) {
+    const saturdays = dates.filter(d => parseISO(d).getDay() === 6).sort();
+    for (let i = 0; i < saturdays.length - 1; i++) {
+      const diff = differenceInCalendarDays(parseISO(saturdays[i + 1]), parseISO(saturdays[i]));
+      if (diff === 7) {
+        violations.push({ fellowId, dates: [saturdays[i], saturdays[i + 1]] });
+      }
+    }
+  }
+  
+  return violations;
+}
+
+/**
+ * Detect all spacing violations in a schedule
+ */
+function detectSpacingViolations(
+  schedule: CallSchedule,
+  setup: SetupState
+): Array<{ fellowId: string; dates: [string, string]; daysBetween: number }> {
+  const settings = loadSettings();
+  const minSpacing = settings.primaryCall.minSpacingDays;
+  
+  const violations: Array<{ fellowId: string; dates: [string, string]; daysBetween: number }> = [];
+  
+  // Group assignments by fellow
+  const assignmentsByFellow: Record<string, string[]> = {};
+  for (const [dateISO, fellowId] of Object.entries(schedule.days)) {
+    if (!fellowId) continue;
+    if (!assignmentsByFellow[fellowId]) assignmentsByFellow[fellowId] = [];
+    assignmentsByFellow[fellowId].push(dateISO);
+  }
+  
+  // Check each fellow for spacing violations
+  for (const [fellowId, dates] of Object.entries(assignmentsByFellow)) {
+    const sortedDates = dates.sort();
+    for (let i = 0; i < sortedDates.length - 1; i++) {
+      const diff = differenceInCalendarDays(parseISO(sortedDates[i + 1]), parseISO(sortedDates[i]));
+      if (diff < minSpacing) {
+        violations.push({ fellowId, dates: [sortedDates[i], sortedDates[i + 1]], daysBetween: diff });
+      }
+    }
+  }
+  
+  return violations;
+}
+
+/**
  * Lightweight swap application for equity optimization
  */
 function applyEquitySwap(
@@ -664,6 +732,13 @@ function optimizePGY4WkndHolEquity(schedule: CallSchedule): {
 
   const pgy4Fellows = setup.fellows.filter(f => f.pgy === "PGY-4");
   const pgy4FellowIds = new Set(pgy4Fellows.map(f => f.id));
+  
+  // Store original schedule for rollback if violations occur
+  const originalSchedule = { 
+    ...schedule, 
+    days: { ...schedule.days }, 
+    countsByFellow: { ...schedule.countsByFellow } 
+  };
   
   let workingSchedule = { 
     ...schedule, 
@@ -758,12 +833,31 @@ function optimizePGY4WkndHolEquity(schedule: CallSchedule): {
     if (!swapFound) break; // No more beneficial swaps possible
   }
 
-  // Calculate final stats
-  const finalCounts = calculatePGY4WkndHolCounts(workingSchedule);
   // Enforce call limits after optimization to clean up any pre-existing violations
   const recalculated = recalculateCallCounts(workingSchedule);
   const { schedule: enforcedSchedule } = enforceCallLimits(recalculated);
 
+  // Validate that no rules were violated after optimization
+  const consecutiveViolations = detectConsecutiveSaturdayViolations(enforcedSchedule, setup);
+  const spacingViolations = detectSpacingViolations(enforcedSchedule, setup);
+
+  // If violations exist after optimization, revert to original schedule
+  if (consecutiveViolations.length > 0 || spacingViolations.length > 0) {
+    console.warn("PGY-4 optimization created rule violations, reverting to original schedule", {
+      consecutiveViolations,
+      spacingViolations
+    });
+    const originalCounts = calculatePGY4WkndHolCounts(originalSchedule);
+    const originalStats = pgy4Fellows.map(f => ({
+      id: f.id,
+      name: f.name,
+      wkndHolCount: originalCounts[f.id] ?? 0
+    })).sort((a, b) => a.name.localeCompare(b.name));
+    return { schedule: originalSchedule, swapsApplied: 0, pgy4Stats: originalStats };
+  }
+
+  // Calculate final stats
+  const finalCounts = calculatePGY4WkndHolCounts(enforcedSchedule);
   const pgy4Stats = pgy4Fellows.map(f => ({
     id: f.id,
     name: f.name,
