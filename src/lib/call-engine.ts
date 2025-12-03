@@ -12,7 +12,13 @@ type CallSchedule = {
   countsByFellow: Record<string, number>;
 };
 
+type CallCoverageMetadata = {
+  uncovered: string[];
+  success: boolean;
+};
+
 const CALL_SCHEDULE_STORAGE_KEY = "cfsa_calls_v1" as const;
+const CALL_COVERAGE_METADATA_KEY = "cfsa_calls_coverage_v1" as const;
 
 function toISODate(d: Date) {
   return format(d, "yyyy-MM-dd");
@@ -755,6 +761,28 @@ function saveCallSchedule(schedule: CallSchedule) {
   }
 }
 
+function saveCoverageMetadata(metadata: CallCoverageMetadata) {
+  try {
+    localStorage.setItem(CALL_COVERAGE_METADATA_KEY, JSON.stringify(metadata));
+  } catch {}
+}
+
+function loadCoverageMetadata(): CallCoverageMetadata | null {
+  try {
+    const raw = localStorage.getItem(CALL_COVERAGE_METADATA_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as CallCoverageMetadata;
+  } catch {
+    return null;
+  }
+}
+
+function clearCoverageMetadata() {
+  try {
+    localStorage.removeItem(CALL_COVERAGE_METADATA_KEY);
+  } catch {}
+}
+
 // Manual edit helpers for primary call assignments
 // Compute dynamic state (last assignment before date, last Saturday, adjusted counts)
 function computeStateForDate(schedule: CallSchedule, dateISO: string) {
@@ -1307,12 +1335,16 @@ function enforceCallLimits(schedule: CallSchedule): {
 
 export {
   type CallSchedule,
+  type CallCoverageMetadata,
   type BuildCallResult,
   type SwapSuggestion,
   CALL_SCHEDULE_STORAGE_KEY,
   buildPrimaryCallSchedule,
   loadCallSchedule,
   saveCallSchedule,
+  saveCoverageMetadata,
+  loadCoverageMetadata,
+  clearCoverageMetadata,
   validatePrimaryAssignment,
   listEligiblePrimaryFellows,
   listIneligiblePrimaryFellows,

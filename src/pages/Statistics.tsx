@@ -7,7 +7,7 @@ import { useSEO } from "@/lib/seo";
 import { usePersistentTab } from "@/hooks/use-persistent-tab";
 import { useTabScrollRestoration } from "@/hooks/use-tab-scroll-restoration";
 import { loadSetup } from "@/lib/schedule-engine";
-import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, optimizePGY4WkndHolEquity, type CallSchedule } from "@/lib/call-engine";
+import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, saveCoverageMetadata, loadCoverageMetadata, clearCoverageMetadata, optimizePGY4WkndHolEquity, type CallSchedule } from "@/lib/call-engine";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import PrimaryCallStatsTable from "@/components/PrimaryCallStatsTable";
 import HFCoverageStatsTable from "@/components/HFCoverageStatsTable";
@@ -38,6 +38,12 @@ export default function Statistics() {
   useEffect(() => {
     const existing = loadCallSchedule();
     if (existing) setSchedule(existing);
+    
+    const metadata = loadCoverageMetadata();
+    if (metadata) {
+      setUncovered(metadata.uncovered);
+      setSuccess(metadata.success);
+    }
   }, []);
 
   const totalDays = useMemo(() => Object.keys(schedule?.days ?? {}).length, [schedule]);
@@ -50,6 +56,7 @@ export default function Statistics() {
       setUncovered(result.uncovered ?? []);
       setSuccess(result.success);
       saveCallSchedule(result.schedule);
+      saveCoverageMetadata({ uncovered: result.uncovered ?? [], success: result.success });
     } finally {
       setLoading(false);
     }
@@ -62,6 +69,7 @@ export default function Statistics() {
     setPgy4Stats([]);
     try {
       localStorage.removeItem("cfsa_calls_v1");
+      clearCoverageMetadata();
     } catch {}
   };
 
