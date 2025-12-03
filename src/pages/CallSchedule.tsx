@@ -1339,6 +1339,14 @@ export default function CallSchedule() {
     if (result.success && result.schedule) {
       setSchedule(result.schedule);
       saveCallSchedule(result.schedule);
+      
+      // Recalculate uncovered days after drag
+      const newUncovered = allDays.filter((d) => !result.schedule!.days[d]);
+      setUncovered(newUncovered);
+      const newSuccess = newUncovered.length === 0;
+      setSuccess(newSuccess);
+      saveCoverageMetadata({ uncovered: newUncovered, success: newSuccess });
+      
       toast({
         title: "Assignment updated",
         description: "Primary call assignment moved successfully.",
@@ -1350,6 +1358,51 @@ export default function CallSchedule() {
         variant: "destructive",
       });
     }
+  };
+
+  const handleRefreshCoverage = () => {
+    // Recalculate primary call uncovered
+    if (schedule) {
+      const newUncovered = allDays.filter((d) => !schedule.days[d]);
+      setUncovered(newUncovered);
+      const newSuccess = newUncovered.length === 0;
+      setSuccess(newSuccess);
+      saveCoverageMetadata({ uncovered: newUncovered, success: newSuccess });
+    }
+    
+    // Recalculate HF uncovered
+    if (hfSchedule && setup?.yearStart) {
+      const allWeekends = allDays.filter(d => {
+        const date = parseISO(d);
+        return date.getDay() === 6;
+      });
+      const newUncoveredHF = allWeekends.filter(d => !hfSchedule.weekends[d]);
+      setUncoveredHF(newUncoveredHF);
+      
+      const allHolidays = computeAcademicYearHolidays(setup.yearStart);
+      const newUncoveredHols = allHolidays.filter(h => !hfSchedule.holidays?.[h.date]).map(h => h.date);
+      setUncoveredHolidays(newUncoveredHols);
+      setHFSuccess(newUncoveredHF.length === 0 && newUncoveredHols.length === 0);
+    }
+    
+    // Recalculate Jeopardy uncovered
+    if (jeopardySchedule) {
+      const newUncoveredJeopardy = allDays.filter(d => !jeopardySchedule.days[d]);
+      setUncoveredJeopardy(newUncoveredJeopardy);
+      setJeopardySuccess(newUncoveredJeopardy.length === 0);
+    }
+    
+    // Recalculate Clinic gaps
+    if (clinicSchedule && setup) {
+      const result = checkSpecialtyClinicCoverage(clinicSchedule, setup);
+      setClinicCoverageGaps(result.gaps);
+      setClinicSuccess(result.success);
+    }
+    
+    toast({
+      title: "Coverage refreshed",
+      description: "All uncovered dates have been recalculated.",
+    });
   };
 
   return (
@@ -1364,7 +1417,7 @@ export default function CallSchedule() {
           <h1 className="text-2xl font-semibold font-display flex items-center gap-2">
             <HeartPulse className="h-6 w-6 text-primary" /> Primary Call Schedule
           </h1>
-          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
             <Button onClick={handleGenerate} disabled={loading || !setup}>
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />} Generate
             </Button>
@@ -1391,6 +1444,9 @@ export default function CallSchedule() {
             </Button>
             <Button onClick={handleCheckClinic} disabled={clinicCheckLoading || !clinicSchedule} variant="outline" size="sm">
               {clinicCheckLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />} Check Clinics
+            </Button>
+            <Button onClick={handleRefreshCoverage} variant="outline" size="sm" title="Recalculate all coverage status">
+              <RefreshCcw className="h-4 w-4" /> Refresh
             </Button>
             <Button onClick={handleExportExcel} disabled={exporting || !schedule} variant="outline">
               {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Export Excel
