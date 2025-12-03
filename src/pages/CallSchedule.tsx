@@ -181,6 +181,44 @@ export default function CallSchedule() {
     return list;
   }, [setup?.yearStart]);
 
+  // Calculate HF uncovered state when schedule loads or changes
+  useEffect(() => {
+    if (!hfSchedule || !setup?.yearStart || allDays.length === 0) return;
+    
+    // Get all Saturdays (weekend starts)
+    const allWeekendStarts = allDays.filter(d => {
+      const date = parseISO(d);
+      return date.getDay() === 6; // Saturday
+    });
+    const uncoveredWeekends = allWeekendStarts.filter(d => !hfSchedule.weekends[d]);
+    
+    // Calculate uncovered holidays
+    const allHolidays = computeAcademicYearHolidays(setup.yearStart);
+    const uncoveredHols = allHolidays.filter(h => !hfSchedule.holidays?.[h.date]).map(h => h.date);
+    
+    setUncoveredHF(uncoveredWeekends);
+    setUncoveredHolidays(uncoveredHols);
+    setHFSuccess(uncoveredWeekends.length === 0 && uncoveredHols.length === 0);
+  }, [hfSchedule, setup?.yearStart, allDays]);
+
+  // Calculate Jeopardy uncovered state when schedule loads or changes
+  useEffect(() => {
+    if (!jeopardySchedule || allDays.length === 0) return;
+    
+    const uncoveredDays = allDays.filter(d => !jeopardySchedule.days[d]);
+    setUncoveredJeopardy(uncoveredDays);
+    setJeopardySuccess(uncoveredDays.length === 0);
+  }, [jeopardySchedule, allDays]);
+
+  // Calculate Clinic coverage gaps when schedule loads or changes
+  useEffect(() => {
+    if (!clinicSchedule || !setup) return;
+    
+    const result = checkSpecialtyClinicCoverage(clinicSchedule, setup);
+    setClinicCoverageGaps(result.gaps);
+    setClinicSuccess(result.success);
+  }, [clinicSchedule, setup]);
+
   const holidayMap = useMemo(() => {
     if (!setup?.yearStart) return {} as Record<string, string>;
     const map: Record<string, string> = {};
@@ -484,6 +522,14 @@ export default function CallSchedule() {
   const handleClinicScheduleUpdate = (newSchedule: ClinicSchedule) => {
     setClinicSchedule(newSchedule);
     saveClinicSchedule(newSchedule);
+    
+    // Recalculate coverage gaps after edit
+    if (setup) {
+      const result = checkSpecialtyClinicCoverage(newSchedule, setup);
+      setClinicCoverageGaps(result.gaps);
+      setClinicSuccess(result.success);
+    }
+    
     setClinicEditISO(null);
     setClinicEditIndex(null);
   };
@@ -1940,7 +1986,9 @@ export default function CallSchedule() {
                     saveCallSchedule(updated);
                     const newUncovered = allDays.filter((d) => !updated.days[d]);
                     setUncovered(newUncovered);
-                    setSuccess(newUncovered.length === 0);
+                    const newSuccess = newUncovered.length === 0;
+                    setSuccess(newSuccess);
+                    saveCoverageMetadata({ uncovered: newUncovered, success: newSuccess });
                     setEditISO(null);
                   }}
                 />
