@@ -8,7 +8,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useSEO } from "@/lib/seo";
-import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, applyDragAndDrop, type CallSchedule } from "@/lib/call-engine";
+import { buildPrimaryCallSchedule, loadCallSchedule, saveCallSchedule, saveCoverageMetadata, loadCoverageMetadata, clearCoverageMetadata, applyDragAndDrop, type CallSchedule } from "@/lib/call-engine";
 import { loadSettings } from "@/lib/settings-engine";
 import { buildHFSchedule, loadHFSchedule, saveHFSchedule, clearHFSchedule, getEffectiveHFAssignment, analyzeHFSchedule, type HFSchedule } from "@/lib/hf-engine";
 import { buildJeopardySchedule, loadJeopardySchedule, saveJeopardySchedule, clearJeopardySchedule, type JeopardySchedule } from "@/lib/jeopardy-engine";
@@ -126,6 +126,12 @@ export default function CallSchedule() {
   useEffect(() => {
     const existing = loadCallSchedule();
     if (existing) setSchedule(existing);
+    
+    const metadata = loadCoverageMetadata();
+    if (metadata) {
+      setUncovered(metadata.uncovered);
+      setSuccess(metadata.success);
+    }
     
     const existingHF = loadHFSchedule();
     if (existingHF) setHFSchedule(existingHF);
@@ -302,6 +308,7 @@ export default function CallSchedule() {
       setUncovered(result.uncovered ?? []);
       setSuccess(result.success);
       saveCallSchedule(result.schedule);
+      saveCoverageMetadata({ uncovered: result.uncovered ?? [], success: result.success });
     } finally {
       setLoading(false);
     }
@@ -313,6 +320,7 @@ export default function CallSchedule() {
     setSuccess(null);
     try {
       localStorage.removeItem("cfsa_calls_v1");
+      clearCoverageMetadata();
     } catch {}
   };
 
