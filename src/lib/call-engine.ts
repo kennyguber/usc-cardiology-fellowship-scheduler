@@ -77,7 +77,7 @@ function getRotationOnDate(fellow: Fellow, date: Date, schedByPGY: Record<PGY, S
 function withinCallLimit(fellow: Fellow, counts: Record<string, number>): boolean {
   const settings = loadSettings();
   const max = settings.primaryCall.maxCalls[fellow.pgy];
-  return (counts[fellow.id] ?? 0) <= max;
+  return (counts[fellow.id] ?? 0) < max;  // Use < to prevent exceeding limit
 }
 
 function hasSpacingOK(fellow: Fellow, lastAssigned: Record<string, string | undefined>, date: Date): boolean {
@@ -579,6 +579,9 @@ function isValidEquitySwap(
   const fellowB = setup.fellows.find(f => f.id === fidB);
   if (!fellowA || !fellowB) return false;
 
+  // Safety check: Only allow swaps between PGY-4 fellows
+  if (fellowA.pgy !== "PGY-4" || fellowB.pgy !== "PGY-4") return false;
+
   // CRITICAL: Check if Fellow A would be on vacation/excluded rotation on dateB
   const rotationAOnDateB = getRotationOnDate(fellowA, dateB, schedByPGY, setup.yearStart);
   if (settings.primaryCall.excludeRotations.includes(rotationAOnDateB)) return false;
@@ -757,13 +760,17 @@ function optimizePGY4WkndHolEquity(schedule: CallSchedule): {
 
   // Calculate final stats
   const finalCounts = calculatePGY4WkndHolCounts(workingSchedule);
+  // Enforce call limits after optimization to clean up any pre-existing violations
+  const recalculated = recalculateCallCounts(workingSchedule);
+  const { schedule: enforcedSchedule } = enforceCallLimits(recalculated);
+
   const pgy4Stats = pgy4Fellows.map(f => ({
     id: f.id,
     name: f.name,
     wkndHolCount: finalCounts[f.id] ?? 0
   })).sort((a, b) => a.name.localeCompare(b.name));
 
-  return { schedule: workingSchedule, swapsApplied, pgy4Stats };
+  return { schedule: enforcedSchedule, swapsApplied, pgy4Stats };
 }
 
 function loadCallSchedule(): CallSchedule | null {
