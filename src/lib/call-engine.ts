@@ -2,7 +2,7 @@ import { differenceInCalendarDays, addDays, isBefore, isAfter, isEqual, parseISO
 import { monthAbbrForIndex } from "@/lib/block-utils";
 import { computeAcademicYearHolidays } from "@/lib/holidays";
 import { loadSchedule, loadSetup, type Fellow, type PGY, type StoredSchedule, type SetupState } from "@/lib/schedule-engine";
-import { loadSettings } from "./settings-engine";
+import { loadSettings, type SchedulerSettings } from "./settings-engine";
 import { getPrimaryRotation } from "@/lib/rotation-engine";
 
 type CallSchedule = {
@@ -562,7 +562,10 @@ function isValidEquitySwap(
   dateAISO: string,
   dateBISO: string,
   minSpacingDays: number,
-  noConsecutiveSaturdays: boolean
+  noConsecutiveSaturdays: boolean,
+  setup: SetupState,
+  schedByPGY: Record<PGY, StoredSchedule | null>,
+  settings: SchedulerSettings
 ): boolean {
   const fidA = schedule.days[dateAISO];
   const fidB = schedule.days[dateBISO];
@@ -570,6 +573,19 @@ function isValidEquitySwap(
 
   const dateA = parseISO(dateAISO);
   const dateB = parseISO(dateBISO);
+
+  // Get fellow objects for vacation check
+  const fellowA = setup.fellows.find(f => f.id === fidA);
+  const fellowB = setup.fellows.find(f => f.id === fidB);
+  if (!fellowA || !fellowB) return false;
+
+  // CRITICAL: Check if Fellow A would be on vacation/excluded rotation on dateB
+  const rotationAOnDateB = getRotationOnDate(fellowA, dateB, schedByPGY, setup.yearStart);
+  if (settings.primaryCall.excludeRotations.includes(rotationAOnDateB)) return false;
+
+  // CRITICAL: Check if Fellow B would be on vacation/excluded rotation on dateA
+  const rotationBOnDateA = getRotationOnDate(fellowB, dateA, schedByPGY, setup.yearStart);
+  if (settings.primaryCall.excludeRotations.includes(rotationBOnDateA)) return false;
 
   // Create a temporary schedule with the swap applied for validation
   const tempSchedule: CallSchedule = {
@@ -635,6 +651,13 @@ function optimizePGY4WkndHolEquity(schedule: CallSchedule): {
   const settings = loadSettings();
   const minSpacingDays = settings.primaryCall.minSpacingDays;
   const noConsecutiveSaturdays = settings.primaryCall.noConsecutiveSaturdays;
+
+  // Load block schedules for vacation checking
+  const schedByPGY: Record<PGY, StoredSchedule | null> = {
+    "PGY-4": loadSchedule("PGY-4"),
+    "PGY-5": loadSchedule("PGY-5"),
+    "PGY-6": loadSchedule("PGY-6"),
+  };
 
   const pgy4Fellows = setup.fellows.filter(f => f.pgy === "PGY-4");
   const pgy4FellowIds = new Set(pgy4Fellows.map(f => f.id));
@@ -718,7 +741,7 @@ function optimizePGY4WkndHolEquity(schedule: CallSchedule): {
           if (swapFound) break;
           for (const weekdayDate of underloadedWeekdayDates) {
             // Use lightweight validation
-            if (isValidEquitySwap(workingSchedule, wkndHolDate, weekdayDate, minSpacingDays, noConsecutiveSaturdays)) {
+            if (isValidEquitySwap(workingSchedule, wkndHolDate, weekdayDate, minSpacingDays, noConsecutiveSaturdays, setup, schedByPGY, settings)) {
               workingSchedule = applyEquitySwap(workingSchedule, wkndHolDate, weekdayDate);
               swapsApplied++;
               swapFound = true;
