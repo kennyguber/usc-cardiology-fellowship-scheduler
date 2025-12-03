@@ -504,43 +504,192 @@ function buildPrimaryCallSchedule(opts?: { priorPrimarySeeds?: Record<string, st
 }
 
 /**
+ * Lightweight spacing check for equity swaps - uses cached settings
+ */
+function hasSpacingOKCached(
+  fellowId: string,
+  date: Date,
+  schedule: CallSchedule,
+  minSpacingDays: number
+): boolean {
+  const dateISO = toISODate(date);
+  const entries = Object.entries(schedule.days);
+  
+  // Check spacing before and after the target date
+  for (const [iso, fid] of entries) {
+    if (fid !== fellowId || iso === dateISO) continue;
+    const otherDate = parseISO(iso);
+    const diff = Math.abs(differenceInCalendarDays(date, otherDate));
+    if (diff < minSpacingDays) return false;
+  }
+  return true;
+}
+
+/**
+ * Lightweight consecutive Saturday check for equity swaps - uses cached settings
+ */
+function okNoConsecutiveSaturdayCached(
+  fellowId: string,
+  date: Date,
+  schedule: CallSchedule,
+  noConsecutiveSaturdays: boolean
+): boolean {
+  if (!noConsecutiveSaturdays) return true;
+  if (date.getDay() !== 6) return true; // Only care about Saturdays
+  
+  const prevSatISO = toISODate(addDays(date, -7));
+  const nextSatISO = toISODate(addDays(date, 7));
+  
+  // Check if fellow is assigned to adjacent Saturdays
+  if (schedule.days[prevSatISO] === fellowId) return false;
+  if (schedule.days[nextSatISO] === fellowId) return false;
+  
+  return true;
+}
+
+/**
+ * Lightweight swap validation for equity optimization - skips rotation/limit checks
+ * Since both fellows are already assigned, we only need to validate spacing and Saturday rules
+ */
+function isValidEquitySwap(
+  schedule: CallSchedule,
+  dateAISO: string,
+  dateBISO: string,
+  minSpacingDays: number,
+  noConsecutiveSaturdays: boolean
+): boolean {
+  const fidA = schedule.days[dateAISO];
+  const fidB = schedule.days[dateBISO];
+  if (!fidA || !fidB || fidA === fidB) return false;
+
+  const dateA = parseISO(dateAISO);
+  const dateB = parseISO(dateBISO);
+
+  // Create a temporary schedule with the swap applied for validation
+  const tempSchedule: CallSchedule = {
+    ...schedule,
+    days: {
+      ...schedule.days,
+      [dateAISO]: fidB,
+      [dateBISO]: fidA,
+    },
+    countsByFellow: schedule.countsByFellow, // Unchanged for swaps
+  };
+
+  // Validate spacing for fellow A at new position (dateB)
+  if (!hasSpacingOKCached(fidA, dateB, tempSchedule, minSpacingDays)) return false;
+  
+  // Validate spacing for fellow B at new position (dateA)
+  if (!hasSpacingOKCached(fidB, dateA, tempSchedule, minSpacingDays)) return false;
+
+  // Validate consecutive Saturday rule for fellow A at new position
+  if (!okNoConsecutiveSaturdayCached(fidA, dateB, tempSchedule, noConsecutiveSaturdays)) return false;
+  
+  // Validate consecutive Saturday rule for fellow B at new position
+  if (!okNoConsecutiveSaturdayCached(fidB, dateA, tempSchedule, noConsecutiveSaturdays)) return false;
+
+  return true;
+}
+
+/**
+ * Lightweight swap application for equity optimization
+ */
+function applyEquitySwap(
+  schedule: CallSchedule,
+  dateAISO: string,
+  dateBISO: string
+): CallSchedule {
+  const fidA = schedule.days[dateAISO]!;
+  const fidB = schedule.days[dateBISO]!;
+  
+  return {
+    ...schedule,
+    days: {
+      ...schedule.days,
+      [dateAISO]: fidB,
+      [dateBISO]: fidA,
+    },
+    // countsByFellow unchanged - it's a swap
+  };
+}
+
+/**
  * Optimize PGY-4 weekend/holiday equity by performing rule-compliant swaps
+ * OPTIMIZED: Caches all data at start and uses lightweight validation
  */
 function optimizePGY4WkndHolEquity(schedule: CallSchedule): { 
   schedule: CallSchedule; 
   swapsApplied: number; 
   pgy4Stats: Array<{ id: string; name: string; wkndHolCount: number }> 
 } {
+  // === STEP 1: Cache all data at start ===
   const setup = loadSetup();
   if (!setup) return { schedule, swapsApplied: 0, pgy4Stats: [] };
+  
+  const settings = loadSettings();
+  const minSpacingDays = settings.primaryCall.minSpacingDays;
+  const noConsecutiveSaturdays = settings.primaryCall.noConsecutiveSaturdays;
 
   const pgy4Fellows = setup.fellows.filter(f => f.pgy === "PGY-4");
-  let workingSchedule = { ...schedule, days: { ...schedule.days }, countsByFellow: { ...schedule.countsByFellow } };
+  const pgy4FellowIds = new Set(pgy4Fellows.map(f => f.id));
+  
+  let workingSchedule = { 
+    ...schedule, 
+    days: { ...schedule.days }, 
+    countsByFellow: { ...schedule.countsByFellow } 
+  };
   let swapsApplied = 0;
 
-  // Calculate current PGY-4 weekend/holiday counts
-  function calculatePGY4WkndHolCounts(sched: CallSchedule) {
+  // === STEP 2: Pre-compute equity categories for all dates ===
+  const equityCache = new Map<string, "weekday" | "wkndHol">();
+  for (const dateISO of Object.keys(schedule.days)) {
+    const date = parseISO(dateISO);
+    equityCache.set(dateISO, getEquityCategory(date, setup));
+  }
+
+  // Helper to calculate PGY-4 weekend/holiday counts using cached equity categories
+  function calculatePGY4WkndHolCounts(sched: CallSchedule): Record<string, number> {
     const counts: Record<string, number> = {};
     pgy4Fellows.forEach(f => counts[f.id] = 0);
 
     for (const [dateISO, fellowId] of Object.entries(sched.days)) {
-      if (!fellowId || !pgy4Fellows.find(f => f.id === fellowId)) continue;
-      const date = parseISO(dateISO);
-      const cat = getEquityCategory(date, setup);
-      if (cat === "wkndHol") {
+      if (!fellowId || !pgy4FellowIds.has(fellowId)) continue;
+      if (equityCache.get(dateISO) === "wkndHol") {
         counts[fellowId] = (counts[fellowId] ?? 0) + 1;
       }
     }
     return counts;
   }
 
-  // Perform optimization rounds
+  // === STEP 3: Perform optimization rounds ===
   for (let round = 0; round < 5; round++) {
     const wkndHolCounts = calculatePGY4WkndHolCounts(workingSchedule);
-    const minCount = Math.min(...Object.values(wkndHolCounts));
-    const maxCount = Math.max(...Object.values(wkndHolCounts));
+    const countValues = Object.values(wkndHolCounts);
+    if (countValues.length === 0) break;
+    
+    const minCount = Math.min(...countValues);
+    const maxCount = Math.max(...countValues);
     
     if (maxCount - minCount <= 1) break; // Good enough equity
+
+    // === STEP 4: Pre-compute fellow assignment lists for this round ===
+    const fellowWkndHolDates = new Map<string, string[]>();
+    const fellowWeekdayDates = new Map<string, string[]>();
+    
+    for (const f of pgy4Fellows) {
+      fellowWkndHolDates.set(f.id, []);
+      fellowWeekdayDates.set(f.id, []);
+    }
+
+    for (const [dateISO, fellowId] of Object.entries(workingSchedule.days)) {
+      if (!fellowId || !pgy4FellowIds.has(fellowId)) continue;
+      const cat = equityCache.get(dateISO);
+      if (cat === "wkndHol") {
+        fellowWkndHolDates.get(fellowId)!.push(dateISO);
+      } else {
+        fellowWeekdayDates.get(fellowId)!.push(dateISO);
+      }
+    }
 
     // Find beneficial swaps
     const overloadedFellows = pgy4Fellows.filter(f => wkndHolCounts[f.id] > minCount + 1);
@@ -551,40 +700,23 @@ function optimizePGY4WkndHolEquity(schedule: CallSchedule): {
     for (const overloaded of overloadedFellows) {
       if (swapFound) break;
       
-      // Find their weekend/holiday assignments
-      const overloadedWkndHolDates = Object.entries(workingSchedule.days)
-        .filter(([dateISO, fellowId]) => {
-          if (fellowId !== overloaded.id) return false;
-          const date = parseISO(dateISO);
-          return getEquityCategory(date, setup) === "wkndHol";
-        })
-        .map(([dateISO]) => dateISO);
+      const overloadedWkndHolDates = fellowWkndHolDates.get(overloaded.id) || [];
 
       for (const underloaded of underloadedFellows) {
         if (swapFound) break;
         
-        // Find their weekday assignments
-        const underloadedWeekdayDates = Object.entries(workingSchedule.days)
-          .filter(([dateISO, fellowId]) => {
-            if (fellowId !== underloaded.id) return false;
-            const date = parseISO(dateISO);
-            return getEquityCategory(date, setup) === "weekday";
-          })
-          .map(([dateISO]) => dateISO);
+        const underloadedWeekdayDates = fellowWeekdayDates.get(underloaded.id) || [];
 
         // Try swapping weekend/holiday from overloaded with weekday from underloaded
         for (const wkndHolDate of overloadedWkndHolDates) {
           if (swapFound) break;
           for (const weekdayDate of underloadedWeekdayDates) {
-            const swapResult = isValidPrimarySwap(workingSchedule, wkndHolDate, weekdayDate);
-            if (swapResult.ok) {
-              const appliedSwap = applyPrimarySwap(workingSchedule, wkndHolDate, weekdayDate);
-              if (appliedSwap.ok && appliedSwap.schedule) {
-                workingSchedule = appliedSwap.schedule;
-                swapsApplied++;
-                swapFound = true;
-                break;
-              }
+            // Use lightweight validation
+            if (isValidEquitySwap(workingSchedule, wkndHolDate, weekdayDate, minSpacingDays, noConsecutiveSaturdays)) {
+              workingSchedule = applyEquitySwap(workingSchedule, wkndHolDate, weekdayDate);
+              swapsApplied++;
+              swapFound = true;
+              break;
             }
           }
         }
