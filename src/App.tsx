@@ -10,6 +10,7 @@ import BlockSchedule from "./pages/BlockSchedule";
 import CallSchedule from "./pages/CallSchedule";
 import Statistics from "./pages/Statistics";
 import Settings from "./pages/Settings";
+import SavedSchedules from "./pages/SavedSchedules";
 import AppLayout from "./components/layout/AppLayout";
 
 const queryClient = new QueryClient();
@@ -28,6 +29,7 @@ const App = () => (
             <Route path="calls" element={<CallSchedule />} />
             <Route path="stats" element={<Statistics />} />
             <Route path="settings" element={<Settings />} />
+            <Route path="saved" element={<SavedSchedules />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Route>
