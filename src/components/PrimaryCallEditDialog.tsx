@@ -65,32 +65,43 @@ export function PrimaryCallEditDialog({
     return () => { cancelled = true; };
   }, [iso, schedule, cachedSchedules]);
 
+  // Track if swaps have been loaded to prevent double-loading
+  const swapsLoadedRef = React.useRef(false);
+
   // Lazy load swap suggestions when collapsible opens
   React.useEffect(() => {
-    if (swapOpen && swapSuggestions.length === 0 && currentId && !swapsLoading) {
-      let cancelled = false;
-      
-      const loadSwaps = async () => {
-        setSwapsLoading(true);
-        
-        // Yield to browser
-        await new Promise(resolve => setTimeout(resolve, 0));
-        
-        if (cancelled) return;
-        
-        const swaps = listPrimarySwapSuggestions(schedule, iso, 10);
-        
-        if (!cancelled) {
-          setSwapSuggestions(swaps);
-          setSwapsLoading(false);
-        }
-      };
-      
-      loadSwaps();
-      
-      return () => { cancelled = true; };
+    // Reset the ref when the collapsible closes
+    if (!swapOpen) {
+      swapsLoadedRef.current = false;
+      return;
     }
-  }, [swapOpen, currentId, iso, schedule, swapSuggestions.length, swapsLoading]);
+    
+    // Skip if already loaded or no assignment
+    if (swapsLoadedRef.current || !currentId) return;
+    swapsLoadedRef.current = true;
+    
+    let cancelled = false;
+    
+    const loadSwaps = async () => {
+      setSwapsLoading(true);
+      
+      // Yield to browser
+      await new Promise(resolve => setTimeout(resolve, 0));
+      
+      if (cancelled) return;
+      
+      const swaps = listPrimarySwapSuggestions(schedule, iso, 10);
+      
+      if (!cancelled) {
+        setSwapSuggestions(swaps);
+        setSwapsLoading(false);
+      }
+    };
+    
+    loadSwaps();
+    
+    return () => { cancelled = true; };
+  }, [swapOpen, currentId, iso, schedule]);
   const handleAssign = (fid: string | null) => {
     const res = applyManualPrimaryAssignment(schedule, iso, fid);
     if (!res.ok || !res.schedule) {
