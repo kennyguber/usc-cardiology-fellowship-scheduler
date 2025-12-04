@@ -18,9 +18,14 @@ const MAX_AUTO_SAVES = 5;
 export interface SnapshotStats {
   fellowCount: number;
   academicYearStart: number;
-  primaryCoverage: number;
-  hfCoverage: number;
-  jeopardyCoverage: number;
+  primaryAssigned: number;
+  primaryTotal: number;
+  hfWeekendsAssigned: number;
+  hfWeekendsTotal: number;
+  hfHolidaysAssigned: number;
+  hfHolidaysTotal: number;
+  jeopardyAssigned: number;
+  jeopardyTotal: number;
   uncoveredDays: number;
 }
 
@@ -79,33 +84,67 @@ export function captureCurrentSchedule(): ScheduleSnapshot["data"] {
 }
 
 export function calculateSnapshotStats(data: ScheduleSnapshot["data"]): SnapshotStats {
-  const setup = data.setup as { fellows?: unknown[]; academicYearStart?: number } | null;
-  const calls = data.calls as Record<string, unknown> | null;
-  const callsMetadata = data.callsMetadata as { uncoveredDays?: string[] } | null;
-  const hf = data.hf as Record<string, unknown> | null;
-  const jeopardy = data.jeopardy as Record<string, unknown> | null;
+  const setup = data.setup as { 
+    fellows?: unknown[]; 
+    academicYearStart?: number;
+    holidays?: Array<{ dates: string[] }>;
+  } | null;
+  const calls = data.calls as { days?: Record<string, unknown> } | null;
+  const callsMetadata = data.callsMetadata as { uncovered?: string[] } | null;
+  const hf = data.hf as { 
+    weekends?: Record<string, unknown>; 
+    holidays?: Record<string, { fellowId: string; dates: string[] }>;
+  } | null;
+  const jeopardy = data.jeopardy as { days?: Record<string, unknown> } | null;
 
   const fellowCount = setup?.fellows?.length ?? 0;
   const academicYearStart = setup?.academicYearStart ?? new Date().getFullYear();
 
-  // Calculate coverage percentages
-  const callDays = calls ? Object.keys(calls).length : 0;
-  const hfDays = hf ? Object.keys(hf).length : 0;
-  const jeopardyDays = jeopardy ? Object.keys(jeopardy).length : 0;
-  const uncoveredDays = callsMetadata?.uncoveredDays?.length ?? 0;
+  // Primary call: count assigned days from calls.days
+  const primaryAssigned = calls?.days ? Object.keys(calls.days).length : 0;
+  const primaryTotal = 365;
 
-  // Rough estimate: academic year is ~365 days
-  const totalDays = 365;
-  const primaryCoverage = totalDays > 0 ? Math.round((callDays / totalDays) * 100) : 0;
-  const hfCoverage = totalDays > 0 ? Math.round((hfDays / totalDays) * 100) : 0;
-  const jeopardyCoverage = totalDays > 0 ? Math.round((jeopardyDays / totalDays) * 100) : 0;
+  // HF weekends: count from hf.weekends
+  const hfWeekendsAssigned = hf?.weekends ? Object.keys(hf.weekends).length : 0;
+  const hfWeekendsTotal = 52; // Approximate weekends in a year
+
+  // HF holidays: count assigned dates from hf.holidays
+  let hfHolidaysAssigned = 0;
+  if (hf?.holidays) {
+    Object.values(hf.holidays).forEach((holiday) => {
+      if (holiday?.dates) {
+        hfHolidaysAssigned += holiday.dates.length;
+      }
+    });
+  }
+  // Total HF holiday days from setup
+  let hfHolidaysTotal = 0;
+  if (setup?.holidays) {
+    setup.holidays.forEach((holiday) => {
+      if (holiday?.dates) {
+        hfHolidaysTotal += holiday.dates.length;
+      }
+    });
+  }
+
+  // Jeopardy: count from jeopardy.days
+  const jeopardyAssigned = jeopardy?.days ? Object.keys(jeopardy.days).length : 0;
+  const jeopardyTotal = 365;
+
+  // Uncovered days from metadata
+  const uncoveredDays = callsMetadata?.uncovered?.length ?? 0;
 
   return {
     fellowCount,
     academicYearStart,
-    primaryCoverage: Math.min(primaryCoverage, 100),
-    hfCoverage: Math.min(hfCoverage, 100),
-    jeopardyCoverage: Math.min(jeopardyCoverage, 100),
+    primaryAssigned,
+    primaryTotal,
+    hfWeekendsAssigned,
+    hfWeekendsTotal,
+    hfHolidaysAssigned,
+    hfHolidaysTotal,
+    jeopardyAssigned,
+    jeopardyTotal,
     uncoveredDays,
   };
 }
