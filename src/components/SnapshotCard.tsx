@@ -104,22 +104,34 @@ export function SnapshotCard({
             <span className="text-muted-foreground">Year:</span>
             <span className="font-medium">{stats.academicYearStart}-{stats.academicYearStart + 1}</span>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between col-span-2">
             <span className="text-muted-foreground">Primary:</span>
-            <span className="font-medium">{stats.primaryCoverage}%</span>
+            <span className="font-medium">
+              {stats.primaryAssigned}/{stats.primaryTotal} ({stats.primaryTotal > 0 ? Math.round((stats.primaryAssigned / stats.primaryTotal) * 100) : 0}%)
+            </span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">HF:</span>
-            <span className="font-medium">{stats.hfCoverage}%</span>
+          <div className="flex justify-between col-span-2">
+            <span className="text-muted-foreground">HF Weekends:</span>
+            <span className="font-medium">
+              {stats.hfWeekendsAssigned}/{stats.hfWeekendsTotal} ({stats.hfWeekendsTotal > 0 ? Math.round((stats.hfWeekendsAssigned / stats.hfWeekendsTotal) * 100) : 0}%)
+            </span>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between col-span-2">
+            <span className="text-muted-foreground">HF Holidays:</span>
+            <span className="font-medium">
+              {stats.hfHolidaysAssigned}/{stats.hfHolidaysTotal} ({stats.hfHolidaysTotal > 0 ? Math.round((stats.hfHolidaysAssigned / stats.hfHolidaysTotal) * 100) : 0}%)
+            </span>
+          </div>
+          <div className="flex justify-between col-span-2">
             <span className="text-muted-foreground">Jeopardy:</span>
-            <span className="font-medium">{stats.jeopardyCoverage}%</span>
+            <span className="font-medium">
+              {stats.jeopardyAssigned}/{stats.jeopardyTotal} ({stats.jeopardyTotal > 0 ? Math.round((stats.jeopardyAssigned / stats.jeopardyTotal) * 100) : 0}%)
+            </span>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between col-span-2">
             <span className="text-muted-foreground">Uncovered:</span>
             <span className={`font-medium ${stats.uncoveredDays > 0 ? "text-destructive" : "text-green-600"}`}>
-              {stats.uncoveredDays}
+              {stats.uncoveredDays} days
             </span>
           </div>
         </div>
