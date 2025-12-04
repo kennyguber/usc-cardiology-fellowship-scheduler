@@ -190,12 +190,12 @@ function hasSpecialtyClinicNextDay(
   return false;
 }
 
-function eligiblePoolByPGY(date: Date, setup: SetupState, schedByPGY: Record<PGY, StoredSchedule | null>) {
+function eligiblePoolByPGY(date: Date, setup: SetupState, schedByPGY: Record<PGY, StoredSchedule | null>, cachedSettings?: SchedulerSettings) {
   const afterPGY4Start = afterPGY4StartDate(date, setup.yearStart);
   const isWeekend = isWeekendDate(date);
   const iso = toISODate(date);
   const holiday = isHoliday(iso, setup);
-  const settings = loadSettings();
+  const settings = cachedSettings || loadSettings();
 
   const pools: Record<PGY, Fellow[]> = { "PGY-4": [], "PGY-5": [], "PGY-6": [] };
   for (const f of setup.fellows) {
@@ -948,7 +948,7 @@ function validatePrimaryAssignment(
   const fellow = setup.fellows.find((f) => f.id === fellowId);
   if (!fellow) return { ok: false, reasons: ["Unknown fellow"] };
 
-  const { pools } = eligiblePoolByPGY(date, setup, schedByPGY);
+  const { pools } = eligiblePoolByPGY(date, setup, schedByPGY, settings);
   const eligibleBase = pools[fellow.pgy].some((f) => f.id === fellowId);
   const reasons: string[] = [];
   if (!eligibleBase) reasons.push("Rotation or time-window ineligible for this date");
@@ -1292,19 +1292,31 @@ function listPrimarySwapSuggestions(
   const pgyById = new Map(setup.fellows.map((f) => [f.id, f.pgy] as const));
   const pgyA = pgyById.get(fidA);
 
-  const res: SwapSuggestion[] = [];
+  // Performance optimization: limit search to ±60 days and pre-filter by category
+  const maxDaysApart = 60;
+  const candidateDates: Array<{ isoB: string; fidB: string; dateB: Date }> = [];
+  
   for (const [isoB, fidB] of Object.entries(schedule.days)) {
     if (!fidB) continue;
     if (isoB === dateISO) continue;
     if (fidB === fidA) continue; // exclude same-fellow swaps
 
-    // Strict category matching: weekday ↔ weekday, weekend ↔ weekend, holiday ↔ holiday
     const dateB = parseISO(isoB);
+    
+    // Skip dates too far away
+    const daysDiff = Math.abs(differenceInCalendarDays(dateB, dateA));
+    if (daysDiff > maxDaysApart) continue;
+    
+    // Pre-filter by category before expensive validation
     const categoryB = getCallCategory(dateB, setup);
     if (categoryA !== categoryB) continue;
+    
+    candidateDates.push({ isoB, fidB, dateB });
+  }
 
-    // Let the validation chain handle all PGY rules (including PGY-4-only for weekends/holidays)
-    // Pass cached data to avoid repeated localStorage reads
+  // Now validate only the filtered candidates
+  const res: SwapSuggestion[] = [];
+  for (const { isoB, fidB, dateB } of candidateDates) {
     const check = isValidPrimarySwap(schedule, dateISO, isoB, setup, schedByPGY, settings);
     if (!check.ok) continue;
 
