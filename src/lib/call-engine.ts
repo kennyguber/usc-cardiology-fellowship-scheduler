@@ -1235,6 +1235,16 @@ function applyPrimarySwap(
   return { ok: true, schedule: swappedSchedule };
 }
 
+/**
+ * Classify a date into call category for swap matching
+ * Categories: weekday, weekend, holiday (holidays take precedence over weekends)
+ */
+function getCallCategory(date: Date, setup: SetupState): "weekday" | "weekend" | "holiday" {
+  if (isHoliday(toISODate(date), setup)) return "holiday";
+  if (isWeekendDate(date)) return "weekend";
+  return "weekday";
+}
+
 function listPrimarySwapSuggestions(
   schedule: CallSchedule,
   dateISO: string,
@@ -1244,33 +1254,36 @@ function listPrimarySwapSuggestions(
   if (!fidA) return [];
   const setup = loadSetup();
   if (!setup) return [];
+  
   const dateA = parseISO(dateISO);
-  const catA = getEquityCategory(dateA, setup);
-
-  // Restrict suggestions to PGY-4 when the current date is Friday, weekend, or holiday
-  const restrictToPGY4 = isFriday(dateA) || catA === "wkndHol";
+  const categoryA = getCallCategory(dateA, setup);
   const pgyById = new Map(setup.fellows.map((f) => [f.id, f.pgy] as const));
-  if (restrictToPGY4 && pgyById.get(fidA) !== "PGY-4") {
-    // If the current assignment isn't PGY-4, no valid PGY-4-to-PGY-4 swaps exist for this rule
-    return [];
-  }
+  const pgyA = pgyById.get(fidA);
 
   const res: SwapSuggestion[] = [];
   for (const [isoB, fidB] of Object.entries(schedule.days)) {
     if (!fidB) continue;
     if (isoB === dateISO) continue;
     if (fidB === fidA) continue; // exclude same-fellow swaps
-    if (restrictToPGY4 && pgyById.get(fidB) !== "PGY-4") continue; // enforce PGY-4-only swaps
 
-    const catB = getEquityCategory(parseISO(isoB), setup);
-    const notes: string[] = [];
-    if (catA !== catB) notes.push("different equity category");
+    // Strict category matching: weekday ↔ weekday, weekend ↔ weekend, holiday ↔ holiday
+    const dateB = parseISO(isoB);
+    const categoryB = getCallCategory(dateB, setup);
+    if (categoryA !== categoryB) continue;
+
+    // Let the validation chain handle all PGY rules (including PGY-4-only for weekends/holidays)
     const check = isValidPrimarySwap(schedule, dateISO, isoB);
     if (!check.ok) continue;
-    const diffDays = Math.abs(differenceInCalendarDays(parseISO(isoB), dateA));
-    const score = (catA === catB ? 100 : 0) + Math.max(0, 50 - Math.min(50, diffDays));
-    res.push({ date: isoB, fellowAId: fidA, fellowBId: fidB, score, notes: notes.length ? notes : undefined });
+
+    // Score: prioritize same-PGY swaps, then by proximity
+    const pgyB = pgyById.get(fidB);
+    const samePGY = pgyA === pgyB;
+    const diffDays = Math.abs(differenceInCalendarDays(dateB, dateA));
+    const score = (samePGY ? 100 : 0) + Math.max(0, 50 - Math.min(50, diffDays));
+    
+    res.push({ date: isoB, fellowAId: fidA, fellowBId: fidB, score });
   }
+  
   res.sort((a, b) => b.score - a.score);
   return res.slice(0, limit);
 }
