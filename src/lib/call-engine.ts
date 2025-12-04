@@ -1123,35 +1123,46 @@ function previewScheduleChange(
 
 /**
  * Validate a set of schedule changes using atomic preview
+ * @param swapOnly - When true, only validate the specific dates being changed (for swaps)
  */
 function validateScheduleChange(
   schedule: CallSchedule,
   changes: Array<{ dateISO: string; fellowId: string | null }>,
   cachedSetup?: SetupState,
   cachedSchedByPGY?: Record<PGY, StoredSchedule | null>,
-  cachedSettings?: SchedulerSettings
+  cachedSettings?: SchedulerSettings,
+  swapOnly?: boolean
 ): { ok: boolean; reasons?: string[] } {
   const preview = previewScheduleChange(schedule, changes);
   const reasons: string[] = [];
 
-  // Validate each affected fellow in the final state
-  const affectedFellows = new Set<string>();
-  for (const { fellowId } of changes) {
-    if (fellowId) affectedFellows.add(fellowId);
-  }
-
-  for (const fellowId of affectedFellows) {
-    // Get all assignments for this fellow in the preview
-    const fellowAssignments = Object.entries(preview.days)
-      .filter(([_, fid]) => fid === fellowId)
-      .map(([dateISO]) => dateISO)
-      .sort();
-
-    // Validate each assignment in the context of the complete preview
-    for (const dateISO of fellowAssignments) {
+  if (swapOnly) {
+    // For swaps: only validate the specific dates being changed
+    for (const { dateISO, fellowId } of changes) {
+      if (!fellowId) continue;
       const validation = validatePrimaryAssignment(preview, dateISO, fellowId, cachedSetup, cachedSchedByPGY, cachedSettings);
       if (!validation.ok && validation.reasons) {
         reasons.push(...validation.reasons.map(r => `${dateISO}: ${r}`));
+      }
+    }
+  } else {
+    // Full validation: validate all assignments for affected fellows
+    const affectedFellows = new Set<string>();
+    for (const { fellowId } of changes) {
+      if (fellowId) affectedFellows.add(fellowId);
+    }
+
+    for (const fellowId of affectedFellows) {
+      const fellowAssignments = Object.entries(preview.days)
+        .filter(([_, fid]) => fid === fellowId)
+        .map(([dateISO]) => dateISO)
+        .sort();
+
+      for (const dateISO of fellowAssignments) {
+        const validation = validatePrimaryAssignment(preview, dateISO, fellowId, cachedSetup, cachedSchedByPGY, cachedSettings);
+        if (!validation.ok && validation.reasons) {
+          reasons.push(...validation.reasons.map(r => `${dateISO}: ${r}`));
+        }
       }
     }
   }
@@ -1218,12 +1229,13 @@ function isValidPrimarySwap(
   if (fidA === fidB) return { ok: false, reasons: ["Same fellow on both dates — swap has no effect"] };
 
   // Use atomic preview validation to avoid sequential assignment issues
+  // Pass swapOnly=true to only validate the two changed dates, not all fellow assignments
   const changes = [
     { dateISO: dateAISO, fellowId: fidB },
     { dateISO: dateBISO, fellowId: fidA }
   ];
 
-  return validateScheduleChange(schedule, changes, cachedSetup, cachedSchedByPGY, cachedSettings);
+  return validateScheduleChange(schedule, changes, cachedSetup, cachedSchedByPGY, cachedSettings, true);
 }
 
 function applyPrimarySwap(
