@@ -74,17 +74,17 @@ function getRotationOnDate(fellow: Fellow, date: Date, schedByPGY: Record<PGY, S
   return row[key];
 }
 
-function withinCallLimit(fellow: Fellow, counts: Record<string, number>): boolean {
-  const settings = loadSettings();
+function withinCallLimit(fellow: Fellow, counts: Record<string, number>, cachedSettings?: SchedulerSettings): boolean {
+  const settings = cachedSettings || loadSettings();
   const max = settings.primaryCall.maxCalls[fellow.pgy];
   return (counts[fellow.id] ?? 0) < max;  // Use < to prevent exceeding limit
 }
 
-function hasSpacingOK(fellow: Fellow, lastAssigned: Record<string, string | undefined>, date: Date): boolean {
+function hasSpacingOK(fellow: Fellow, lastAssigned: Record<string, string | undefined>, date: Date, cachedSettings?: SchedulerSettings): boolean {
   const lastISO = lastAssigned[fellow.id];
   if (!lastISO) return true;
   const lastDate = parseISO(lastISO);
-  const settings = loadSettings();
+  const settings = cachedSettings || loadSettings();
   return differenceInCalendarDays(date, lastDate) >= settings.primaryCall.minSpacingDays;
 }
 
@@ -108,9 +108,10 @@ function getEquityCategory(date: Date, setup: SetupState): "weekday" | "wkndHol"
 function okNoConsecutiveSaturday(
   fellow: Fellow,
   date: Date,
-  lastSaturday: Record<string, string | undefined>
+  lastSaturday: Record<string, string | undefined>,
+  cachedSettings?: SchedulerSettings
 ): boolean {
-  const settings = loadSettings();
+  const settings = cachedSettings || loadSettings();
   
   // If the rule is disabled, allow consecutive Saturdays
   if (!settings.primaryCall.noConsecutiveSaturdays) {
@@ -144,9 +145,10 @@ function hasSpecialtyClinicNextDay(
   fellow: Fellow,
   currentDate: Date,
   setup: SetupState,
-  schedByPGY: Record<PGY, StoredSchedule | null>
+  schedByPGY: Record<PGY, StoredSchedule | null>,
+  cachedSettings?: SchedulerSettings
 ): boolean {
-  const settings = loadSettings();
+  const settings = cachedSettings || loadSettings();
   const nextDate = addDays(currentDate, 1);
   const nextDayOfWeek = nextDate.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
   const nextDateISO = toISODate(nextDate);
@@ -208,7 +210,7 @@ function eligiblePoolByPGY(date: Date, setup: SetupState, schedByPGY: Record<PGY
     }
     
     // NEW RULE: Exclude fellows who have specialty clinic the next day
-    if (hasSpecialtyClinicNextDay(f, date, setup, schedByPGY)) {
+    if (hasSpecialtyClinicNextDay(f, date, setup, schedByPGY, settings)) {
       continue;
     }
     
@@ -955,7 +957,7 @@ function validatePrimaryAssignment(
 
   const { counts, lastByFellow, lastSaturdayByFellow } = computeStateForDate(schedule, dateISO);
   
-  if (!withinCallLimit(fellow, counts)) {
+  if (!withinCallLimit(fellow, counts, settings)) {
     reasons.push(`Exceeds annual call cap for ${fellow.pgy} (${settings.primaryCall.maxCalls[fellow.pgy]} calls)`);
   }
 
@@ -999,7 +1001,7 @@ function validatePrimaryAssignment(
 
   // Consecutive Saturday rule in both directions - only if setting is enabled
   if (settings.primaryCall.noConsecutiveSaturdays) {
-    if (!okNoConsecutiveSaturday(fellow, date, lastSaturdayByFellow)) {
+    if (!okNoConsecutiveSaturday(fellow, date, lastSaturdayByFellow, settings)) {
       reasons.push("Cannot take consecutive Saturdays");
     }
     if (date.getDay() === 6) {
@@ -1016,7 +1018,7 @@ function validatePrimaryAssignment(
   }
   
   // Check if fellow has specialty clinic next day
-  if (hasSpecialtyClinicNextDay(fellow, date, setup, schedByPGY)) {
+  if (hasSpecialtyClinicNextDay(fellow, date, setup, schedByPGY, settings)) {
     reasons.push("Has specialty clinic scheduled for tomorrow");
   }
 
@@ -1035,7 +1037,8 @@ function listAllPrimaryFellowsWithEligibility(
   const setup = loadSetup();
   if (!setup) return { eligible: [], ineligible: [] };
   
-  // Use cached schedules if provided, otherwise load them
+  // Cache settings and schedules for all validation calls
+  const settings = loadSettings();
   const schedByPGY = cachedSchedules || {
     "PGY-4": loadSchedule("PGY-4"),
     "PGY-5": loadSchedule("PGY-5"),
@@ -1045,9 +1048,9 @@ function listAllPrimaryFellowsWithEligibility(
   const eligible: { id: string; name: string; pgy: PGY }[] = [];
   const ineligible: { id: string; name: string; pgy: PGY; reasons: string[] }[] = [];
 
-  // Single pass through all fellows
+  // Single pass through all fellows with cached data
   for (const fellow of setup.fellows) {
-    const validation = validatePrimaryAssignment(schedule, dateISO, fellow.id);
+    const validation = validatePrimaryAssignment(schedule, dateISO, fellow.id, setup, schedByPGY, settings);
     
     if (validation.ok) {
       eligible.push({ id: fellow.id, name: fellow.name, pgy: fellow.pgy });
