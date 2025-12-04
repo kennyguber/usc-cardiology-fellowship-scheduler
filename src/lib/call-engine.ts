@@ -927,14 +927,23 @@ function computeStateForDate(schedule: CallSchedule, dateISO: string) {
   return { counts, lastByFellow, lastSaturdayByFellow };
 }
 
-function validatePrimaryAssignment(schedule: CallSchedule, dateISO: string, fellowId: string): { ok: boolean; reasons?: string[] } {
-  const setup = loadSetup();
+function validatePrimaryAssignment(
+  schedule: CallSchedule, 
+  dateISO: string, 
+  fellowId: string,
+  cachedSetup?: SetupState,
+  cachedSchedByPGY?: Record<PGY, StoredSchedule | null>,
+  cachedSettings?: SchedulerSettings
+): { ok: boolean; reasons?: string[] } {
+  const setup = cachedSetup || loadSetup();
   if (!setup) return { ok: false, reasons: ["Setup not completed"] };
-  const schedByPGY: Record<PGY, StoredSchedule | null> = {
+  const schedByPGY = cachedSchedByPGY || {
     "PGY-4": loadSchedule("PGY-4"),
     "PGY-5": loadSchedule("PGY-5"),
     "PGY-6": loadSchedule("PGY-6"),
   };
+  const settings = cachedSettings || loadSettings();
+  
   const date = parseISO(dateISO);
   const fellow = setup.fellows.find((f) => f.id === fellowId);
   if (!fellow) return { ok: false, reasons: ["Unknown fellow"] };
@@ -945,9 +954,6 @@ function validatePrimaryAssignment(schedule: CallSchedule, dateISO: string, fell
   if (!eligibleBase) reasons.push("Rotation or time-window ineligible for this date");
 
   const { counts, lastByFellow, lastSaturdayByFellow } = computeStateForDate(schedule, dateISO);
-  
-  // Load settings once for all validation checks
-  const settings = loadSettings();
   
   if (!withinCallLimit(fellow, counts)) {
     reasons.push(`Exceeds annual call cap for ${fellow.pgy} (${settings.primaryCall.maxCalls[fellow.pgy]} calls)`);
@@ -1120,7 +1126,10 @@ function previewScheduleChange(
  */
 function validateScheduleChange(
   schedule: CallSchedule,
-  changes: Array<{ dateISO: string; fellowId: string | null }>
+  changes: Array<{ dateISO: string; fellowId: string | null }>,
+  cachedSetup?: SetupState,
+  cachedSchedByPGY?: Record<PGY, StoredSchedule | null>,
+  cachedSettings?: SchedulerSettings
 ): { ok: boolean; reasons?: string[] } {
   const preview = previewScheduleChange(schedule, changes);
   const reasons: string[] = [];
@@ -1140,7 +1149,7 @@ function validateScheduleChange(
 
     // Validate each assignment in the context of the complete preview
     for (const dateISO of fellowAssignments) {
-      const validation = validatePrimaryAssignment(preview, dateISO, fellowId);
+      const validation = validatePrimaryAssignment(preview, dateISO, fellowId, cachedSetup, cachedSchedByPGY, cachedSettings);
       if (!validation.ok && validation.reasons) {
         reasons.push(...validation.reasons.map(r => `${dateISO}: ${r}`));
       }
@@ -1198,7 +1207,10 @@ type SwapSuggestion = {
 function isValidPrimarySwap(
   schedule: CallSchedule,
   dateAISO: string,
-  dateBISO: string
+  dateBISO: string,
+  cachedSetup?: SetupState,
+  cachedSchedByPGY?: Record<PGY, StoredSchedule | null>,
+  cachedSettings?: SchedulerSettings
 ): { ok: boolean; reasons?: string[] } {
   const fidA = schedule.days[dateAISO];
   const fidB = schedule.days[dateBISO];
@@ -1211,7 +1223,7 @@ function isValidPrimarySwap(
     { dateISO: dateBISO, fellowId: fidA }
   ];
 
-  return validateScheduleChange(schedule, changes);
+  return validateScheduleChange(schedule, changes, cachedSetup, cachedSchedByPGY, cachedSettings);
 }
 
 function applyPrimarySwap(
@@ -1252,8 +1264,16 @@ function listPrimarySwapSuggestions(
 ): SwapSuggestion[] {
   const fidA = schedule.days[dateISO];
   if (!fidA) return [];
+  
+  // Load all data ONCE at the start for performance
   const setup = loadSetup();
   if (!setup) return [];
+  const settings = loadSettings();
+  const schedByPGY: Record<PGY, StoredSchedule | null> = {
+    "PGY-4": loadSchedule("PGY-4"),
+    "PGY-5": loadSchedule("PGY-5"),
+    "PGY-6": loadSchedule("PGY-6"),
+  };
   
   const dateA = parseISO(dateISO);
   const categoryA = getCallCategory(dateA, setup);
@@ -1272,7 +1292,8 @@ function listPrimarySwapSuggestions(
     if (categoryA !== categoryB) continue;
 
     // Let the validation chain handle all PGY rules (including PGY-4-only for weekends/holidays)
-    const check = isValidPrimarySwap(schedule, dateISO, isoB);
+    // Pass cached data to avoid repeated localStorage reads
+    const check = isValidPrimarySwap(schedule, dateISO, isoB, setup, schedByPGY, settings);
     if (!check.ok) continue;
 
     // Score: prioritize same-PGY swaps, then by proximity
