@@ -1413,35 +1413,39 @@ export default function CallSchedule() {
     >
       <main className="min-h-screen bg-background">
         <section className="container mx-auto px-4 py-8">
-        <header className="flex items-center justify-between gap-4">
-          <h1 className="text-2xl font-semibold font-display flex items-center gap-2">
-            <HeartPulse className="h-6 w-6 text-primary" /> Primary Call Schedule
-          </h1>
+        <header className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl font-semibold font-display flex items-center gap-2">
+              <HeartPulse className="h-6 w-6 text-primary" /> Primary Call Schedule
+            </h1>
             <div className="flex items-center gap-2">
-            <Button onClick={handleGenerate} disabled={loading || !setup}>
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />} Generate
-            </Button>
-            <Button variant="outline" onClick={handleClear} disabled={loading}>
-              <Trash2 className="h-4 w-4" /> Clear
-            </Button>
-            <Button onClick={handleGenerateHF} disabled={hfLoading || !setup || !schedule} variant="secondary">
-              {hfLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <HeartPulse className="h-4 w-4" />} Generate HF
-            </Button>
-            <Button variant="outline" onClick={handleClearHF} disabled={hfLoading} size="sm">
-              Clear HF
-            </Button>
-            <Button onClick={handleGenerateJeopardy} disabled={jeopardyLoading || !setup || !schedule} variant="secondary">
-              {jeopardyLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />} Generate Jeopardy
-            </Button>
-            <Button variant="outline" onClick={handleClearJeopardy} disabled={jeopardyLoading} size="sm">
-              Clear Jeopardy
-            </Button>
-            <Button onClick={handleGenerateClinic} disabled={clinicLoading || !setup || !schedule} variant="secondary">
-              {clinicLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />} Generate Clinics
-            </Button>
-            <Button variant="outline" onClick={handleClearClinic} disabled={clinicLoading} size="sm">
-              Clear Clinics
-            </Button>
+              <Button onClick={handleGenerate} disabled={loading || !setup}>
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />} Generate
+              </Button>
+              <Button variant="outline" onClick={handleClear} disabled={loading}>
+                <Trash2 className="h-4 w-4" /> Clear
+              </Button>
+              <Button onClick={handleGenerateHF} disabled={hfLoading || !setup || !schedule} variant="secondary">
+                {hfLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <HeartPulse className="h-4 w-4" />} Generate HF
+              </Button>
+              <Button variant="outline" onClick={handleClearHF} disabled={hfLoading} size="sm">
+                Clear HF
+              </Button>
+              <Button onClick={handleGenerateJeopardy} disabled={jeopardyLoading || !setup || !schedule} variant="secondary">
+                {jeopardyLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />} Generate Jeopardy
+              </Button>
+              <Button variant="outline" onClick={handleClearJeopardy} disabled={jeopardyLoading} size="sm">
+                Clear Jeopardy
+              </Button>
+              <Button onClick={handleGenerateClinic} disabled={clinicLoading || !setup || !schedule} variant="secondary">
+                {clinicLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />} Generate Clinics
+              </Button>
+              <Button variant="outline" onClick={handleClearClinic} disabled={clinicLoading} size="sm">
+                Clear Clinics
+              </Button>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
             <Button onClick={handleCheckClinic} disabled={clinicCheckLoading || !clinicSchedule} variant="outline" size="sm">
               {clinicCheckLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />} Check Clinics
             </Button>
