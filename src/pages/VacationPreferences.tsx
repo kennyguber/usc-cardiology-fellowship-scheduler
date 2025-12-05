@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -241,7 +241,7 @@ export default function VacationPreferences() {
   });
 
   const { toast } = useToast();
-  const fileRef = useRef<HTMLInputElement>(null);
+  
 
   const [setup, save] = useSetupState();
   const blocks = useMemo(() => generateAcademicYearBlocks(setup.yearStart), [setup.yearStart]);
@@ -395,33 +395,6 @@ export default function VacationPreferences() {
   };
 
 
-  const exportJSON = () => {
-    const data = JSON.stringify(setup, null, 2);
-    const blob = new Blob([data], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "vacation-setup.json";
-    a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: "Exported", description: "Configuration downloaded." });
-  };
-
-  const importJSON = (file?: File) => {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const parsed = JSON.parse(String(reader.result)) as AppSetup;
-        if (!parsed || !("yearStart" in parsed)) throw new Error("Invalid file");
-        save(parsed);
-        toast({ title: "Imported", description: "Configuration loaded." });
-      } catch (e) {
-        toast({ variant: "destructive", title: "Import failed", description: "Invalid JSON file." });
-      }
-    };
-    reader.readAsText(file);
-  };
 
   return (
     <main className="min-h-screen bg-background">
@@ -434,22 +407,9 @@ export default function VacationPreferences() {
             </h1>
             <div className="ecg-trace-static mt-2" aria-hidden="true" />
           </div>
-          <div className="flex gap-2">
-            <Input
-              type="file"
-              accept="application/json"
-              ref={fileRef}
-              className="hidden"
-              onChange={(e) => importJSON(e.target.files?.[0])}
-            />
-            <Button variant="outline" onClick={() => fileRef.current?.click()}>
-              Import JSON
-            </Button>
-            <Button onClick={exportJSON}>Export JSON</Button>
-            <Link to="/">
-              <Button variant="ghost">Home</Button>
-            </Link>
-          </div>
+          <Link to="/">
+            <Button variant="ghost">Home</Button>
+          </Link>
         </div>
 
         <Tabs defaultValue="fellows">
